@@ -1,29 +1,29 @@
 import «03-theorems».«bounded»
 import «03-theorems».«trans»
 
-namespace Abstraction
+namespace Abstract
 namespace Holds
 
 open AbstractModel
-open Abstraction.Bounded
+open Abstract.Bounded
 
 theorem invariant_along_trace {P : Nat → ServerState → Bool}
     (hinit : ∀ now, P now ServerState.init = true)
-    (hstep : ∀ (mat : Bool) (st : Step) (now n' : Nat) (s : ServerState),
-               P now s = true → P n' (stepOf mat st now s).2 = true)
+    (hstep : ∀ (mat : Bool) (st : Event) (now n' : Nat) (s : ServerState),
+               P now s = true → P n' (step mat st now s).2 = true)
     (mat : Bool) (tr : Trace) (hv : Valid mat tr)
     (h0 : (tr 0).state = ServerState.init) :
     ∀ n, P (tr n).now (tr n).state = true
   | 0     => by rw [h0]; exact hinit _
   | n + 1 => by
-      rw [(hv n).2.1]
-      exact hstep mat (tr n).req (tr n).now (tr (n + 1)).now (tr n).state
+      rw [(hv.state n)]
+      exact hstep mat (tr n).event (tr n).now (tr (n + 1)).now (tr n).state
         (invariant_along_trace hinit hstep mat tr hv h0 n)
 
 theorem invariant_along_trace_via {S : ServerState → Bool} {P : Nat → ServerState → Bool}
     (hinit : S ServerState.init = true)
-    (hstep : ∀ (mat : Bool) (st : Step) (now : Nat) (s : ServerState),
-               S s = true → S (stepOf mat st now s).2 = true)
+    (hstep : ∀ (mat : Bool) (st : Event) (now : Nat) (s : ServerState),
+               S s = true → S (step mat st now s).2 = true)
     (himp : ∀ (now : Nat) (s : ServerState), S s = true → P now s = true)
     (mat : Bool) (tr : Trace) (hv : Valid mat tr)
     (h0 : (tr 0).state = ServerState.init) :
@@ -32,13 +32,13 @@ theorem invariant_along_trace_via {S : ServerState → Bool} {P : Nat → Server
     intro n
     induction n with
     | zero => rw [h0]; exact hinit
-    | succ k ih => rw [(hv k).2.1]; exact hstep mat _ _ _ ih
+    | succ k ih => rw [(hv.state k)]; exact hstep mat _ _ _ ih
   exact fun n => himp _ _ (key n)
 
 theorem invariant_along_trace_prop {S : ServerState → Prop} {P : Nat → ServerState → Bool}
     (hinit : S ServerState.init)
-    (hstep : ∀ (mat : Bool) (st : Step) (now : Nat) (s : ServerState),
-               S s → S (stepOf mat st now s).2)
+    (hstep : ∀ (mat : Bool) (st : Event) (now : Nat) (s : ServerState),
+               S s → S (step mat st now s).2)
     (himp : ∀ (now : Nat) (s : ServerState), S s → P now s = true)
     (mat : Bool) (tr : Trace) (hv : Valid mat tr)
     (h0 : (tr 0).state = ServerState.init) :
@@ -47,7 +47,7 @@ theorem invariant_along_trace_prop {S : ServerState → Prop} {P : Nat → Serve
     intro n
     induction n with
     | zero => rw [h0]; exact hinit
-    | succ k ih => rw [(hv k).2.1]; exact hstep mat _ _ _ ih
+    | succ k ih => rw [(hv.state k)]; exact hstep mat _ _ _ ih
   exact fun n => himp _ _ (key n)
 
 section Along
@@ -57,7 +57,7 @@ variable (mat : Bool) (tr : Trace) (hv : Valid mat tr)
 
 include mat hv h0
 
-open Properties Abstraction.Induction Abstraction.Frame Abstraction.Trans
+open Properties Abstract.Induction Abstract.Stepwise Abstract.Trans
 
 theorem created_at_lte_timeout_at :
     ∀ n, well_formed_promise_created_at_lte_timeout_at (tr n).now (tr n).state = true :=
@@ -163,7 +163,7 @@ theorem store_nodup : ∀ n, StoreNodup (tr n).state := by
   intro n
   induction n with
   | zero => rw [h0]; exact storeNodup_init
-  | succ k ih => rw [(hv k).2.1]; exact storeNodup_step mat _ _ _ ih
+  | succ k ih => rw [(hv.state k)]; exact storeNodup_step mat _ _ _ ih
 
 theorem object_ids_unique :
     ∀ n, well_formed_store_object_ids_unique (tr n).now (tr n).state = true :=
@@ -180,20 +180,20 @@ theorem outbox_keys_unique :
 theorem monotone_promise_set_grows :
     ∀ n, Properties.monotone_promise_set_grows (tr n).now (tr n).state (tr (n + 1)).state = true := by
   intro n
-  rw [(hv n).2.1]
-  exact Frame.monotone_promise_set_grows_step mat _ _ _ _
+  rw [(hv.state n)]
+  exact Stepwise.monotone_promise_set_grows_step mat _ _ _ _
 
 theorem monotone_task_set_grows :
     ∀ n, Properties.monotone_task_set_grows (tr n).now (tr n).state (tr (n + 1)).state = true := by
   intro n
-  rw [(hv n).2.1]
-  exact Frame.monotone_task_set_grows_step mat _ _ _ _ (store_nodup mat tr hv h0 n)
+  rw [(hv.state n)]
+  exact Stepwise.monotone_task_set_grows_step mat _ _ _ _ (store_nodup mat tr hv h0 n)
 
 theorem preserved_promise_birth_fields_immutable :
     ∀ n, Properties.preserved_promise_birth_fields_immutable
            (tr n).now (tr n).state (tr (n + 1)).state = true := by
   intro n
-  rw [(hv n).2.1]
+  rw [(hv.state n)]
   exact Trans.preserved_promise_birth_fields_immutable_step mat _ _ _ _
     (store_nodup mat tr hv h0 n).1
 
@@ -201,7 +201,7 @@ theorem preserved_settled_promise_record :
     ∀ n, Properties.preserved_settled_promise_record
            (tr n).now (tr n).state (tr (n + 1)).state = true := by
   intro n
-  rw [(hv n).2.1]
+  rw [(hv.state n)]
   exact Trans.preserved_settled_promise_record_step mat _ _ _ _
     (store_nodup mat tr hv h0 n).1
 
@@ -209,7 +209,7 @@ theorem preserved_promise_state_frozen_once_settled :
     ∀ n, Properties.preserved_promise_state_frozen_once_settled
            (tr n).now (tr n).state (tr (n + 1)).state = true := by
   intro n
-  rw [(hv n).2.1]
+  rw [(hv.state n)]
   exact Trans.preserved_promise_state_frozen_once_settled_step mat _ _ _ _
     (store_nodup mat tr hv h0 n).1
 
@@ -217,7 +217,7 @@ theorem preserved_promise_value_until_settlement :
     ∀ n, Properties.preserved_promise_value_until_settlement
            (tr n).now (tr n).state (tr (n + 1)).state = true := by
   intro n
-  rw [(hv n).2.1]
+  rw [(hv.state n)]
   exact Trans.preserved_promise_value_until_settlement_step mat _ _ _ _
     (store_nodup mat tr hv h0 n).1
 
@@ -225,7 +225,7 @@ theorem preserved_promise_no_duplicate_ids :
     ∀ n, Properties.preserved_promise_no_duplicate_ids
            (tr n).now (tr n).state (tr (n + 1)).state = true := by
   intro n
-  rw [(hv n).2.1]
+  rw [(hv.state n)]
   exact Trans.preserved_promise_no_duplicate_ids_step mat _ _ _ _
     (store_nodup mat tr hv h0 n)
 
@@ -233,7 +233,7 @@ theorem preserved_promise_settlement_is_one_way :
     ∀ n, Properties.preserved_promise_settlement_is_one_way
            (tr n).now (tr n).state (tr (n + 1)).state = true := by
   intro n
-  rw [(hv n).2.1]
+  rw [(hv.state n)]
   exact Trans.preserved_promise_settlement_is_one_way_step mat _ _ _ _
     (store_nodup mat tr hv h0 n)
 
@@ -241,7 +241,7 @@ theorem monotone_promise_callbacks_grow_while_pending :
     ∀ n, Properties.monotone_promise_callbacks_grow_while_pending
            (tr n).now (tr n).state (tr (n + 1)).state = true := by
   intro n
-  rw [(hv n).2.1]
+  rw [(hv.state n)]
   exact Trans.monotone_promise_callbacks_grow_while_pending_step mat _ _ _ _
     (store_nodup mat tr hv h0 n)
 
@@ -249,7 +249,7 @@ theorem monotone_promise_listeners_grow_while_pending :
     ∀ n, Properties.monotone_promise_listeners_grow_while_pending
            (tr n).now (tr n).state (tr (n + 1)).state = true := by
   intro n
-  rw [(hv n).2.1]
+  rw [(hv.state n)]
   exact Trans.monotone_promise_listeners_grow_while_pending_step mat _ _ _ _
     (store_nodup mat tr hv h0 n)
 
@@ -271,7 +271,7 @@ theorem sneaky_satisfies_the_entry :
 
 theorem one_step_breaks_it :
     Properties.well_formed_promise_deadline_settlement_has_no_value 20
-      (stepOf true (.internal (.promiseTimeout { id := oid "p" })) 20 sneaky).2 = false := by
+      (step true (.internal (.promiseTimeout { id := oid "p" })) 20 sneaky).2 = false := by
   decide
 
 theorem sneaky_is_unreachable_because :
@@ -281,4 +281,4 @@ theorem sneaky_is_unreachable_because :
 end NotInductiveAlone
 
 end Holds
-end Abstraction
+end Abstract

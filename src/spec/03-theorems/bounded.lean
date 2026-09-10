@@ -1,35 +1,35 @@
 import «03-theorems».«corpus»
 import «02-abstract».«properties»
 
-namespace Abstraction
+namespace Abstract
 namespace Bounded
 
 open AbstractModel
 
-def sched (tr : Trace) (n : Nat) : List (Step × Nat) :=
-  (List.range n).map (fun t => ((tr t).req, (tr t).now))
+def sched (tr : Trace) (n : Nat) : List (Event × Nat) :=
+  (List.range n).map (fun t => ((tr t).event, (tr t).now))
 
 theorem sched_succ (tr : Trace) (n : Nat) :
-    sched tr (n + 1) = sched tr n ++ [((tr n).req, (tr n).now)] := by
+    sched tr (n + 1) = sched tr n ++ [((tr n).event, (tr n).now)] := by
   unfold sched
   rw [List.range_succ, List.map_append]
   rfl
 
-theorem runFin_snoc (mat : Bool) :
-    ∀ (w : List (Step × Nat)) (x : Step × Nat) (s : ServerState),
-      (runFin mat (w ++ [x]) s).2 = (stepOf mat x.1 x.2 (runFin mat w s).2).2
+theorem exec_snoc (mat : Bool) :
+    ∀ (w : List (Event × Nat)) (x : Event × Nat) (s : ServerState),
+      (exec mat (w ++ [x]) s).2 = (step mat x.1 x.2 (exec mat w s).2).2
   | [],           _, _ => rfl
-  | (st, n) :: w, x, s => runFin_snoc mat w x (stepOf mat st n s).2
+  | (st, n) :: w, x, s => exec_snoc mat w x (step mat st n s).2
 
 theorem valid_state_at (mat : Bool) (tr : Trace) (hv : Valid mat tr) :
-    ∀ n, (tr n).state = (runFin mat (sched tr n) (tr 0).state).2
+    ∀ n, (tr n).state = (exec mat (sched tr n) (tr 0).state).2
   | 0     => rfl
   | n + 1 => by
-      rw [(hv n).2.1, sched_succ, runFin_snoc, ← valid_state_at mat tr hv n]
+      rw [(hv.state n), sched_succ, exec_snoc, ← valid_state_at mat tr hv n]
 
 theorem valid_state_at_init (mat : Bool) (tr : Trace) (hv : Valid mat tr)
     (h0 : (tr 0).state = ServerState.init) (n : Nat) :
-    (tr n).state = (runFin mat (sched tr n) ServerState.init).2 := by
+    (tr n).state = (exec mat (sched tr n) ServerState.init).2 := by
   rw [valid_state_at mat tr hv n, h0]
 
 def foldAt (now : Nat) (a b : ServerState) : Bool :=
@@ -41,27 +41,27 @@ def foldAt (now : Nat) (a b : ServerState) : Bool :=
 theorem legal_at_is_about_the_schedule (mat : Bool) (tr : Trace) (hv : Valid mat tr)
     (h0 : (tr 0).state = ServerState.init) (n : Nat) :
     foldAt (tr n).now (tr n).state (tr (n + 1)).state
-      = foldAt (tr n).now (runFin mat (sched tr n) ServerState.init).2
-                          (runFin mat (sched tr (n + 1)) ServerState.init).2 := by
+      = foldAt (tr n).now (exec mat (sched tr n) ServerState.init).2
+                          (exec mat (sched tr (n + 1)) ServerState.init).2 := by
   rw [valid_state_at_init mat tr hv h0 n, valid_state_at_init mat tr hv h0 (n + 1)]
 
 theorem legal_below_of_schedule (mat : Bool) (tr : Trace) (hv : Valid mat tr)
     (h0 : (tr 0).state = ServerState.init) (N : Nat)
-    (h : ∀ n < N, foldAt (tr n).now (runFin mat (sched tr n) ServerState.init).2
-                         (runFin mat (sched tr (n + 1)) ServerState.init).2 = true) :
+    (h : ∀ n < N, foldAt (tr n).now (exec mat (sched tr n) ServerState.init).2
+                         (exec mat (sched tr (n + 1)) ServerState.init).2 = true) :
     ∀ n < N, foldAt (tr n).now (tr n).state (tr (n + 1)).state = true := by
   intro n hn
   rw [legal_at_is_about_the_schedule mat tr hv h0 n]
   exact h n hn
 
 def statesOf (mat : Bool) :
-    List (Step × Nat) → ServerState → List (Nat × ServerState × ServerState)
+    List (Event × Nat) → ServerState → List (Nat × ServerState × ServerState)
   | [],           _ => []
   | (st, n) :: w, s =>
-      let s' := (stepOf mat st n s).2
+      let s' := (step mat st n s).2
       (n, s, s') :: statesOf mat w s'
 
-def legalRunOf (mat : Bool) (w : List (Step × Nat)) : Bool :=
+def legalRunOf (mat : Bool) (w : List (Event × Nat)) : Bool :=
   (statesOf mat w ServerState.init).all (fun (n, a, b) => foldAt n a b)
 
 theorem tiny_sweep_materialized :
@@ -72,15 +72,15 @@ theorem tiny_sweep_projected :
     ((seqsUpToA (kernelsResp.take 3) 2).map instantiateA).all (legalRunOf false) = true := by
   decide
 
-def demoSched : List (Step × Nat) := b1
+def demoSched : List (Event × Nat) := b1
 
-theorem demo_runFin_reaches_fulfilment :
-    ((runFin true demoSched ServerState.init).2.tasks.any (·.state == .fulfilled)) = true := by
+theorem demo_exec_reaches_fulfilment :
+    ((exec true demoSched ServerState.init).2.tasks.any (·.state == .fulfilled)) = true := by
   decide
 
-theorem demo_runFin_settles :
-    ((runFin true demoSched ServerState.init).2.promises.any (·.state != .pending)) = true := by
+theorem demo_exec_settles :
+    ((exec true demoSched ServerState.init).2.promises.any (·.state != .pending)) = true := by
   decide
 
 end Bounded
-end Abstraction
+end Abstract

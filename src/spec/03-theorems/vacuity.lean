@@ -1,7 +1,7 @@
 import «03-theorems».«corpus»
 import «02-abstract».«properties»
 
-namespace Abstraction
+namespace Abstract
 namespace Vacuity
 
 open AbstractModel
@@ -21,10 +21,10 @@ theorem le_foldl_max : ∀ (m : List Nat) (b : Nat), b ≤ m.foldl Nat.max b
   | [],     b => Nat.le_refl b
   | x :: m, b => Nat.le_trans (Nat.le_max_left b x) (le_foldl_max m (Nat.max b x))
 
-def clockOf (w : List (Step × Nat)) (t : Nat) : Nat :=
+def clockOf (w : List (Event × Nat)) (t : Nat) : Nat :=
   ((w.map Prod.snd).take (t + 1)).foldl Nat.max 0
 
-theorem clockOf_mono (w : List (Step × Nat)) (t : Nat) :
+theorem clockOf_mono (w : List (Event × Nat)) (t : Nat) :
     clockOf w t ≤ clockOf w (t + 1) := by
   unfold clockOf
   have h : (w.map Prod.snd).take (t + 1 + 1)
@@ -33,29 +33,29 @@ theorem clockOf_mono (w : List (Step × Nat)) (t : Nat) :
   rw [h, List.foldl_append]
   exact le_foldl_max _ _
 
-def stepAt (w : List (Step × Nat)) (t : Nat) : Step :=
+def stepAt (w : List (Event × Nat)) (t : Nat) : Event :=
   match w[t]? with
   | some x => x.1
-  | none   => .idle
+  | none   => .stutter
 
-def stateAt (mat : Bool) (w : List (Step × Nat)) (s₀ : ServerState) : Nat → ServerState
+def stateAt (mat : Bool) (w : List (Event × Nat)) (s₀ : ServerState) : Nat → ServerState
   | 0     => s₀
-  | t + 1 => (stepOf mat (stepAt w t) (clockOf w t) (stateAt mat w s₀ t)).2
+  | t + 1 => (step mat (stepAt w t) (clockOf w t) (stateAt mat w s₀ t)).2
 
-def traceOf (mat : Bool) (w : List (Step × Nat)) (s₀ : ServerState) : Trace := fun t =>
+def traceOf (mat : Bool) (w : List (Event × Nat)) (s₀ : ServerState) : Trace := fun t =>
   { state := stateAt mat w s₀ t
-  , req   := stepAt w t
-  , res   := (stepOf mat (stepAt w t) (clockOf w t) (stateAt mat w s₀ t)).1
+  , event := stepAt w t
+  , reply := (step mat (stepAt w t) (clockOf w t) (stateAt mat w s₀ t)).1
   , now   := clockOf w t }
 
-theorem valid_traceOf (mat : Bool) (w : List (Step × Nat)) (s₀ : ServerState) :
+theorem valid_traceOf (mat : Bool) (w : List (Event × Nat)) (s₀ : ServerState) :
     Valid mat (traceOf mat w s₀) :=
-  fun t => ⟨rfl, rfl, clockOf_mono w t⟩
+  fun t => ⟨rfl, clockOf_mono w t⟩
 
-theorem traceOf_starts_at_init (mat : Bool) (w : List (Step × Nat)) :
+theorem traceOf_starts_at_init (mat : Bool) (w : List (Event × Nat)) :
     (traceOf mat w ServerState.init 0).state = ServerState.init := rfl
 
-theorem valid_is_satisfiable (mat : Bool) (w : List (Step × Nat)) :
+theorem valid_is_satisfiable (mat : Bool) (w : List (Event × Nat)) :
     ∃ tr : Trace, Valid mat tr ∧ (tr 0).state = ServerState.init :=
   ⟨traceOf mat w ServerState.init, valid_traceOf mat w ServerState.init, rfl⟩
 
@@ -122,7 +122,7 @@ theorem legal_holds_along_witness :
 
 theorem b1_length : b1.length = 9 := rfl
 
-theorem stepAt_idle (t : Nat) (h : 9 ≤ t) : stepAt b1 t = Step.idle := by
+theorem stepAt_idle (t : Nat) (h : 9 ≤ t) : stepAt b1 t = Event.stutter := by
   unfold stepAt
   rw [List.getElem?_eq_none (by rw [b1_length]; exact h)]
 
@@ -136,7 +136,7 @@ theorem state_const (t : Nat) :
   induction t with
   | zero => rfl
   | succ k ih =>
-      show (stepOf true (stepAt b1 (9 + k)) (clockOf b1 (9 + k))
+      show (step true (stepAt b1 (9 + k)) (clockOf b1 (9 + k))
               (stateAt true b1 ServerState.init (9 + k))).2 = _
       rw [stepAt_idle (9 + k) (by omega)]
       exact ih
@@ -167,4 +167,4 @@ theorem valid_implies_legal_is_not_vacuous :
    witness_settles_a_promise, witness_fulfils_a_task⟩
 
 end Vacuity
-end Abstraction
+end Abstract

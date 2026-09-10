@@ -3,12 +3,12 @@ import impl.commit
 namespace Refinement
 
 open ServerModel AbstractModel
-open Equivalence (Request Response)
-open Abstraction (InternalStep)
+open Abstract (Request Response Reply)
+open Abstract (Trigger)
 open Impl (OriginDoc World Key Blob Work Txn State Obs)
 open Apply Commit
 
-def InternalStep.about (o : String) : InternalStep → Prop
+def Trigger.about (o : String) : Trigger → Prop
   | .promiseTimeout r   => r.id.origin = o
   | .callback r         => r.awaited.origin = o ∧ r.awaiter.origin = o
   | .listener r         => r.awaited.origin = o
@@ -16,10 +16,10 @@ def InternalStep.about (o : String) : InternalStep → Prop
   | .taskRetryTimeout r => r.id.origin = o
   | .scheduleTimeout _  => False
 
-def Step.about (o : String) : Abstraction.Step → Prop
+def Event.about (o : String) : Abstract.Event → Prop
   | .external rq => rq.origin? = some o
-  | .internal st => InternalStep.about o st
-  | .idle        => True
+  | .internal st => Trigger.about o st
+  | .stutter     => True
 
 theorem heartbeat_origins {req : TaskHeartbeatReq} {o : String}
     (h : (Request.taskHeartbeat req).origin? = some o) : ∀ r ∈ req.tasks, r.id.origin = o := by
@@ -40,7 +40,7 @@ theorem heartbeat_origins {req : TaskHeartbeatReq} {o : String}
     · cases h
 
 theorem Cong.handleExternal {o : String} {rq : Request} (h : rq.origin? = some o) (now : Nat) :
-    Frame.Cong o (Abstraction.handleExternal rq now) := by
+    Frame.Cong o (Abstract.handleExternal rq now) := by
   cases rq with
   | promiseSearch _ | scheduleGet _ | scheduleCreate _ | scheduleDelete _ | scheduleSearch _
   | taskSearch _ => cases h
@@ -90,7 +90,7 @@ theorem Cong.handleExternal {o : String} {rq : Request} (h : rq.origin? = some o
     exact Frame.Cong.map _ (Frame.Cong.taskContinue h now)
 
 theorem LocAt.handleExternal {o : String} {rq : Request} (h : rq.origin? = some o) (now : Nat)
-    (e : AbstractModel.Env) : Frame.LocAt o (Abstraction.handleExternal rq now) e := by
+    (e : AbstractModel.Env) : Frame.LocAt o (Abstract.handleExternal rq now) e := by
   cases rq with
   | promiseSearch _ | scheduleGet _ | scheduleCreate _ | scheduleDelete _ | scheduleSearch _
   | taskSearch _ => cases h
@@ -139,8 +139,8 @@ theorem LocAt.handleExternal {o : String} {rq : Request} (h : rq.origin? = some 
     simp only [Request.origin?, Option.some.injEq] at h
     exact Frame.LocAt.map _ (Frame.LocAt.taskContinue h now e)
 
-theorem Cong.handleInternal {o : String} {st : InternalStep} (h : InternalStep.about o st) (now : Nat) :
-    Frame.Cong o (Abstraction.handleInternal st now) := by
+theorem Cong.handleInternal {o : String} {st : Trigger} (h : Trigger.about o st) (now : Nat) :
+    Frame.Cong o (Abstract.handleInternal st now) := by
   cases st with
   | promiseTimeout r   => exact Frame.Cong.processPromiseTimeout h now
   | callback r         => exact Frame.Cong.processCallback h.1 h.2 now
@@ -149,8 +149,8 @@ theorem Cong.handleInternal {o : String} {st : InternalStep} (h : InternalStep.a
   | taskRetryTimeout r => exact Frame.Cong.processRetryTimeout h now
   | scheduleTimeout r  => exact absurd h id
 
-theorem LocAt.handleInternal {o : String} {st : InternalStep} (h : InternalStep.about o st) (now : Nat)
-    (e : AbstractModel.Env) : Frame.LocAt o (Abstraction.handleInternal st now) e := by
+theorem LocAt.handleInternal {o : String} {st : Trigger} (h : Trigger.about o st) (now : Nat)
+    (e : AbstractModel.Env) : Frame.LocAt o (Abstract.handleInternal st now) e := by
   cases st with
   | promiseTimeout r   => exact Frame.LocAt.processPromiseTimeout h now e
   | callback r         => exact Frame.LocAt.processCallback h.1 h.2 now e
@@ -159,19 +159,19 @@ theorem LocAt.handleInternal {o : String} {st : InternalStep} (h : InternalStep.
   | taskRetryTimeout r => exact Frame.LocAt.processRetryTimeout h now e
   | scheduleTimeout r  => exact absurd h id
 
-theorem Cong.handle {o : String} {st : Abstraction.Step} (h : Step.about o st) (now : Nat) :
-    Frame.Cong o (Abstraction.handle st now) := by
+theorem Cong.handle {o : String} {st : Abstract.Event} (h : Event.about o st) (now : Nat) :
+    Frame.Cong o (Abstract.handle st now) := by
   cases st with
-  | external rq => exact Cong.handleExternal h now
+  | external rq => exact Frame.Cong.map _ (Cong.handleExternal h now)
   | internal st => exact Frame.Cong.bind (Cong.handleInternal h now) (fun _ => Frame.Cong.pure _)
-  | idle        => exact Frame.Cong.pure _
+  | stutter     => exact Frame.Cong.pure _
 
-theorem LocAt.handle {o : String} {st : Abstraction.Step} (h : Step.about o st) (now : Nat)
-    (e : AbstractModel.Env) : Frame.LocAt o (Abstraction.handle st now) e := by
+theorem LocAt.handle {o : String} {st : Abstract.Event} (h : Event.about o st) (now : Nat)
+    (e : AbstractModel.Env) : Frame.LocAt o (Abstract.handle st now) e := by
   cases st with
-  | external rq => exact LocAt.handleExternal h now e
+  | external rq => exact Frame.LocAt.map _ (LocAt.handleExternal h now e)
   | internal st => exact Frame.LocAt.bind (LocAt.handleInternal h now e) (Frame.LocAt.pure _ _)
-  | idle        => exact Frame.LocAt.pure _ _
+  | stutter     => exact Frame.LocAt.pure _ _
 
 def _root_.Impl.World.find? (w : World) : Lookup := fun j =>
   (currentDoc w j.origin).objects.find? (·.id == j)
@@ -209,18 +209,18 @@ theorem World.find?_wf (w : World) : (Impl.World.find? w).wf := by
   have := List.find?_some h
   simpa using this
 
-theorem stepDoc_eq (mat : Bool) (st : Abstraction.Step) (now : Nat) (d : OriginDoc) :
+theorem stepDoc_eq (mat : Bool) (st : Abstract.Event) (now : Nat) (d : OriginDoc) :
     Impl.stepDoc mat st now d =
-      ((Abstraction.handle st now { state := d.toState, mat := mat }).1,
+      ((Abstract.handle st now { state := d.toState, mat := mat }).1,
        OriginDoc.ofState
-         (applyAll d.toState (Abstraction.handle st now { state := d.toState, mat := mat }).2)
+         (applyAll d.toState (Abstract.handle st now { state := d.toState, mat := mat }).2)
          d.timerAt,
-       Impl.sendsOf (Abstraction.handle st now { state := d.toState, mat := mat }).2) := rfl
+       Impl.sendsOf (Abstract.handle st now { state := d.toState, mat := mat }).2) := rfl
 
-theorem stepOf_eq (mat : Bool) (st : Abstraction.Step) (now : Nat) (S : ServerState) :
-    Abstraction.stepOf mat st now S =
-      ((Abstraction.handle st now { state := S, mat := mat, config := {} }).1,
-       applyAll S (Abstraction.handle st now { state := S, mat := mat, config := {} }).2) := rfl
+theorem step_eq (mat : Bool) (st : Abstract.Event) (now : Nat) (S : ServerState) :
+    Abstract.step mat st now S =
+      ((Abstract.handle st now { state := S, mat := mat, config := {} }).1,
+       applyAll S (Abstract.handle st now { state := S, mat := mat, config := {} }).2) := rfl
 
 theorem envEquiv_of_RelD {w : World} {o : String} {d : OriginDoc} {sends : List (String × Message)}
     {S : ServerState} (h : RelD w o d sends S) (mat : Bool) :
@@ -234,26 +234,26 @@ theorem envEquiv_of_RelD {w : World} {o : String} {d : OriginDoc} {sends : List 
     exact this
 
 theorem stepDoc_origins {o : String} {d : OriginDoc} (hd : ∀ ob ∈ d.objects, ob.id.origin = o)
-    {st : Abstraction.Step} (hab : Step.about o st) (mat : Bool) (now : Nat) :
+    {st : Abstract.Event} (hab : Event.about o st) (mat : Bool) (now : Nat) :
     ∀ ob ∈ (Impl.stepDoc mat st now d).2.1.objects, ob.id.origin = o := by
   rw [stepDoc_eq]
   exact origins_applyAll (LocAt.handle hab now _) hd
 
 theorem stepDoc_sim {w : World} {o : String} {d : OriginDoc} {sends : List (String × Message)}
     {S : ServerState} (h : RelD w o d sends S)
-    {st : Abstraction.Step} (hab : Step.about o st) (mat : Bool) (now : Nat) :
-    (Abstraction.stepOf mat st now S).1 = (Impl.stepDoc mat st now d).1 ∧
+    {st : Abstract.Event} (hab : Event.about o st) (mat : Bool) (now : Nat) :
+    (Abstract.step mat st now S).1 = (Impl.stepDoc mat st now d).1 ∧
     RelD w o (Impl.stepDoc mat st now d).2.1 (sends ++ (Impl.stepDoc mat st now d).2.2)
-      (Abstraction.stepOf mat st now S).2 := by
+      (Abstract.step mat st now S).2 := by
   have hcong := Cong.handle hab now _ _ (envEquiv_of_RelD h mat)
-  have hloc : ∀ f ∈ (Abstraction.handle st now { state := S, mat := mat, config := {} }).2,
+  have hloc : ∀ f ∈ (Abstract.handle st now { state := S, mat := mat, config := {} }).2,
       Frame.Effect.Local o f :=
     LocAt.handle hab now { state := S, mat := mat, config := {} }
-  rw [stepDoc_eq, stepOf_eq]
+  rw [stepDoc_eq, step_eq]
   simp only
   rw [hcong]
   refine ⟨rfl, ?_⟩
-  generalize (Abstraction.handle st now { state := S, mat := mat, config := {} }).2 = fx at hloc ⊢
+  generalize (Abstract.handle st now { state := S, mat := mat, config := {} }).2 = fx at hloc ⊢
   have hagree : Agree o (lookup d.toState) (lookup S) := by
     intro j hj
     have := h.find j
@@ -273,12 +273,12 @@ theorem stepDoc_sim {w : World} {o : String} {d : OriginDoc} {sends : List (Stri
   · rw [schedules_applyAll _ hloc]; exact h.sched
   · rw [outbox_applyAll, h.outbox, sendsFold_append]
 
-def internals (now : Nat) (sts : List InternalStep) : List (Abstraction.Step × Nat) :=
+def internals (now : Nat) (sts : List Trigger) : List (Abstract.Event × Nat) :=
   sts.map fun st => (.internal st, now)
 
 theorem stepDocs_origins {o : String} (mat : Bool) (now : Nat) :
-    ∀ (d : OriginDoc) (sts : List InternalStep), (∀ ob ∈ d.objects, ob.id.origin = o) →
-      (∀ st ∈ sts, InternalStep.about o st) →
+    ∀ (d : OriginDoc) (sts : List Trigger), (∀ ob ∈ d.objects, ob.id.origin = o) →
+      (∀ st ∈ sts, Trigger.about o st) →
       ∀ ob ∈ (Impl.stepDocs mat now d sts).1.objects, ob.id.origin = o
   | d, [], hd, _ => hd
   | d, st :: sts, hd, hab => by
@@ -288,32 +288,32 @@ theorem stepDocs_origins {o : String} (mat : Bool) (now : Nat) :
         (fun s hs => hab s (List.mem_cons_of_mem _ hs))
 
 theorem stepDocs_sim {w : World} {o : String} {S : ServerState} (mat : Bool) (now : Nat) :
-    ∀ (d : OriginDoc) (sends : List (String × Message)) (sts : List InternalStep),
+    ∀ (d : OriginDoc) (sends : List (String × Message)) (sts : List Trigger),
       RelD w o d sends S → (∀ ob ∈ d.objects, ob.id.origin = o) →
-      (∀ st ∈ sts, InternalStep.about o st) →
-      (Abstraction.runFin mat (internals now sts) S).1 = sts.map (fun _ => Response.silent) ∧
+      (∀ st ∈ sts, Trigger.about o st) →
+      (Abstract.exec mat (internals now sts) S).1 = sts.map (fun _ => Reply.internal) ∧
       RelD w o (Impl.stepDocs mat now d sts).1 (sends ++ (Impl.stepDocs mat now d sts).2)
-        (Abstraction.runFin mat (internals now sts) S).2
+        (Abstract.exec mat (internals now sts) S).2
   | d, sends, [], h, _, _ => by
       refine ⟨rfl, ?_⟩
-      simpa [Impl.stepDocs, internals, Abstraction.runFin] using h
+      simpa [Impl.stepDocs, internals, Abstract.exec] using h
   | d, sends, st :: sts, h, hd, hab => by
       have h1 := stepDoc_sim h (st := .internal st) (hab st (List.mem_cons_self ..)) mat now
       have hd' := stepDoc_origins hd (st := .internal st) (hab st (List.mem_cons_self ..)) mat now
-      have ih := stepDocs_sim (S := (Abstraction.stepOf mat (.internal st) now S).2) mat now
+      have ih := stepDocs_sim (S := (Abstract.step mat (.internal st) now S).2) mat now
         (Impl.stepDoc mat (.internal st) now d).2.1
         (sends ++ (Impl.stepDoc mat (.internal st) now d).2.2) sts h1.2 hd'
         (fun s hs => hab s (List.mem_cons_of_mem _ hs))
-      simp only [internals, List.map_cons, Abstraction.runFin, Impl.stepDocs] at ih ⊢
+      simp only [internals, List.map_cons, Abstract.exec, Impl.stepDocs] at ih ⊢
       refine ⟨?_, ?_⟩
       · rw [ih.1]
-        have : (Abstraction.stepOf mat (.internal st) now S).1 = .silent := by
-          rw [stepOf_eq]; rfl
+        have : (Abstract.step mat (.internal st) now S).1 = .internal := by
+          rw [step_eq]; rfl
         rw [this]
       · simpa [List.append_assoc] using ih.2
 
 theorem timeoutSteps_about {o : String} {d : OriginDoc} (hd : ∀ ob ∈ d.objects, ob.id.origin = o)
-    (now : Nat) : ∀ st ∈ Impl.timeoutSteps d now, InternalStep.about o st := by
+    (now : Nat) : ∀ st ∈ Impl.timeoutSteps d now, Trigger.about o st := by
   intro st hst
   simp only [Impl.timeoutSteps, List.mem_append, List.mem_filterMap] at hst
   rcases hst with ⟨ob, hob, h⟩ | ⟨ob, hob, h⟩
@@ -327,7 +327,7 @@ theorem timeoutSteps_about {o : String} {d : OriginDoc} (hd : ∀ ob ∈ d.objec
     · cases h
 
 theorem obligationSteps_about {o : String} {d : OriginDoc} (hd : ∀ ob ∈ d.objects, ob.id.origin = o) :
-    ∀ st ∈ Impl.obligationSteps o d, InternalStep.about o st := by
+    ∀ st ∈ Impl.obligationSteps o d, Trigger.about o st := by
   intro st hst
   simp only [Impl.obligationSteps, List.mem_flatMap] at hst
   obtain ⟨ob, hob, h⟩ := hst
@@ -343,7 +343,7 @@ theorem obligationSteps_about {o : String} {d : OriginDoc} (hd : ∀ ob ∈ d.ob
   · simp at h
 
 theorem retrySteps_about {o : String} {d : OriginDoc} (hd : ∀ ob ∈ d.objects, ob.id.origin = o)
-    (now : Nat) : ∀ st ∈ Impl.retrySteps d now, InternalStep.about o st := by
+    (now : Nat) : ∀ st ∈ Impl.retrySteps d now, Trigger.about o st := by
   intro st hst
   simp only [Impl.retrySteps, List.mem_filterMap] at hst
   obtain ⟨ob, hob, h⟩ := hst
@@ -354,7 +354,7 @@ theorem retrySteps_about {o : String} {d : OriginDoc} (hd : ∀ ob ∈ d.objects
   · cases h
 
 theorem drainSteps_about {o : String} {d : OriginDoc} (hd : ∀ ob ∈ d.objects, ob.id.origin = o)
-    (mat : Bool) (now : Nat) : ∀ st ∈ Impl.drainSteps mat o d now, InternalStep.about o st := by
+    (mat : Bool) (now : Nat) : ∀ st ∈ Impl.drainSteps mat o d now, Trigger.about o st := by
   intro st hst
   simp only [Impl.drainSteps, List.mem_append] at hst
   have h1 := timeoutSteps_about hd now
@@ -404,7 +404,7 @@ theorem commit_rejected {mat : Bool} {t : Txn} {now : Nat} {w : World}
           (Impl.armFx (envOf mat t).doc (decOf mat t now).2.1)).1 from rfl]
     rw [harm.2.2.1, armFx_nosend]; rfl
 
-theorem commit_accepted {mat : Bool} {t : Txn} {now : Nat} {w : World} {res : Response}
+theorem commit_accepted {mat : Bool} {t : Txn} {now : Nat} {w : World} {res : Reply}
     (h : (Impl.runC (Impl.transact mat t.work now) (envOf mat t) w).1 = some res) :
     res = (decOf mat t now).1 ∧
     (envOf mat t).cond.holds (w.store.version? (.doc t.origin)) = true ∧
@@ -560,7 +560,7 @@ theorem mem_of_mem_eraseIdx {α : Type} : ∀ (l : List α) (i : Nat) (x : α), 
       · exact List.mem_cons_self ..
       · exact List.mem_cons_of_mem _ (mem_of_mem_eraseIdx as i x h)
 
-def specSteps (mat : Bool) (t : Txn) (now : Nat) : List Abstraction.Step :=
+def specSteps (mat : Bool) (t : Txn) (now : Nat) : List Abstract.Event :=
   match t.work with
   | .request rq =>
       .external rq ::
@@ -569,7 +569,7 @@ def specSteps (mat : Bool) (t : Txn) (now : Nat) : List Abstraction.Step :=
   | .sweep _ =>
       (Impl.drainSteps mat t.origin (envOf mat t).doc now).map .internal
 
-def expand (mat : Bool) (st : Impl.Step) (now : Nat) (s : State) : List Abstraction.Step :=
+def expand (mat : Bool) (st : Impl.Step) (now : Nat) (s : State) : List Abstract.Event :=
   match st with
   | .commit i =>
       match s.inflight[i]? with
@@ -580,17 +580,17 @@ def expand (mat : Bool) (st : Impl.Step) (now : Nat) (s : State) : List Abstract
           | some _ => specSteps mat t now
   | _ => []
 
-def linearize (mat : Bool) : List (Impl.Step × Nat) → State → List (Abstraction.Step × Nat)
+def linearize (mat : Bool) : List (Impl.Step × Nat) → State → List (Abstract.Event × Nat)
   | [],           _ => []
   | (st, n) :: w, s =>
       (expand mat st n s).map (fun a => (a, n)) ++ linearize mat w (Impl.step mat st n s).2
 
-def obsOf : List (Abstraction.Step × Nat) → List Response → List Obs
-  | (.external rq, n) :: w, r :: rs => ⟨rq, r, n⟩ :: obsOf w rs
-  | _ :: w, _ :: rs                 => obsOf w rs
-  | _, _                            => []
+def obsOf : List (Abstract.Event × Nat) → List Reply → List Obs
+  | (.external rq, n) :: w, .external r :: rs => ⟨rq, r, n⟩ :: obsOf w rs
+  | _ :: w, _ :: rs                           => obsOf w rs
+  | _, _                                      => []
 
-theorem obsOf_internals (now : Nat) : ∀ (sts : List InternalStep) (rs : List Response),
+theorem obsOf_internals (now : Nat) : ∀ (sts : List Trigger) (rs : List Reply),
     obsOf (internals now sts) rs = []
   | [], rs => by cases rs <;> rfl
   | st :: sts, [] => rfl
@@ -598,23 +598,23 @@ theorem obsOf_internals (now : Nat) : ∀ (sts : List InternalStep) (rs : List R
       simp only [internals, List.map_cons, obsOf]
       exact obsOf_internals now sts rs
 
-theorem runFin_length (mat : Bool) : ∀ (w : List (Abstraction.Step × Nat)) (S : ServerState),
-    (Abstraction.runFin mat w S).1.length = w.length
+theorem exec_length (mat : Bool) : ∀ (w : List (Abstract.Event × Nat)) (S : ServerState),
+    (Abstract.exec mat w S).1.length = w.length
   | [], _ => rfl
   | (st, n) :: w, S => by
-      simp only [Abstraction.runFin, List.length_cons]
-      rw [runFin_length mat w]
+      simp only [Abstract.exec, List.length_cons]
+      rw [exec_length mat w]
 
-theorem runFin_append (mat : Bool) : ∀ (a b : List (Abstraction.Step × Nat)) (S : ServerState),
-    Abstraction.runFin mat (a ++ b) S =
-      ((Abstraction.runFin mat a S).1 ++ (Abstraction.runFin mat b (Abstraction.runFin mat a S).2).1,
-       (Abstraction.runFin mat b (Abstraction.runFin mat a S).2).2)
-  | [], b, S => by simp [Abstraction.runFin]
+theorem exec_append (mat : Bool) : ∀ (a b : List (Abstract.Event × Nat)) (S : ServerState),
+    Abstract.exec mat (a ++ b) S =
+      ((Abstract.exec mat a S).1 ++ (Abstract.exec mat b (Abstract.exec mat a S).2).1,
+       (Abstract.exec mat b (Abstract.exec mat a S).2).2)
+  | [], b, S => by simp [Abstract.exec]
   | (st, n) :: a, b, S => by
-      simp only [List.cons_append, Abstraction.runFin]
-      rw [runFin_append mat a b]
+      simp only [List.cons_append, Abstract.exec]
+      rw [exec_append mat a b]
 
-theorem obsOf_append : ∀ (a b : List (Abstraction.Step × Nat)) (rs rs' : List Response),
+theorem obsOf_append : ∀ (a b : List (Abstract.Event × Nat)) (rs rs' : List Reply),
     rs.length = a.length → obsOf (a ++ b) (rs ++ rs') = obsOf a rs ++ obsOf b rs'
   | [], b, [], rs', _ => by simp [obsOf]
   | [], b, r :: rs, rs', h => by simp at h
@@ -622,9 +622,13 @@ theorem obsOf_append : ∀ (a b : List (Abstraction.Step × Nat)) (rs rs' : List
   | (st, n) :: a, b, r :: rs, rs', h => by
       simp only [List.length_cons, Nat.add_right_cancel_iff] at h
       cases st with
-      | external rq => simp only [List.cons_append, obsOf]; rw [obsOf_append a b rs rs' h]
+      | external rq =>
+        cases r with
+        | external r => simp only [List.cons_append, obsOf]; rw [obsOf_append a b rs rs' h]
+        | internal => simp only [List.cons_append, obsOf]; exact obsOf_append a b rs rs' h
+        | stutter => simp only [List.cons_append, obsOf]; exact obsOf_append a b rs rs' h
       | internal _ => simp only [List.cons_append, obsOf]; exact obsOf_append a b rs rs' h
-      | idle => simp only [List.cons_append, obsOf]; exact obsOf_append a b rs rs' h
+      | stutter => simp only [List.cons_append, obsOf]; exact obsOf_append a b rs rs' h
 
 theorem run_cons (mat : Bool) (st : Impl.Step) (n : Nat) (w : List (Impl.Step × Nat)) (s : State) :
     Impl.run mat ((st, n) :: w) s =
@@ -634,8 +638,8 @@ theorem run_cons (mat : Bool) (st : Impl.Step) (n : Nat) (w : List (Impl.Step ×
 theorem commit_eq {mat : Bool} {i now : Nat} {s : State} {t : Txn} (hget : s.inflight[i]? = some t) :
     Impl.commit mat i now s =
       ((match (Impl.runC (Impl.transact mat t.work now) (envOf mat t) s.world).1, t.work with
-        | some res, .request rq => some ⟨rq, res, now⟩
-        | _,        _           => none),
+        | some (.external res), .request rq => some ⟨rq, res, now⟩
+        | _,                    _           => none),
        { world := (Impl.runC (Impl.transact mat t.work now) (envOf mat t) s.world).2,
          inflight := s.inflight.eraseIdx i }) := by
   unfold Impl.commit
@@ -652,7 +656,7 @@ theorem decide_request (mat : Bool) (o : String) (rq : Request) (now : Nat) (old
 
 theorem decide_sweep (mat : Bool) (o : String) (fired : Option Nat) (now : Nat) (old : OriginDoc) :
     Impl.decide mat o (.sweep fired) now old =
-      (.silent,
+      (.stutter,
        { (Impl.drain mat o old now).1 with timerAt := (Impl.drain mat o old now).1.minDeadline },
        [] ++ (Impl.drain mat o old now).2) := rfl
 
@@ -674,17 +678,30 @@ theorem Rel.of_RelD {w w' : World} {o : String} {d : OriginDoc} {sends : List (S
   sched := h.sched
   outbox := by rw [h.outbox, hwire]
 
-theorem accepted_sim {mat : Bool} {t : Txn} {now : Nat} {w : World} {S : ServerState} {res : Response}
+def obsFor (wk : Work) (r : Reply) (now : Nat) : List Obs :=
+  match wk, r with
+  | .request rq, .external res => [⟨rq, res, now⟩]
+  | _, _                       => []
+
+theorem obsFor_eq (wk : Work) (r : Reply) (now : Nat) :
+    obsFor wk r now =
+      (match some r, wk with
+       | some (Reply.external res), Work.request rq => some (⟨rq, res, now⟩ : Obs)
+       | _,                         _               => none).toList := by
+  cases wk <;> cases r <;> rfl
+
+theorem step_external_reply (mat : Bool) (rq : Request) (now : Nat) (S : ServerState) :
+    (Abstract.step mat (.external rq) now S).1 =
+      .external (Abstract.handleExternal rq now { state := S, mat := mat, config := {} }).1 := rfl
+
+theorem accepted_sim {mat : Bool} {t : Txn} {now : Nat} {w : World} {S : ServerState} {res : Reply}
     (hrel : Rel w S) (hsinv : SInv w.store) (hdocs : DocInv w) (htxn : TxnInv w.store t)
     (hwork : t.work.origin? t.origin = some t.origin)
     (hacc : (Impl.runC (Impl.transact mat t.work now) (envOf mat t) w).1 = some res) :
     let lin := (specSteps mat t now).map (fun a => (a, now))
     let w' := (Impl.runC (Impl.transact mat t.work now) (envOf mat t) w).2
-    obsOf lin (Abstraction.runFin mat lin S).1 =
-      (match t.work with
-       | .request rq => [⟨rq, res, now⟩]
-       | .sweep _    => []) ∧
-    Rel w' (Abstraction.runFin mat lin S).2 ∧
+    obsOf lin (Abstract.exec mat lin S).1 = obsFor t.work res now ∧
+    Rel w' (Abstract.exec mat lin S).2 ∧
     DocInv w' ∧ SInv w'.store ∧ (∀ u, TxnInv w.store u → TxnInv w'.store u) := by
   intro lin w'
   obtain ⟨hres, hcond, ⟨v, hdocget⟩, hother, hwire, hsinv', htxns'⟩ := commit_accepted hacc
@@ -703,7 +720,7 @@ theorem accepted_sim {mat : Bool} {t : Txn} {now : Nat} {w : World} {S : ServerS
     · rw [hother' o ho] at hob; exact hdocs o ob hob
   cases hw : t.work with
   | request rq =>
-    have hab : Step.about t.origin (.external rq) := by
+    have hab : Event.about t.origin (.external rq) := by
       show rq.origin? = some t.origin
       simpa [Work.origin?, hw] using hwork
     have hdec : decOf mat t now = Impl.decide mat t.origin (.request rq) now (currentDoc w t.origin) := by
@@ -713,22 +730,24 @@ theorem accepted_sim {mat : Bool} {t : Txn} {now : Nat} {w : World} {S : ServerS
     have h1 := stepDoc_sim (RelD.init hrel t.origin) hab mat now
     have hd1 := stepDoc_origins hd0 hab mat now
 
-    have h2 := stepDocs_sim (S := (Abstraction.stepOf mat (.external rq) now S).2) mat now
+    have h2 := stepDocs_sim (S := (Abstract.step mat (.external rq) now S).2) mat now
       (Impl.stepDoc mat (.external rq) now (currentDoc w t.origin)).2.1
       ([] ++ (Impl.stepDoc mat (.external rq) now (currentDoc w t.origin)).2.2)
       (Impl.drainSteps mat t.origin (Impl.stepDoc mat (.external rq) now (currentDoc w t.origin)).2.1 now)
       h1.2 hd1 (drainSteps_about hd1 mat now)
     have hd2 := stepDocs_origins mat now _ _ hd1
       (drainSteps_about hd1 mat now)
-    have hlin : lin = (Abstraction.Step.external rq, now) ::
+    have hlin : lin = (Abstract.Event.external rq, now) ::
         internals now (Impl.drainSteps mat t.origin
           (Impl.stepDoc mat (.external rq) now (currentDoc w t.origin)).2.1 now) := by
       simp [lin, specSteps, hw, hdoc0, internals]
     rw [hlin]
-    simp only [Abstraction.runFin, obsOf]
+    simp only [Abstract.exec]
     refine ⟨?_, ?_, ?_, hsinv' hsinv, htxns'⟩
-    · rw [obsOf_internals, h1.1, hres]
-      try rw [hdec]
+    · rw [hres, hdec]
+      simp only
+      rw [← h1.1, step_external_reply]
+      simp only [obsOf, obsFor, obsOf_internals]
     · refine Rel.of_RelD h2.2 ?_ hother' ?_
       · rw [hcur', hdec]
       · rw [hwire, hdec]; rfl
@@ -745,7 +764,7 @@ theorem accepted_sim {mat : Bool} {t : Txn} {now : Nat} {w : World} {S : ServerS
       simp [lin, specSteps, hw, hdoc0, internals]
     rw [hlin]
     refine ⟨?_, ?_, ?_, hsinv' hsinv, htxns'⟩
-    · rw [obsOf_internals]
+    · rw [obsOf_internals]; rfl
     · refine Rel.of_RelD h2.2 ?_ hother' ?_
       · rw [hcur', hdec]
       · rw [hwire, hdec]
@@ -754,12 +773,12 @@ theorem accepted_sim {mat : Bool} {t : Txn} {now : Nat} {w : World} {S : ServerS
 theorem step_sim (mat : Bool) (st : Impl.Step) (now : Nat) (s : State) (S : ServerState)
     (hinv : Inv s) (hrel : Rel s.world S) :
     let lin := (expand mat st now s).map (fun a => (a, now))
-    obsOf lin (Abstraction.runFin mat lin S).1 = (Impl.step mat st now s).1.toList ∧
-    Rel (Impl.step mat st now s).2.world (Abstraction.runFin mat lin S).2 ∧
+    obsOf lin (Abstract.exec mat lin S).1 = (Impl.step mat st now s).1.toList ∧
+    Rel (Impl.step mat st now s).2.world (Abstract.exec mat lin S).2 ∧
     Inv (Impl.step mat st now s).2 := by
   intro lin
   cases st with
-  | idle =>
+  | stutter =>
     exact ⟨rfl, hrel, hinv⟩
   | «begin» o work =>
     simp only [Impl.step, Impl.begin]
@@ -784,7 +803,7 @@ theorem step_sim (mat : Bool) (st : Impl.Step) (now : Nat) (s : State) (S : Serv
     | none =>
       have : Impl.step mat (.commit i) now s = (none, s) := by
         simp only [Impl.step, Impl.commit, hget]
-      simp only [lin, expand, hget, List.map_nil, Abstraction.runFin, obsOf, this]
+      simp only [lin, expand, hget, List.map_nil, Abstract.exec, obsOf, this]
       exact ⟨rfl, hrel, hinv⟩
     | some t =>
       have ht : t ∈ s.inflight := List.mem_of_getElem? hget
@@ -795,7 +814,7 @@ theorem step_sim (mat : Bool) (st : Impl.Step) (now : Nat) (s : State) (S : Serv
         obtain ⟨hget', hwire, hnext, hsinv⟩ := commit_rejected hres
         have hlin : lin = [] := by simp only [lin, expand, hget, hres, List.map_nil]
         rw [hlin]
-        simp only [Abstraction.runFin, obsOf]
+        simp only [Abstract.exec]
         generalize Impl.runC (Impl.transact mat t.work now) (envOf mat t) s.world = r
           at hget' hwire hnext hsinv hres ⊢
         refine ⟨?_, ?_, ?_⟩
@@ -825,7 +844,7 @@ theorem step_sim (mat : Bool) (st : Impl.Step) (now : Nat) (s : State) (S : Serv
           at hobs hrel' hdocs' hsinv' htxns' hres ⊢
         refine ⟨?_, hrel', ?_⟩
         · rw [hobs]
-          cases t.work <;> rfl
+          exact obsFor_eq _ _ _
         · refine ⟨hsinv', hdocs', ?_, ?_⟩
           · intro u hu
             exact htxns' u (hinv.txns u (mem_of_mem_eraseIdx _ _ _ hu))
@@ -834,31 +853,31 @@ theorem step_sim (mat : Bool) (st : Impl.Step) (now : Nat) (s : State) (S : Serv
 
 theorem run_sim (mat : Bool) : ∀ (w : List (Impl.Step × Nat)) (s : State) (S : ServerState),
     Inv s → Rel s.world S →
-    obsOf (linearize mat w s) (Abstraction.runFin mat (linearize mat w s) S).1 = (Impl.run mat w s).1 ∧
-    Rel (Impl.run mat w s).2.world (Abstraction.runFin mat (linearize mat w s) S).2 ∧
+    obsOf (linearize mat w s) (Abstract.exec mat (linearize mat w s) S).1 = (Impl.run mat w s).1 ∧
+    Rel (Impl.run mat w s).2.world (Abstract.exec mat (linearize mat w s) S).2 ∧
     Inv (Impl.run mat w s).2
   | [], s, S, hinv, hrel => ⟨rfl, hrel, hinv⟩
   | (st, n) :: w, s, S, hinv, hrel => by
       obtain ⟨h1, h2, h3⟩ := step_sim mat st n s S hinv hrel
       obtain ⟨ih1, ih2, ih3⟩ := run_sim mat w (Impl.step mat st n s).2
-        (Abstraction.runFin mat ((expand mat st n s).map (fun a => (a, n))) S).2 h3 h2
+        (Abstract.exec mat ((expand mat st n s).map (fun a => (a, n))) S).2 h3 h2
       simp only [linearize, run_cons]
-      rw [runFin_append]
+      rw [exec_append]
       refine ⟨?_, ih2, ih3⟩
       simp only
-      rw [obsOf_append _ _ _ _ (runFin_length mat _ S), h1, ih1]
+      rw [obsOf_append _ _ _ _ (exec_length mat _ S), h1, ih1]
 
 theorem refines (mat : Bool) (w : List (Impl.Step × Nat)) :
     obsOf (linearize mat w State.init)
-        (Abstraction.runFin mat (linearize mat w State.init) ServerState.init).1 =
+        (Abstract.exec mat (linearize mat w State.init) ServerState.init).1 =
       (Impl.run mat w State.init).1 ∧
     Rel (Impl.run mat w State.init).2.world
-        (Abstraction.runFin mat (linearize mat w State.init) ServerState.init).2 :=
+        (Abstract.exec mat (linearize mat w State.init) ServerState.init).2 :=
   let h := run_sim mat w State.init ServerState.init Inv.init Rel.init
   ⟨h.1, h.2.1⟩
 
 theorem commit_accepted_is_atomic (mat : Bool) {s : State} (hinv : Inv s) {i now : Nat} {t : Txn}
-    (hget : s.inflight[i]? = some t) {res : Response}
+    (hget : s.inflight[i]? = some t) {res : Reply}
     (hacc : (Impl.runC (Impl.transact mat t.work now) (envOf mat t) s.world).1 = some res) :
     Impl.runC (Impl.transact mat t.work now) (envOf mat t) s.world =
       Impl.atomic mat t.origin t.work now s.world := by
@@ -899,7 +918,7 @@ theorem linearize_nows_pairwise (mat : Bool) : ∀ (w : List (Impl.Step × Nat))
       simp only [linearize, List.map_append, List.map_map]
       rw [List.pairwise_append]
       refine ⟨?_, linearize_nows_pairwise mat w _ h.2, ?_⟩
-      · have : (Prod.snd ∘ fun a : Abstraction.Step => (a, m)) = fun _ => m := rfl
+      · have : (Prod.snd ∘ fun a : Abstract.Event => (a, m)) = fun _ => m := rfl
         rw [this]
         exact pairwise_map_const _ _
       · intro a ha b hb

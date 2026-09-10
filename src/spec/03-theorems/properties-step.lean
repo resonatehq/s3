@@ -1,28 +1,28 @@
 import «03-theorems».«properties-check»
 
-namespace Abstraction
+namespace Abstract
 
 open AbstractModel.Properties
 open AbstractModel (ServerState PromiseObject TaskObject)
 
 def stepsOfA (mat : Bool) :
-    List (Step × Nat) → ServerState → List (Nat × ServerState × ServerState)
+    List (Event × Nat) → ServerState → List (Nat × ServerState × ServerState)
   | [], _ => []
   | (st, n) :: w, s =>
-      let (_, s') := stepOf mat st n s
+      let (_, s') := step mat st n s
       (n, s, s') :: stepsOfA mat w s'
 
-def steps (w : List (Step × Nat)) : List (Nat × ServerState × ServerState) :=
+def steps (w : List (Event × Nat)) : List (Nat × ServerState × ServerState) :=
   stepsOfA true w AbstractModel.ServerState.init
     ++ stepsOfA false w AbstractModel.ServerState.init
 
-def transHoldsRun (w : List (Step × Nat)) : Bool :=
+def transHoldsRun (w : List (Event × Nat)) : Bool :=
   (steps w).all (fun (n, a, b) => legalAt n a b)
 
-def transReport (ws : List (List (Step × Nat))) : List String :=
+def transReport (ws : List (List (Event × Nat))) : List String :=
   (ws.flatMap fun w => (steps w).flatMap (fun (n, a, b) => failingNames n a b)).eraseDups
 
-def stepWitnesses (ws : List (List (Step × Nat)))
+def stepWitnesses (ws : List (List (Event × Nat)))
     (p : ServerState → ServerState → Bool) : Bool :=
   ws.any fun w => (steps w).any (fun (_, a, b) => p a b)
 
@@ -218,12 +218,12 @@ def sTaskless : AbstractModel.ServerState :=
                                timeoutAt := 250, createdAt := 100 } }] }
 
 theorem taskless_id_task_request_writes_nothing :
-    ((stepOf true (.external (.taskGet { id := oid "a" })) 500 sTaskless).2 == sTaskless
-      && (stepOf true (.external (.taskHalt { id := oid "a" })) 500 sTaskless).2 == sTaskless)
+    ((step true (.external (.taskGet { id := oid "a" })) 500 sTaskless).2 == sTaskless
+      && (step true (.external (.taskHalt { id := oid "a" })) 500 sTaskless).2 == sTaskless)
       = true := by decide
 
 theorem the_same_promise_does_materialise :
-    ((stepOf true (.external (.promiseGet { id := oid "a" })) 500 sTaskless).2 == sTaskless)
+    ((step true (.external (.promiseGet { id := oid "a" })) 500 sTaskless).2 == sTaskless)
       = false := by decide
 
 theorem settled_promise_object_is_not_frozen :
@@ -235,28 +235,28 @@ theorem settled_promise_object_is_not_frozen :
       = true := by decide
 
 def stepsWithA (mat : Bool) :
-    List (Step × Nat) → ServerState → List (Step × Nat × ServerState × ServerState)
+    List (Event × Nat) → ServerState → List (Event × Nat × ServerState × ServerState)
   | [], _ => []
   | (st, n) :: w, s =>
-      let (_, s') := stepOf mat st n s
+      let (_, s') := step mat st n s
       (st, n, s, s') :: stepsWithA mat w s'
 
-def allSteps (w : List (Step × Nat)) : List (Step × Nat × ServerState × ServerState) :=
+def allSteps (w : List (Event × Nat)) : List (Event × Nat × ServerState × ServerState) :=
   stepsWithA true w AbstractModel.ServerState.init
     ++ stepsWithA false w AbstractModel.ServerState.init
 
-def internalWellFormedRun (w : List (Step × Nat)) : Bool :=
-  (allSteps w).all (fun (st, n, a, b) => !Step.isInternal st || internalWellFormed n a b)
+def internalWellFormedRun (w : List (Event × Nat)) : Bool :=
+  (allSteps w).all (fun (st, n, a, b) => !Event.isInternal st || internalWellFormed n a b)
 
 theorem stage3_internal_sweep :
     ((seqsUpToA kernelsResp 3).map instantiateA).all internalWellFormedRun = true := by decide
 
 theorem reaches_internal_steps :
-    (battery.any fun w => (allSteps w).any (fun (st, _, _, _) => Step.isInternal st)) = true := by decide
+    (battery.any fun w => (allSteps w).any (fun (st, _, _, _) => Event.isInternal st)) = true := by decide
 
 theorem internal_laws_are_strictly_stronger :
     (((seqsUpToA kernelsResp 3).map instantiateA).any fun w =>
-      (allSteps w).any (fun (st, n, a, b) => !Step.isInternal st && !internalWellFormed n a b)) = true := by
+      (allSteps w).any (fun (st, n, a, b) => !Event.isInternal st && !internalWellFormed n a b)) = true := by
   decide
 
-end Abstraction
+end Abstract

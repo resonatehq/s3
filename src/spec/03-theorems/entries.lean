@@ -1,6 +1,6 @@
 import «03-theorems».«handlers»
 
-namespace Abstraction
+namespace Abstract
 namespace Induction
 
 open AbstractModel
@@ -87,8 +87,8 @@ theorem hereditary_onlyPromise {f : PromiseObject → Bool} (h : HPromise f)
   cAdvance _ _ _ := rfl
 
 theorem promise_step {f : PromiseObject → Bool} (h : HPromise f)
-    (mat : Bool) (st : Step) (now : Nat) (s : ServerState) :
-    s.promises.all f = true → (stepOf mat st now s).2.promises.all f = true := by
+    (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+    s.promises.all f = true → (step mat st now s).2.promises.all f = true := by
   intro hf
   have := perStore_step mat st now s (hereditary_onlyPromise h s)
     (by rw [perStore_onlyPromise]; exact hf)
@@ -150,8 +150,8 @@ theorem hereditary_onlyTask {f : TaskObject → Bool} (h : HTask f)
   cAdvance _ _ _ := rfl
 
 theorem task_step {f : TaskObject → Bool} (h : HTask f)
-    (mat : Bool) (st : Step) (now : Nat) (s : ServerState) :
-    s.tasks.all f = true → (stepOf mat st now s).2.tasks.all f = true := by
+    (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+    s.tasks.all f = true → (step mat st now s).2.tasks.all f = true := by
   intro hf
   have := perStore_step mat st now s (hereditary_onlyTask h s)
     (by rw [perStore_onlyTask]; exact hf)
@@ -196,8 +196,8 @@ theorem hereditary_onlySchedule {f : ServerModel.Schedule → Bool} (h : HSchedu
   cAdvance := h.advance
 
 theorem schedule_step {f : ServerModel.Schedule → Bool} (h : HSchedule f)
-    (mat : Bool) (st : Step) (now : Nat) (s : ServerState) :
-    s.schedules.all f = true → (stepOf mat st now s).2.schedules.all f = true := by
+    (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+    s.schedules.all f = true → (step mat st now s).2.schedules.all f = true := by
   intro hf
   have := perStore_step mat st now s (hereditary_onlySchedule h s)
     (by rw [perStore_onlySchedule]; exact hf)
@@ -409,63 +409,63 @@ open Properties
 theorem created_at_lte_timeout_at_init (now : Nat) :
     well_formed_promise_created_at_lte_timeout_at now ServerState.init = true := rfl
 
-theorem created_at_lte_timeout_at_step (mat : Bool) (st : Step) (now n' : Nat)
+theorem created_at_lte_timeout_at_step (mat : Bool) (st : Event) (now n' : Nat)
     (s : ServerState) :
     well_formed_promise_created_at_lte_timeout_at now s = true →
-    well_formed_promise_created_at_lte_timeout_at n' (stepOf mat st now s).2 = true :=
+    well_formed_promise_created_at_lte_timeout_at n' (step mat st now s).2 = true :=
   promise_step hp_createdLeTimeout mat st now s
 
 theorem pending_created_before_deadline_init (now : Nat) :
     well_formed_promise_pending_created_before_deadline now ServerState.init = true := rfl
 
-theorem pending_created_before_deadline_step (mat : Bool) (st : Step) (now n' : Nat)
+theorem pending_created_before_deadline_step (mat : Bool) (st : Event) (now n' : Nat)
     (s : ServerState) :
     well_formed_promise_pending_created_before_deadline now s = true →
-    well_formed_promise_pending_created_before_deadline n' (stepOf mat st now s).2 = true :=
+    well_formed_promise_pending_created_before_deadline n' (step mat st now s).2 = true :=
   promise_step hp_pendingBeforeDeadline mat st now s
 
 theorem settled_at_iff_not_pending_init (now : Nat) :
     well_formed_promise_settled_at_iff_not_pending now ServerState.init = true := rfl
 
-theorem settled_at_iff_not_pending_step (mat : Bool) (st : Step) (now n' : Nat)
+theorem settled_at_iff_not_pending_step (mat : Bool) (st : Event) (now n' : Nat)
     (s : ServerState) :
     well_formed_promise_settled_at_iff_not_pending now s = true →
-    well_formed_promise_settled_at_iff_not_pending n' (stepOf mat st now s).2 = true :=
+    well_formed_promise_settled_at_iff_not_pending n' (step mat st now s).2 = true :=
   promise_step hp_settledIffStamped mat st now s
 
 theorem timedout_is_server_owned_init (now : Nat) :
     well_formed_promise_timedout_is_server_owned now ServerState.init = true := rfl
 
-theorem timedout_is_server_owned_step (mat : Bool) (st : Step) (now n' : Nat)
+theorem timedout_is_server_owned_step (mat : Bool) (st : Event) (now n' : Nat)
     (s : ServerState) :
     well_formed_promise_timedout_is_server_owned now s = true →
-    well_formed_promise_timedout_is_server_owned n' (stepOf mat st now s).2 = true :=
+    well_formed_promise_timedout_is_server_owned n' (step mat st now s).2 = true :=
   promise_step hp_timedoutIsServerOwned mat st now s
 
 theorem settled_at_lte_timeout_at_init (now : Nat) :
     well_formed_promise_settled_at_lte_timeout_at now ServerState.init = true := rfl
 
-theorem settled_at_lte_timeout_at_step (mat : Bool) (st : Step) (now n' : Nat)
+theorem settled_at_lte_timeout_at_step (mat : Bool) (st : Event) (now n' : Nat)
     (s : ServerState) :
     well_formed_promise_settled_at_lte_timeout_at now s = true →
-    well_formed_promise_settled_at_lte_timeout_at n' (stepOf mat st now s).2 = true :=
+    well_formed_promise_settled_at_lte_timeout_at n' (step mat st now s).2 = true :=
   promise_step hp_settledAtLeTimeout mat st now s
 
 theorem deadline_verdict_matches_timer_tag_init (now : Nat) :
     well_formed_promise_deadline_verdict_matches_timer_tag now ServerState.init = true := rfl
 
-theorem deadline_verdict_matches_timer_tag_step (mat : Bool) (st : Step) (now n' : Nat)
+theorem deadline_verdict_matches_timer_tag_step (mat : Bool) (st : Event) (now n' : Nat)
     (s : ServerState) :
     well_formed_promise_deadline_verdict_matches_timer_tag now s = true →
-    well_formed_promise_deadline_verdict_matches_timer_tag n' (stepOf mat st now s).2 = true :=
+    well_formed_promise_deadline_verdict_matches_timer_tag n' (step mat st now s).2 = true :=
   promise_step hp_deadlineVerdict mat st now s
 
 theorem no_value_unless_settled_init :
     ServerState.init.promises.all qNoValueUnlessSettled = true := rfl
 
-theorem no_value_unless_settled_step (mat : Bool) (st : Step) (now : Nat) (s : ServerState) :
+theorem no_value_unless_settled_step (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
     s.promises.all qNoValueUnlessSettled = true →
-    (stepOf mat st now s).2.promises.all qNoValueUnlessSettled = true :=
+    (step mat st now s).2.promises.all qNoValueUnlessSettled = true :=
   promise_step hp_noValueUnlessSettled mat st now s
 
 theorem pending_has_no_value_of_strengthening (now : Nat) (s : ServerState) :
@@ -480,8 +480,8 @@ theorem deadline_settlement_has_no_value_of_strengthening (now : Nat) (s : Serve
 
 theorem task_shape_init : ServerState.init.tasks.all qTaskShape = true := rfl
 
-theorem task_shape_step (mat : Bool) (st : Step) (now : Nat) (s : ServerState) :
-    s.tasks.all qTaskShape = true → (stepOf mat st now s).2.tasks.all qTaskShape = true :=
+theorem task_shape_step (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+    s.tasks.all qTaskShape = true → (step mat st now s).2.tasks.all qTaskShape = true :=
   task_step ht_taskShape mat st now s
 
 theorem task_acquired_iff_has_pid_of_shape (now : Nat) (s : ServerState) :
@@ -532,13 +532,13 @@ theorem task_acquired_version_positive_of_shape (now : Nat) (s : ServerState) :
 theorem schedule_promise_tags_not_timer_targeted_init (now : Nat) :
     well_formed_schedule_promise_tags_not_timer_targeted now ServerState.init = true := rfl
 
-theorem schedule_promise_tags_not_timer_targeted_step (mat : Bool) (st : Step) (now n' : Nat)
+theorem schedule_promise_tags_not_timer_targeted_step (mat : Bool) (st : Event) (now n' : Nat)
     (s : ServerState) :
     well_formed_schedule_promise_tags_not_timer_targeted now s = true →
-    well_formed_schedule_promise_tags_not_timer_targeted n' (stepOf mat st now s).2 = true :=
+    well_formed_schedule_promise_tags_not_timer_targeted n' (step mat st now s).2 = true :=
   schedule_step hc_scheduleTags mat st now s
 
 end Entries
 
 end Induction
-end Abstraction
+end Abstract

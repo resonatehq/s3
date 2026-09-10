@@ -3,7 +3,7 @@ import impl.apply
 namespace Commit
 
 open ServerModel AbstractModel
-open Equivalence (Request Response)
+open Abstract (Request Response Reply)
 open Impl (OriginDoc World Key Blob Work Txn State Obs)
 open Apply
 
@@ -262,7 +262,7 @@ theorem snapshot_current {w : World} {t : Txn} {mat : Bool} (hinv : TxnInv w.sto
 
 def envOf (mat : Bool) (t : Txn) : Impl.Env := { origin := t.origin, snapshot := t.snapshot, mat := mat }
 
-def decOf (mat : Bool) (t : Txn) (now : Nat) : Response × OriginDoc × List (String × Message) :=
+def decOf (mat : Bool) (t : Txn) (now : Nat) : Reply × OriginDoc × List (String × Message) :=
   Impl.decide mat t.origin t.work now (envOf mat t).doc
 
 def armed (mat : Bool) (t : Txn) (now : Nat) (w : World) : World :=

@@ -1,6 +1,6 @@
 import «02-abstract».«internal»
 
-namespace Equivalence
+namespace Abstract
 
 open ServerModel
 
@@ -81,17 +81,11 @@ inductive Response
   | taskHalt                (res : TaskHaltRes)
   | taskContinue            (res : TaskContinueRes)
   | taskSearch              (res : TaskSearchRes)
-  | silent
   deriving Repr, BEq
 
-end Equivalence
-
-namespace Abstraction
-
-open Equivalence
 open ServerModel (Ident)
 
-inductive InternalStep
+inductive Trigger
   | promiseTimeout   (req : ServerModel.PromiseTimeoutReq)
   | callback         (req : ServerModel.PromiseRegisterCallbackReq)
   | listener         (req : ServerModel.PromiseRegisterListenerReq)
@@ -100,17 +94,23 @@ inductive InternalStep
   | scheduleTimeout  (req : ServerModel.ScheduleTimeoutReq)
   deriving Repr, DecidableEq
 
-inductive Step
-  | external (rq : Request)
-  | internal (rq : InternalStep)
-  | idle
+inductive Event
+  | external (req : Request)
+  | internal (trg : Trigger)
+  | stutter
   deriving Repr
 
-def Step.isExternal : Step → Bool
+inductive Reply
+  | external (res : Response)
+  | internal
+  | stutter
+  deriving Repr, BEq
+
+def Event.isExternal : Event → Bool
   | .external _ => true
   | _           => false
 
-def Step.isInternal : Step → Bool
+def Event.isInternal : Event → Bool
   | .internal _ => true
   | _           => false
 
@@ -120,8 +120,8 @@ deriving instance BEq for AbstractModel.PromiseObject
 deriving instance BEq for AbstractModel.Object
 deriving instance BEq for AbstractModel.ServerState
 
-def handleExternal (rq : Request) (now : Nat) : AbstractModel.H Response :=
-  match rq with
+def handleExternal (req : Request) (now : Nat) : AbstractModel.H Response :=
+  match req with
   | .promiseGet              req => Response.promiseGet <$> AbstractModel.promiseGet req now
   | .promiseCreate           req => Response.promiseCreate <$> AbstractModel.promiseCreate req now
   | .promiseSettle           req => Response.promiseSettle <$> AbstractModel.promiseSettle req now
@@ -144,8 +144,8 @@ def handleExternal (rq : Request) (now : Nat) : AbstractModel.H Response :=
   | .taskContinue            req => Response.taskContinue <$> AbstractModel.taskContinue req now
   | .taskSearch              req => Response.taskSearch <$> AbstractModel.taskSearch req now
 
-def handleInternal (rq : InternalStep) (now : Nat) : AbstractModel.H Unit :=
-  match rq with
+def handleInternal (trg : Trigger) (now : Nat) : AbstractModel.H Unit :=
+  match trg with
   | .promiseTimeout   req => AbstractModel.Internal.processPromiseTimeout req now
   | .callback         req => AbstractModel.Internal.processCallback req now
   | .listener         req => AbstractModel.Internal.processListener req now
@@ -153,37 +153,47 @@ def handleInternal (rq : InternalStep) (now : Nat) : AbstractModel.H Unit :=
   | .taskRetryTimeout req => AbstractModel.Internal.processRetryTimeout req now
   | .scheduleTimeout  req => AbstractModel.Internal.processSchedule req now
 
-def handle (st : Step) (now : Nat) : AbstractModel.H Response :=
-  match st with
-  | .external rq => handleExternal rq now
-  | .internal rq => do handleInternal rq now; return .silent
-  | .idle        => return .silent
+def handle (ev : Event) (now : Nat) : AbstractModel.H Reply :=
+  match ev with
+  | .external req => Reply.external <$> handleExternal req now
+  | .internal trg => do handleInternal trg now; return .internal
+  | .stutter      => return .stutter
 
-def stepOf (mat : Bool) (st : Step) (now : Nat) (s : AbstractModel.ServerState) :
-    Response × AbstractModel.ServerState :=
-  AbstractModel.run mat (handle st now) s
+def step (mat : Bool) (ev : Event) (now : Nat) (s : AbstractModel.ServerState) :
+    Reply × AbstractModel.ServerState :=
+  AbstractModel.run mat (handle ev now) s
 
-def runFin (mat : Bool) :
-    List (Step × Nat) → AbstractModel.ServerState →
-    List Response × AbstractModel.ServerState
+def exec (mat : Bool) :
+    List (Event × Nat) → AbstractModel.ServerState →
+    List Reply × AbstractModel.ServerState
   | [],           s => ([], s)
-  | (st, n) :: w, s =>
-      let (r, s')   := stepOf mat st n s
-      let (rs, s'') := runFin mat w s'
+  | (ev, n) :: w, s =>
+      let (r, s')   := step mat ev n s
+      let (rs, s'') := exec mat w s'
       (r :: rs, s'')
 
-structure StateAction where
+structure Frame where
   state : AbstractModel.ServerState
-  req   : Step
-  res   : Response
+  event : Event
+  reply : Reply
   now   : Nat
 
-abbrev Trace := Nat → StateAction
+abbrev Trace := Nat → Frame
 
 def Valid (mat : Bool) (tr : Trace) : Prop :=
   ∀ t : Nat,
-    (tr t).res = (stepOf mat (tr t).req (tr t).now (tr t).state).1 ∧
-    (tr (t + 1)).state = (stepOf mat (tr t).req (tr t).now (tr t).state).2 ∧
+    step mat (tr t).event (tr t).now (tr t).state = ((tr t).reply, (tr (t + 1)).state) ∧
     (tr t).now ≤ (tr (t + 1)).now
 
-end Abstraction
+theorem Valid.reply {mat : Bool} {tr : Trace} (hv : Valid mat tr) (t : Nat) :
+    (tr t).reply = (step mat (tr t).event (tr t).now (tr t).state).1 := by
+  rw [(hv t).1]
+
+theorem Valid.state {mat : Bool} {tr : Trace} (hv : Valid mat tr) (t : Nat) :
+    (tr (t + 1)).state = (step mat (tr t).event (tr t).now (tr t).state).2 := by
+  rw [(hv t).1]
+
+theorem Valid.now {mat : Bool} {tr : Trace} (hv : Valid mat tr) (t : Nat) :
+    (tr t).now ≤ (tr (t + 1)).now := (hv t).2
+
+end Abstract

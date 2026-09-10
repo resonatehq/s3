@@ -1,7 +1,7 @@
 import «03-theorems».«entries»
 
-namespace Abstraction
-namespace Frame
+namespace Abstract
+namespace Stepwise
 
 open AbstractModel
 
@@ -222,8 +222,8 @@ theorem storeNodup_applyAll :
 theorem storeNodup_init : StoreNodup ServerState.init :=
   ⟨List.nodup_nil, List.nodup_nil, List.nodup_nil⟩
 
-theorem storeNodup_step (mat : Bool) (st : Step) (now : Nat) (s : ServerState)
-    (h : StoreNodup s) : StoreNodup (stepOf mat st now s).2 :=
+theorem storeNodup_step (mat : Bool) (st : Event) (now : Nat) (s : ServerState)
+    (h : StoreNodup s) : StoreNodup (step mat st now s).2 :=
   storeNodup_applyAll _ s h
 
 section Entries
@@ -273,16 +273,16 @@ theorem hasTask_applyAll :
   | [],      _, _,  h => h
   | f :: fs, s, id, h => hasTask_applyAll fs (f.apply s) id (hasTask_apply f s id h)
 
-theorem monotone_promise_set_grows_step (mat : Bool) (st : Step) (now n' : Nat)
+theorem monotone_promise_set_grows_step (mat : Bool) (st : Event) (now n' : Nat)
     (s : ServerState) :
-    monotone_promise_set_grows n' s (stepOf mat st now s).2 = true := by
+    monotone_promise_set_grows n' s (step mat st now s).2 = true := by
   refine List.all_eq_true.mpr (fun o ho => ?_)
-  show (stepOf mat st now s).2.objects.any (·.id == o.id) = true
+  show (step mat st now s).2.objects.any (·.id == o.id) = true
   exact object_id_applyAll _ s o.id (List.any_eq_true.mpr ⟨o, ho, by simp⟩)
 
-theorem monotone_task_set_grows_step (mat : Bool) (st : Step) (now n' : Nat)
+theorem monotone_task_set_grows_step (mat : Bool) (st : Event) (now n' : Nat)
     (s : ServerState) (hnd : StoreNodup s) :
-    monotone_task_set_grows n' s (stepOf mat st now s).2 = true := by
+    monotone_task_set_grows n' s (step mat st now s).2 = true := by
   refine List.all_eq_true.mpr (fun o ho => ?_)
   cases hto : o.task with
   | none => simp [hto]
@@ -291,7 +291,7 @@ theorem monotone_task_set_grows_step (mat : Bool) (st : Step) (now n' : Nat)
         unfold ServerState.hasTask ServerState.task?
         rw [find?_self_of_nodup (·.id) s.objects hnd.1 o ho]
         simp [hto]
-      show (!(some t).isSome || (stepOf mat st now s).2.hasTask o.id) = true
+      show (!(some t).isSome || (step mat st now s).2.hasTask o.id) = true
       simp only [Option.isSome_some, Bool.not_true, Bool.false_or]
       exact hasTask_applyAll _ s o.id hpre
 
@@ -309,5 +309,5 @@ theorem outbox_keys_unique_of_nodup (now : Nat) (s : ServerState) (h : StoreNodu
 
 end Entries
 
-end Frame
-end Abstraction
+end Stepwise
+end Abstract

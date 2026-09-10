@@ -2,7 +2,7 @@ import impl.refinement
 
 namespace Impl.Demo
 
-open ServerModel Equivalence Impl
+open ServerModel Abstract Impl
 
 def oid (s : String) : Ident := { origin := "o", suffix := s }
 
@@ -31,6 +31,6 @@ def result := Impl.run true scenario State.init
   (n, match st with
       | .external rq => s!"external {repr rq |>.pretty 200 |>.take 40}…"
       | .internal st => s!"internal {repr st |>.pretty 200}"
-      | .idle => "idle")
+      | .stutter => "stutter")
 
 end Impl.Demo

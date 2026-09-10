@@ -1,6 +1,6 @@
 import «03-theorems».«liveness»
 
-namespace Abstraction
+namespace Abstract
 
 open ServerModel AbstractModel
 
@@ -58,4 +58,4 @@ theorem arms_a_runnable_deadline : armed "runnable" = true := by rfl
 theorem arms_an_external_deadline : armed "external" = true := by rfl
 theorem arms_no_internal_deadline : armed "internal" = false := by rfl
 
-end Abstraction
+end Abstract

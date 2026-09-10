@@ -4,7 +4,7 @@ import «02-abstract».«properties»
 
 set_option maxHeartbeats 400000
 
-namespace Abstraction
+namespace Abstract
 namespace Induction
 
 open AbstractModel
@@ -18,8 +18,8 @@ theorem applyAll_preserves {P : ServerState → Bool} (h : EffectStable P) :
   | e :: es, s, hs => applyAll_preserves h es (e.apply s) (h e s hs)
 
 theorem step_preserves {P : ServerState → Bool} (h : EffectStable P)
-    (mat : Bool) (st : Step) (now : Nat) (s : ServerState) :
-    P s = true → P (stepOf mat st now s).2 = true := by
+    (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+    P s = true → P (step mat st now s).2 = true := by
   intro hs
   show P (applyAll s ((handle st now) { state := s, mat := mat }).2) = true
   exact applyAll_preserves h _ s hs
@@ -625,21 +625,21 @@ end Derived
 theorem stateHolds_init (now : Nat) :
     Properties.stateHolds now ServerState.init = true := rfl
 
-theorem stateHolds_step (mat : Bool) (st : Step) (now : Nat) (s : ServerState) :
+theorem stateHolds_step (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
     Properties.stateHolds now s = true →
-    Properties.stateHolds now (stepOf mat st now s).2 = true := sorry
+    Properties.stateHolds now (step mat st now s).2 = true := sorry
 
 theorem stateHolds_clock (n n' : Nat) (s : ServerState) :
     Properties.stateHolds n s = true → n ≤ n' →
     Properties.stateHolds n' s = true := sorry
 
-theorem legalAt_step (mat : Bool) (st : Step) (now : Nat) (s : ServerState) :
+theorem legalAt_step (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
     Properties.stateHolds now s = true →
-    Properties.legalAt now s (stepOf mat st now s).2 = true := sorry
+    Properties.legalAt now s (step mat st now s).2 = true := sorry
 
-theorem internal_well_formed (mat : Bool) (st : Step) (now : Nat) (s : ServerState) :
+theorem internal_well_formed (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
     st.isInternal = true → Properties.stateHolds now s = true →
-    Properties.internalWellFormed now s (stepOf mat st now s).2 = true := sorry
+    Properties.internalWellFormed now s (step mat st now s).2 = true := sorry
 
 end Induction
-end Abstraction
+end Abstract

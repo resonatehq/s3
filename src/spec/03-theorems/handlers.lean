@@ -2,7 +2,7 @@ import «03-theorems».«induction»
 
 set_option maxHeartbeats 1000000
 
-namespace Abstraction
+namespace Abstract
 namespace Induction
 
 open AbstractModel
@@ -516,7 +516,7 @@ theorem writesGood_processSchedule (req : ServerModel.ScheduleTimeoutReq) (now :
     · exact writesGood_setSchedule _ _ _ (hq.cAdvance c _ (getSchedule_sound hs hc))
     · exact writesGood_pure _ _ _
 
-theorem writesGood_handleExternal (rq : Equivalence.Request) (now : Nat) :
+theorem writesGood_handleExternal (rq : Abstract.Request) (now : Nat) :
     WritesGood g e (handleExternal rq now) := by
   cases rq with
   | promiseGet              req => exact writesGood_map _ _ _ _ (writesGood_promiseGet hq hs req now)
@@ -541,7 +541,7 @@ theorem writesGood_handleExternal (rq : Equivalence.Request) (now : Nat) :
   | taskContinue            req => exact writesGood_map _ _ _ _ (writesGood_taskContinue hq hs req now)
   | taskSearch              req => exact writesGood_map _ _ _ _ (writesGood_taskSearch hq hs req now)
 
-theorem writesGood_handleInternal (rq : InternalStep) (now : Nat) :
+theorem writesGood_handleInternal (rq : Trigger) (now : Nat) :
     WritesGood g e (handleInternal rq now) := by
   cases rq with
   | promiseTimeout   req => exact writesGood_processPromiseTimeout hq hs req now
@@ -551,22 +551,22 @@ theorem writesGood_handleInternal (rq : InternalStep) (now : Nat) :
   | taskRetryTimeout req => exact writesGood_processRetryTimeout hq hs req now
   | scheduleTimeout  req => exact writesGood_processSchedule hq hs req now
 
-theorem writesGood_handle (st : Step) (now : Nat) : WritesGood g e (handle st now) := by
+theorem writesGood_handle (st : Event) (now : Nat) : WritesGood g e (handle st now) := by
   cases st with
-  | external rq => exact writesGood_handleExternal hq hs rq now
+  | external rq => exact writesGood_map _ _ _ _ (writesGood_handleExternal hq hs rq now)
   | internal rq =>
       exact writesGood_bind' _ _ _ _ (writesGood_handleInternal hq hs rq now)
         (writesGood_pure _ _ _)
-  | idle => exact writesGood_pure _ _ _
+  | stutter => exact writesGood_pure _ _ _
 
 end Handlers
 
-theorem perStore_step {g : Q} (mat : Bool) (st : Step) (now : Nat) (s : ServerState)
+theorem perStore_step {g : Q} (mat : Bool) (st : Event) (now : Nat) (s : ServerState)
     (hq : Hereditary g s) :
-    PerStore g s = true → PerStore g (stepOf mat st now s).2 = true := by
+    PerStore g s = true → PerStore g (step mat st now s).2 = true := by
   intro hsq
   refine perStore_applyAll g _ s hsq ?_
   exact writesGood_handle (e := { state := s, mat := mat }) hq hsq st now
 
 end Induction
-end Abstraction
+end Abstract

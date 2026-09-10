@@ -3,8 +3,8 @@ import impl.system
 namespace Frame
 
 open ServerModel AbstractModel
-open Equivalence (Request Response)
-open Abstraction (InternalStep)
+open Abstract (Request Response Reply)
+open Abstract (Trigger)
 
 theorem bind_apply (x : H α) (f : α → H β) (e : Env) :
     (x >>= f) e = ((f (x e).1 e).1, (x e).2 ++ (f (x e).1 e).2) := rfl

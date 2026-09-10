@@ -4,10 +4,10 @@ namespace Impl
 
 open ServerModel (Ident Message PromiseState TaskState)
 open AbstractModel (Object PromiseObject TaskObject ServerState)
-open Equivalence (Request Response)
-open Abstraction (InternalStep)
+open Abstract (Request Response Reply)
+open Abstract (Trigger)
 
-def _root_.Equivalence.Request.origin? : Request → Option String
+def _root_.Abstract.Request.origin? : Request → Option String
   | .promiseGet r              => some r.id.origin
   | .promiseCreate r           => some r.id.origin
   | .promiseSettle r           => some r.id.origin
@@ -42,20 +42,20 @@ def dueAt (now : Nat) : Option Nat → Bool
   | some dl => dl ≤ now
   | none    => false
 
-def stepDoc (mat : Bool) (st : Abstraction.Step) (now : Nat) (d : OriginDoc) :
-    Response × OriginDoc × List (String × Message) :=
-  let (res, fx) := Abstraction.handle st now { state := d.toState, mat := mat }
+def stepDoc (mat : Bool) (st : Abstract.Event) (now : Nat) (d : OriginDoc) :
+    Reply × OriginDoc × List (String × Message) :=
+  let (res, fx) := Abstract.handle st now { state := d.toState, mat := mat }
   (res, OriginDoc.ofState (AbstractModel.applyAll d.toState fx) d.timerAt, sendsOf fx)
 
 def stepDocs (mat : Bool) (now : Nat) :
-    OriginDoc → List InternalStep → OriginDoc × List (String × Message)
+    OriginDoc → List Trigger → OriginDoc × List (String × Message)
   | d, []       => (d, [])
   | d, st :: sts =>
       let (_, d', sends) := stepDoc mat (.internal st) now d
       let (d'', sends') := stepDocs mat now d' sts
       (d'', sends ++ sends')
 
-def timeoutSteps (d : OriginDoc) (now : Nat) : List InternalStep :=
+def timeoutSteps (d : OriginDoc) (now : Nat) : List Trigger :=
   (d.objects.filterMap fun o =>
     if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now
     then some (.promiseTimeout ⟨o.id⟩) else none)
@@ -66,7 +66,7 @@ def timeoutSteps (d : OriginDoc) (now : Nat) : List InternalStep :=
         then some (.taskLeaseTimeout ⟨o.id⟩) else none
     | none => none)
 
-def obligationSteps (origin : String) (d : OriginDoc) : List InternalStep :=
+def obligationSteps (origin : String) (d : OriginDoc) : List Trigger :=
   d.objects.flatMap fun o =>
     if o.promise.state != .pending then
       (o.promise.callbacks.filterMap fun awaiter =>
@@ -75,7 +75,7 @@ def obligationSteps (origin : String) (d : OriginDoc) : List InternalStep :=
       ++ o.promise.listeners.map (fun a => .listener ⟨o.id, a⟩)
     else []
 
-def retrySteps (d : OriginDoc) (now : Nat) : List InternalStep :=
+def retrySteps (d : OriginDoc) (now : Nat) : List Trigger :=
   d.objects.filterMap fun o =>
     match o.task with
     | some t =>
@@ -83,7 +83,7 @@ def retrySteps (d : OriginDoc) (now : Nat) : List InternalStep :=
         then some (.taskRetryTimeout ⟨o.id⟩) else none
     | none => none
 
-def drainSteps (mat : Bool) (origin : String) (d : OriginDoc) (now : Nat) : List InternalStep :=
+def drainSteps (mat : Bool) (origin : String) (d : OriginDoc) (now : Nat) : List Trigger :=
   let p1 := timeoutSteps d now
   let d1 := (stepDocs mat now d p1).1
   let p2 := obligationSteps origin d1
@@ -106,11 +106,11 @@ def Work.origin? (declared : String) : Work → Option String
   | .sweep _    => some declared
 
 def decide (mat : Bool) (origin : String) (work : Work) (now : Nat) (old : OriginDoc) :
-    Response × OriginDoc × List (String × Message) :=
+    Reply × OriginDoc × List (String × Message) :=
   let (res, d1, sends1) :=
     match work with
     | .request rq => stepDoc mat (.external rq) now old
-    | .sweep _    => (Response.silent, old, [])
+    | .sweep _    => (Reply.stutter, old, [])
   let (d2, sends2) := drain mat origin d1 now
   (res, { d2 with timerAt := d2.minDeadline }, sends1 ++ sends2)
 
@@ -138,7 +138,7 @@ def emitAll : List Effect → C Unit
   | []      => pure ()
   | f :: fs => do emit f; emitAll fs
 
-def transact (mat : Bool) (work : Work) (now : Nat) : C Response := do
+def transact (mat : Bool) (work : Work) (now : Nat) : C Reply := do
   let e ← ask
   let (res, new, sends) := decide mat e.origin work now e.doc
   emitAll (armFx e.doc new)

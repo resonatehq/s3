@@ -1,7 +1,7 @@
 import «02-abstract».«system»
 import «02-abstract».«properties»
 
-namespace Abstraction
+namespace Abstract
 
 def Legal (tr : Trace) : Prop :=
   ∀ t : Nat, (AbstractModel.Properties.catalogue.all fun l =>
@@ -19,4 +19,4 @@ def extTags   : ServerModel.Tags := [("resonate:external", "true")]
 def tgtTags   : ServerModel.Tags := [("resonate:target", "w1")]
 def timerTags : ServerModel.Tags := [("resonate:timer", "true")]
 
-end Abstraction
+end Abstract

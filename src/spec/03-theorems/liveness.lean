@@ -1,6 +1,6 @@
 import «03-theorems».«properties-step»
 
-namespace Abstraction
+namespace Abstract
 
 open AbstractModel (ServerState PromiseObject TaskObject)
 
@@ -10,7 +10,7 @@ def promiseAt (s : ServerState) (id : ServerModel.Ident) : Option PromiseObject 
 def taskAt (s : ServerState) (id : ServerModel.Ident) : Option TaskObject :=
   s.task? id
 
-def enabledInternal (st : Step) (now : Nat) (s : ServerState) : Bool :=
+def enabledInternal (st : Event) (now : Nat) (s : ServerState) : Bool :=
   match st with
   | .internal (.promiseTimeout { id := id }) =>
       match promiseAt s id with
@@ -42,21 +42,21 @@ def enabledInternal (st : Step) (now : Nat) (s : ServerState) : Bool :=
 def ClockAdvances (tr : Trace) : Prop :=
   ∀ n : Nat, ∃ t : Nat, n ≤ (tr t).now
 
-def WeaklyFairOn (tr : Trace) (family : Step → Bool) : Prop :=
-  ∀ st : Step, family st = true →
+def WeaklyFairOn (tr : Trace) (family : Event → Bool) : Prop :=
+  ∀ st : Event, family st = true →
     ∀ t : Nat,
       (∀ u : Nat, t ≤ u → enabledInternal st (tr u).now (tr u).state = true) →
-      ∃ u : Nat, t ≤ u ∧ (tr u).req = st
+      ∃ u : Nat, t ≤ u ∧ (tr u).event = st
 
-def isSettlementStep : Step → Bool
+def isSettlementStep : Event → Bool
   | .internal (.promiseTimeout { id := _ }) => true
   | _     => false
 
-def isCallbackStep : Step → Bool
+def isCallbackStep : Event → Bool
   | .internal (.callback { awaited := _, awaiter := _ }) => true
   | _       => false
 
-def isListenerStep : Step → Bool
+def isListenerStep : Event → Bool
   | .internal (.listener { awaited := _, address := _ }) => true
   | _       => false
 
@@ -111,31 +111,31 @@ def EventuallyListenerNotified : Prop :=
              | .unblock r => r.id == a && r.state != .pending
              | .execute _ _ => false)) = true
 
-def enabledSteps (now : Nat) (s : ServerState) : List Step :=
+def enabledSteps (now : Nat) (s : ServerState) : List Event :=
   s.objects.flatMap fun o =>
     let p := o.promise
-    (if enabledInternal (.internal (.promiseTimeout { id := o.id })) now s then [Step.internal (.promiseTimeout { id := o.id })] else [])
-      ++ p.callbacks.map (fun x => Step.internal (.callback { awaited := o.id, awaiter := x }))
-      ++ p.listeners.map (fun addr => Step.internal (.listener { awaited := o.id, address := addr }))
-      ++ (if o.task.isSome ∧ enabledInternal (.internal (.taskLeaseTimeout { id := o.id })) now s then [Step.internal (.taskLeaseTimeout { id := o.id })] else [])
-      ++ (if o.task.isSome ∧ enabledInternal (.internal (.taskRetryTimeout { id := o.id })) now s then [Step.internal (.taskRetryTimeout { id := o.id })] else [])
+    (if enabledInternal (.internal (.promiseTimeout { id := o.id })) now s then [Event.internal (.promiseTimeout { id := o.id })] else [])
+      ++ p.callbacks.map (fun x => Event.internal (.callback { awaited := o.id, awaiter := x }))
+      ++ p.listeners.map (fun addr => Event.internal (.listener { awaited := o.id, address := addr }))
+      ++ (if o.task.isSome ∧ enabledInternal (.internal (.taskLeaseTimeout { id := o.id })) now s then [Event.internal (.taskLeaseTimeout { id := o.id })] else [])
+      ++ (if o.task.isSome ∧ enabledInternal (.internal (.taskRetryTimeout { id := o.id })) now s then [Event.internal (.taskRetryTimeout { id := o.id })] else [])
 
 def fireAllEnabled (now : Nat) (s : ServerState) : ServerState :=
   (enabledSteps now s).foldl
-    (fun acc st => if enabledInternal st now acc then (stepOf true st now acc).2 else acc) s
+    (fun acc st => if enabledInternal st now acc then (step true st now acc).2 else acc) s
 
 def fairRounds : Nat → Nat → ServerState → ServerState
   | 0,     _,   s => s
   | k + 1, now, s => fairRounds k now (fireAllEnabled now s)
 
-def wakeMaterializes (w : List (Step × Nat)) (horizon : Nat) : Bool :=
-  let s := fairRounds 6 horizon (runFin true w AbstractModel.ServerState.init).2
+def wakeMaterializes (w : List (Event × Nat)) (horizon : Nat) : Bool :=
+  let s := fairRounds 6 horizon (exec true w AbstractModel.ServerState.init).2
   s.promises.all fun p =>
     (p.project horizon).state == .pending ||
       (p.callbacks.isEmpty && p.listeners.isEmpty)
 
-def resumeRecorded (w : List (Step × Nat)) (horizon : Nat) : Bool :=
-  let s0 := (runFin true w AbstractModel.ServerState.init).2
+def resumeRecorded (w : List (Event × Nat)) (horizon : Nat) : Bool :=
+  let s0 := (exec true w AbstractModel.ServerState.init).2
   let s  := fairRounds 6 horizon s0
   s0.objects.all fun o =>
     o.promise.callbacks.all fun x =>
@@ -147,7 +147,7 @@ def resumeRecorded (w : List (Step × Nat)) (horizon : Nat) : Bool :=
 set_option maxRecDepth 100000
 set_option maxHeartbeats 4000000
 
-def wWake : List (Step × Nat) :=
+def wWake : List (Event × Nat) :=
   [ (.external (.promiseCreate { id := oid "a", timeoutAt := 9000, param := {}, tags := extTags }), 100),
     (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "x", timeoutAt := 9000, param := {}, tags := tgtTags } }), 100),
     (.external (.taskSuspend { id := oid "x", version := 1, actions := [{ awaited := oid "a", awaiter := oid "x" }] }), 120),
@@ -156,7 +156,7 @@ def wWake : List (Step × Nat) :=
 example : wakeMaterializes wWake 300 := by decide
 example : resumeRecorded wWake 300 := by decide
 
-def wWakeTimedOut : List (Step × Nat) :=
+def wWakeTimedOut : List (Event × Nat) :=
   [ (.external (.promiseCreate { id := oid "a", timeoutAt := 9000, param := {}, tags := extTags }), 100),
     (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "x", timeoutAt := 250, param := {}, tags := tgtTags } }), 100),
     (.external (.taskSuspend { id := oid "x", version := 1, actions := [{ awaited := oid "a", awaiter := oid "x" }] }), 120),
@@ -166,8 +166,8 @@ example : wakeMaterializes wWakeTimedOut 300 := by decide
 example : resumeRecorded wWakeTimedOut 300 := by decide
 
 theorem wake_requires_fairness :
-    ((runFin true wWake AbstractModel.ServerState.init).2.promises.any (fun p => p.callbacks.contains (oid "x"))
-      && (runFin true wWake AbstractModel.ServerState.init).2.tasks.any (fun t => t.state == .suspended)) = true := by
+    ((exec true wWake AbstractModel.ServerState.init).2.promises.any (fun p => p.callbacks.contains (oid "x"))
+      && (exec true wWake AbstractModel.ServerState.init).2.tasks.any (fun t => t.state == .suspended)) = true := by
   decide
 
 theorem boundedWakeSweep :
@@ -179,4 +179,4 @@ theorem boundedWakeBattery :
     (battery.all (fun w => wakeMaterializes w 9000 && resumeRecorded w 9000)) = true := by
   decide
 
-end Abstraction
+end Abstract

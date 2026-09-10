@@ -1,34 +1,34 @@
 import «03-theorems».«corpus»
 import «02-abstract».«properties»
 
-namespace Abstraction
+namespace Abstract
 
 open AbstractModel.Properties
 
 def statesOfA (mat : Bool) :
-    List (Step × Nat) → AbstractModel.ServerState → List (Nat × AbstractModel.ServerState)
+    List (Event × Nat) → AbstractModel.ServerState → List (Nat × AbstractModel.ServerState)
   | [], _ => []
   | (st, n) :: w, s =>
-      let (_, s') := stepOf mat st n s
+      let (_, s') := step mat st n s
       (n, s') :: statesOfA mat w s'
 
-def trace (w : List (Step × Nat)) : List (Nat × AbstractModel.ServerState) :=
+def trace (w : List (Event × Nat)) : List (Nat × AbstractModel.ServerState) :=
   statesOfA true w AbstractModel.ServerState.init
     ++ statesOfA false w AbstractModel.ServerState.init
 
 def pairs (mat : Bool) :
-    List (Step × Nat) → AbstractModel.ServerState →
+    List (Event × Nat) → AbstractModel.ServerState →
     List (Nat × AbstractModel.ServerState × AbstractModel.ServerState)
   | [], _ => []
   | (st, n) :: w, s =>
-      let (_, s') := stepOf mat st n s
+      let (_, s') := step mat st n s
       (n, s, s') :: pairs mat w s'
 
-def allPairs (w : List (Step × Nat)) :=
+def allPairs (w : List (Event × Nat)) :=
   pairs true w AbstractModel.ServerState.init
     ++ pairs false w AbstractModel.ServerState.init
 
-def legalRun (w : List (Step × Nat)) : Bool :=
+def legalRun (w : List (Event × Nat)) : Bool :=
   (allPairs w).all (fun (n, a, b) => legalAt n a b)
     && (allPairs w).all (fun (n, _, b) => stateHolds n b)
 
@@ -38,19 +38,19 @@ def failingNames (now : Nat) (a b : AbstractModel.ServerState) : List String :=
     | .state f => if f now a && f now b then none else some l.name
     | .trans f => if f now a b          then none else some l.name
 
-def report (ws : List (List (Step × Nat))) : List String :=
+def report (ws : List (List (Event × Nat))) : List String :=
   (ws.flatMap fun w => (allPairs w).flatMap (fun (n, a, b) => failingNames n a b)).eraseDups
 
-def witnesses (ws : List (List (Step × Nat))) (p : AbstractModel.ServerState → Bool) : Bool :=
+def witnesses (ws : List (List (Event × Nat))) (p : AbstractModel.ServerState → Bool) : Bool :=
   ws.any fun w => (trace w).any (fun (_, s) => p s)
 
-def covInternal : List (Step × Nat) :=
+def covInternal : List (Event × Nat) :=
   [ (.external (.promiseCreate { id := oid "i", timeoutAt := 1000, param := {}, tags := [] }), 100),
     (.external (.promiseRegisterListener { awaited := oid "i", address := "https://l" }), 110),
     (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "x", timeoutAt := 2000, param := {}, tags := tgtTags } }), 120),
     (.external (.promiseRegisterCallback { awaited := oid "i", awaiter := oid "x" }), 130) ]
 
-def covListeners : List (Step × Nat) :=
+def covListeners : List (Event × Nat) :=
   [ (.external (.promiseCreate { id := oid "a", timeoutAt := 1000, param := {}, tags := extTags }), 100),
     (.external (.promiseRegisterListener { awaited := oid "a", address := "https://l1" }), 110),
     (.external (.promiseRegisterListener { awaited := oid "a", address := "https://l2" }), 120),
@@ -58,7 +58,7 @@ def covListeners : List (Step × Nat) :=
     (.internal (.listener { awaited := oid "a", address := "https://l1" }), 210),
     (.internal (.listener { awaited := oid "a", address := "https://l2" }), 220) ]
 
-def covTwoTasks : List (Step × Nat) :=
+def covTwoTasks : List (Event × Nat) :=
   [ (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "x", timeoutAt := 5000, param := {}, tags := tgtTags } }), 100),
     (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "y", timeoutAt := 5000, param := {}, tags := tgtTags } }), 110),
     (.external (.taskRelease { id := oid "x", version := 1 }), 120),
@@ -66,12 +66,12 @@ def covTwoTasks : List (Step × Nat) :=
     (.internal (.taskRetryTimeout { id := oid "x" }), 140),
     (.internal (.taskRetryTimeout { id := oid "y" }), 150) ]
 
-def covHalt : List (Step × Nat) :=
+def covHalt : List (Event × Nat) :=
   [ (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "h", timeoutAt := 5000, param := {}, tags := tgtTags } }), 100),
     (.external (.taskHalt { id := oid "h" }), 110),
     (.external (.taskContinue { id := oid "h" }), 120) ]
 
-def battery : List (List (Step × Nat)) :=
+def battery : List (List (Event × Nat)) :=
   [wLag, b1, b2, b3, b4, b5, b6, covInternal, covListeners, covTwoTasks, covHalt]
 
 set_option maxRecDepth 100000
@@ -278,7 +278,7 @@ open AbstractModel.Properties (well_formed_task_ttl_positive
   well_formed_promise_target_is_nonempty
   well_formed_promise_delay_before_deadline)
 
-def wGapTtlZero : List (Step × Nat) :=
+def wGapTtlZero : List (Event × Nat) :=
   [ (.external (.taskCreate { pid := "p", ttl := 0, action := { id := oid "x", timeoutAt := 9000, param := {}, tags := tgtTags } }), 100) ]
 
 theorem gap_task_ttl_positive_is_violable :
@@ -286,7 +286,7 @@ theorem gap_task_ttl_positive_is_violable :
 
 def emptyTargetTags : ServerModel.Tags := [("resonate:target", "")]
 
-def wGapEmptyTarget : List (Step × Nat) :=
+def wGapEmptyTarget : List (Event × Nat) :=
   [ (.external (.promiseCreate { id := oid "y", timeoutAt := 9000, param := {}, tags := emptyTargetTags }), 100),
     (.internal (.taskRetryTimeout { id := oid "y" }), 110) ]
 
@@ -301,10 +301,10 @@ theorem gap_empty_target_reaches_the_outbox :
 
 def lateDelayTags : ServerModel.Tags := [("resonate:target", "w"), ("resonate:delay", "5000")]
 
-def wGapLateDelay : List (Step × Nat) :=
+def wGapLateDelay : List (Event × Nat) :=
   [ (.external (.promiseCreate { id := oid "z", timeoutAt := 200, param := {}, tags := lateDelayTags }), 100) ]
 
 theorem gap_promise_delay_before_deadline_is_violable :
     (trace wGapLateDelay).any (fun (n, s) => !well_formed_promise_delay_before_deadline n s) = true := by decide
 
-end Abstraction
+end Abstract

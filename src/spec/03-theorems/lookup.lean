@@ -1,6 +1,6 @@
 import «03-theorems».«system»
 
-namespace Abstraction
+namespace Abstract
 namespace Lookup
 
 open AbstractModel
@@ -237,4 +237,4 @@ theorem REq.mono {n n' : Nat} (h : n ≤ n') {sP sM : ServerState}
   rw [tLook_mono h sP id, tLook_mono h sM id, ht id, hp' id]
 
 end Lookup
-end Abstraction
+end Abstract
