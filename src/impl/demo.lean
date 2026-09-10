@@ -19,7 +19,7 @@ def scenario : List (Step × Nat) :=
   , (.begin "o" (.sweep (some 300)), 5000)
   , (.commit 0, 6000) ]
 
-def result := Impl.run true scenario State.init
+def result := Impl.run scenario State.init
 
 #eval result.1.map fun ob => (ob.now, ob.res)
 
@@ -27,7 +27,7 @@ def result := Impl.run true scenario State.init
 
 #eval result.2.world.wire
 
-#eval (Refinement.linearize true scenario State.init).map fun (st, n) =>
+#eval (Refinement.linearize scenario State.init).map fun (st, n) =>
   (n, match st with
       | .external rq => s!"external {repr rq |>.pretty 200 |>.take 40}…"
       | .internal st => s!"internal {repr st |>.pretty 200}"

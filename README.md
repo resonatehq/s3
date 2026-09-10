@@ -42,25 +42,28 @@ Read the files in this order.
 | file | what it defines |
 |---|---|
 | `src/impl/cas.lean` | **The CAS machine.** A versioned key–value store with `get`, `put`, `del`, and a condition on every write: `any`, `absent` (`If-None-Match: *`), or `version v` (`If-Match: etag`). A write whose condition fails is *rejected* and changes nothing. Versions are drawn from a counter that never repeats, so a version seen once is never seen again at a different value (`put_version_fresh`). |
-| `src/impl/doc.lean` | **The document, the key space, the world.** One document per origin holding every promise and task of that origin; timer keys carrying a deadline and an origin; the world as the bucket plus the wire (the messages handed to the transport, kept in the specification's own outbox discipline). |
-| `src/impl/monad.lean` | **The monad `C`.** Same shape as the specification's `H`, different vocabulary: it reads one snapshot — the document a transaction fetched, with its version — and it emits `putDoc` (conditional on that version), `armTimer`, `delTimer`, `send`. Effects are performed in order; a refused `putDoc` stops the transaction there. |
-| `src/impl/kernel.lean` | **The kernel.** The specification's own handler, run against one origin's document: lift the document to a state, run `Abstract.handle`, lower the result. The drain sweeps a document in three phases — expired deadlines, obligations of settled promises, tasks due for re-dispatch — each a list of the specification's triggers. `transact` decides, then emits in the shell's order: arm the new timer, commit the document, clear the old timer, send. |
+| `src/impl/origin.lean` | **The document.** `Origin` is one document per origin holding every promise and task of that origin. `Tx` is a transaction against it: reads see the snapshot, writes accumulate in a fresh copy, messages queue up. `Tx.commit` turns a finished transaction into a `Commit`: the deadlines to **arm** (present after, absent before), the document to **put**, the deadlines to **del** (present before, absent after), and the messages to **send**. |
+| `src/impl/handlers.lean` | **The handlers.** The 21 request handlers and the 6 trigger handlers of the protocol, written as plain functions `Origin → Tx → Response × Tx` — no monad. `Handle.external` and `Handle.trigger` run one against a snapshot and commit it, so every handler is a function from a document to a `Commit`: arm these timers, put this document, delete those timers, send these messages. |
+| `src/impl/doc.lean` | **The key space and the world.** `Key.origin o` holds the document, `Key.timer dl o` a deadline; the world is the bucket plus the wire (the messages handed to the transport). |
+| `src/impl/monad.lean` | **The monad `C`.** Same shape as the specification's `H`, different vocabulary: it reads one snapshot — the document a transaction fetched, with its version — and it emits `putOrigin` (conditional on that version), `armTimer`, `delTimer`, `send`. Effects are performed in order; a refused `putOrigin` stops the transaction there. |
+| `src/impl/kernel.lean` | **The kernel.** `decide` runs the handler for the request, then drains the document in three phases — expired deadlines, obligations of settled promises, tasks due for re-dispatch — each a list of triggers run through `Handle.trigger`. `transact` emits the resulting `Commit` in the shell's order: arm the new timers, put the document, delete the old timers, send. |
 | `src/impl/system.lean` | **The system.** Transactions `begin` (snapshot) and `commit` (decide, CAS-write) in any interleaving, or `stutter`; sweeps are transactions too. `run` collects the observations of a finite run: every answered request, with its answer and instant. |
-| `src/impl/frame.lean` | **The frame lemmas.** For every handler and every trigger: two environments that agree on origin `o` get the same answer and effects (`Cong`), and every effect is a write at an id of origin `o` or a message (`LocAt`). The same-origin doors of the protocol are exactly where these proofs pick up the fact they need. |
+| `src/impl/equiv.lean` | **Handlers against the specification.** `liftH` maps the specification's `H` computations onto `Tx`, and it is a monad morphism. Every handler and every trigger is shown equal to the specification's under it (`promiseCreate_eq`, …, `retryTimeout_eq`); `external_eq` and `trigger_eq` sum this up as: the impl's `Commit` has the same response, the same document and the same sends as one specification step. |
+| `src/impl/frame.lean` | **The frame lemmas.** For every specification handler and trigger: two environments that agree on origin `o` get the same answer and effects (`Cong`), and every effect is a write at an id of origin `o` or a message (`LocAt`). |
 | `src/impl/apply.lean` | **Effects through lookups.** The specification's effects restated as lookup transformers; congruence on one origin, frame on every other, and the outbox as a fold of sends. |
-| `src/impl/commit.lean` | **The commit, performed.** The closed form of a transaction's effects, the two store invariants (`SInv`: versions are fresh; `TxnInv`: an in-flight snapshot is either the stored document or at a version that has moved), and the CAS as a theorem (`snapshot_current`). |
+| `src/impl/commit.lean` | **The commit, performed.** The closed form of a transaction's effects, the two store invariants (`SInv`: versions are fresh; `TxnInv`: an in-flight snapshot is either the stored document or at a version that has moved). |
 | `src/impl/refinement.lean` | **The theorem.** |
 | `src/impl/demo.lean` | An executable scenario and its linearization; `lake build impl.demo` prints it. |
 
 ### The theorem
 
 ```lean
-theorem refines (mat : Bool) (w : List (Impl.Step × Nat)) :
-    obsOf (linearize mat w State.init)
-        (Abstract.exec mat (linearize mat w State.init) ServerState.init).1 =
-      (Impl.run mat w State.init).1 ∧
-    Rel (Impl.run mat w State.init).2.world
-        (Abstract.exec mat (linearize mat w State.init) ServerState.init).2
+theorem refines (w : List (Impl.Step × Nat)) :
+    obsOf (linearize w State.init)
+        (Abstract.exec true (linearize w State.init) ServerState.init).1 =
+      (Impl.run w State.init).1 ∧
+    Rel (Impl.run w State.init).2.world
+        (Abstract.exec true (linearize w State.init) ServerState.init).2
 ```
 
 Every observable behaviour of the implementation is an observable
@@ -75,23 +78,30 @@ to exist: each accepted commit becomes the specification's external event
 followed by the internal events the sweep performed; a refused commit, a
 `begin`, a `stutter` become nothing (`linearize_nows_pairwise` says the
 instants stay monotone, which is what `Abstract.Valid` asks of a trace).
+The implementation materialises a task's promise on every read, so the
+specification runs with `mat := true`.
 
-The proof is a forward simulation in three layers:
+The proof is a forward simulation in four layers:
 
-1. **One step against one document is that step against the whole
-   state** (`stepDoc_sim`). The frame lemmas say the handler cannot tell
+1. **The impl's handler is the specification's handler**
+   (`external_eq`, `trigger_eq`). A `Tx` is what the specification's
+   `H` looks like when its reads are taken from a snapshot and its writes
+   replayed onto a copy; `liftH` says so, and each handler is checked
+   against its specification twin through it.
+2. **One step against one document is that step against the whole
+   state** (`specStep_sim`). The frame lemmas say the handler cannot tell
    the two apart; the lookup lemmas say the writes land the same way.
-2. **An accepted commit decided against the current document**
+3. **An accepted commit decided against the current document**
    (`accepted_snapshot`). Its write was conditioned on the version the
    snapshot was read at; versions never recur; so the version still being
    there means the document still is. A refused commit moved no document
-   and sent nothing (`commit_rejected`) — only the timer it armed first
-   landed, and no lookup sees it. `commit_accepted_is_atomic` states this
+   and sent nothing (`commit_rejected`) — only the timers it armed first
+   landed, and no lookup sees them. `commit_accepted_is_atomic` states this
    as an equation: an accepted commit *is* the atomic read-modify-write of
    the current document, whatever ran between its `begin` and `commit`.
-3. **The world after an accepted commit** is the old world with one
+4. **The world after an accepted commit** is the old world with one
    document replaced and the sends appended to the wire
-   (`commit_accepted`), which is the shape layer 1 produces.
+   (`commit_accepted`), which is the shape layers 1 and 2 produce.
 
 There is no `sorry` in `src/impl/`. The relation between a world and a
 specification state is by lookup, not equality: the specification's object
@@ -106,17 +116,13 @@ one CAS'd object per origin, timer keys that are written before the
 document that arms them, the kernel as a pure decision applied by a shell,
 sends strictly after the commit. Where it differs, it says so:
 
-- **The kernel is the specification.** The Rust kernel reimplements the
-  protocol against its document shape; the model runs the specification's
-  handlers against the document, so the refinement is a theorem about the
-  *store*, not a re-verification of 21 handlers.
 - **Every commit drains.** The Rust `handle` settles only the promises a
   request names and leaves the rest to its tick. Sweeping the whole document
   on every commit is the simpler invariant, and each swept step is one the
   specification could have taken anyway.
-- **Which deadlines are armed.** A pending promise's expiry is armed when
-  someone is waiting on it — a task, a callback, a listener. The SQL and
-  S3 backends arm only targeted promises; this is a superset.
+- **One timer key per deadline.** A deadline is armed when the document
+  after a commit mentions it and the one before did not, and deleted in
+  the opposite case; a fired timer is deleted unless the sweep re-arms it.
 - **Out of scope**: schedules (cross-origin, their own objects in the S3
   backend), searches (501 in the specification), and heartbeats spanning
   origins (refused by the backend's validators). `Request.origin?` says

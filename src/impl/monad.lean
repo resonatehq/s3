@@ -3,26 +3,23 @@ import impl.doc
 namespace Impl
 
 open ServerModel (Message)
-open AbstractModel (ServerConfig)
 
 structure Env where
   origin   : String
-  snapshot : Option (OriginDoc × Cas.Version)
-  mat      : Bool
-  config   : ServerConfig := {}
+  snapshot : Option (Origin × Cas.Version)
 
 def Env.cond (e : Env) : Cas.Cond :=
   match e.snapshot with
   | some (_, v) => .version v
   | none        => .absent
 
-def Env.doc (e : Env) : OriginDoc :=
+def Env.snap (e : Env) : Origin :=
   match e.snapshot with
-  | some (d, _) => d
+  | some (o, _) => o
   | none        => {}
 
 inductive Effect
-  | putDoc   (d : OriginDoc)
+  | putOrigin (o : Origin)
   | armTimer (dl : Nat)
   | delTimer (dl : Nat)
   | send     (address : String) (msg : Message)
@@ -41,7 +38,7 @@ def ask : C Env := fun e => (e, [])
 
 def emit (f : Effect) : C Unit := fun _ => ((), [f])
 
-def putDoc (d : OriginDoc) : C Unit := emit (.putDoc d)
+def putOrigin (o : Origin) : C Unit := emit (.putOrigin o)
 def armTimer (dl : Nat) : C Unit := emit (.armTimer dl)
 def delTimer (dl : Nat) : C Unit := emit (.delTimer dl)
 def send (address : String) (msg : Message) : C Unit := emit (.send address msg)
@@ -52,8 +49,8 @@ def sendAll : List (String × Message) → C Unit
 
 def Effect.apply (origin : String) (cond : Cas.Cond) (w : World) :
     Effect → Cas.Outcome World
-  | .putDoc d =>
-      match w.store.put (.doc origin) (.doc d) cond with
+  | .putOrigin o =>
+      match w.store.put (.origin origin) (.origin o) cond with
       | .ok (s, _) => .ok { w with store := s }
       | .rejected  => .rejected
   | .armTimer dl =>

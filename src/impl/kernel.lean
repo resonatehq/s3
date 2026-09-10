@@ -1,11 +1,11 @@
+import impl.handlers
 import impl.monad
 
 namespace Impl
 
 open ServerModel (Ident Message PromiseState TaskState)
 open AbstractModel (Object PromiseObject TaskObject ServerState)
-open Abstract (Request Response Reply)
-open Abstract (Trigger)
+open Abstract (Request Response Reply Trigger)
 
 def _root_.Abstract.Request.origin? : Request → Option String
   | .promiseGet r              => some r.id.origin
@@ -42,62 +42,54 @@ def dueAt (now : Nat) : Option Nat → Bool
   | some dl => dl ≤ now
   | none    => false
 
-def stepDoc (mat : Bool) (st : Abstract.Event) (now : Nat) (d : OriginDoc) :
-    Reply × OriginDoc × List (String × Message) :=
-  let (res, fx) := Abstract.handle st now { state := d.toState, mat := mat }
-  (res, OriginDoc.ofState (AbstractModel.applyAll d.toState fx) d.timerAt, sendsOf fx)
+def triggers (now : Nat) : Origin → List Trigger → Origin × List (String × Message)
+  | o, []          => (o, [])
+  | o, trg :: rest =>
+      let c := Handle.trigger trg now o
+      let (o', sends) := triggers now c.put rest
+      (o', c.send ++ sends)
 
-def stepDocs (mat : Bool) (now : Nat) :
-    OriginDoc → List Trigger → OriginDoc × List (String × Message)
-  | d, []       => (d, [])
-  | d, st :: sts =>
-      let (_, d', sends) := stepDoc mat (.internal st) now d
-      let (d'', sends') := stepDocs mat now d' sts
-      (d'', sends ++ sends')
-
-def timeoutSteps (d : OriginDoc) (now : Nat) : List Trigger :=
-  (d.objects.filterMap fun o =>
-    if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now
-    then some (.promiseTimeout ⟨o.id⟩) else none)
-  ++ (d.objects.filterMap fun o =>
-    match o.task with
+def timeoutSteps (o : Origin) (now : Nat) : List Trigger :=
+  (o.objects.filterMap fun ob =>
+    if ob.promise.state == .pending ∧ ob.promise.timeoutAt ≤ now
+    then some (.promiseTimeout ⟨ob.id⟩) else none)
+  ++ (o.objects.filterMap fun ob =>
+    match ob.task with
     | some t =>
         if t.state == .acquired ∧ dueAt now t.leaseTimeoutAt
-        then some (.taskLeaseTimeout ⟨o.id⟩) else none
+        then some (.taskLeaseTimeout ⟨ob.id⟩) else none
     | none => none)
 
-def obligationSteps (origin : String) (d : OriginDoc) : List Trigger :=
-  d.objects.flatMap fun o =>
-    if o.promise.state != .pending then
-      (o.promise.callbacks.filterMap fun awaiter =>
-        if awaiter.origin == origin
-        then some (.callback ⟨o.id, awaiter⟩) else none)
-      ++ o.promise.listeners.map (fun a => .listener ⟨o.id, a⟩)
+def obligationSteps (name : String) (o : Origin) : List Trigger :=
+  o.objects.flatMap fun ob =>
+    if ob.promise.state != .pending then
+      (ob.promise.callbacks.filterMap fun awaiter =>
+        if awaiter.origin == name
+        then some (.callback ⟨ob.id, awaiter⟩) else none)
+      ++ ob.promise.listeners.map (fun a => .listener ⟨ob.id, a⟩)
     else []
 
-def retrySteps (d : OriginDoc) (now : Nat) : List Trigger :=
-  d.objects.filterMap fun o =>
-    match o.task with
+def retrySteps (o : Origin) (now : Nat) : List Trigger :=
+  o.objects.filterMap fun ob =>
+    match ob.task with
     | some t =>
         if t.state == .pending ∧ dueAt now t.retryTimeoutAt
-        then some (.taskRetryTimeout ⟨o.id⟩) else none
+        then some (.taskRetryTimeout ⟨ob.id⟩) else none
     | none => none
 
-def drainSteps (mat : Bool) (origin : String) (d : OriginDoc) (now : Nat) : List Trigger :=
-  let p1 := timeoutSteps d now
-  let d1 := (stepDocs mat now d p1).1
-  let p2 := obligationSteps origin d1
-  let d2 := (stepDocs mat now d1 p2).1
-  let p3 := retrySteps d2 now
+def drainSteps (name : String) (o : Origin) (now : Nat) : List Trigger :=
+  let p1 := timeoutSteps o now
+  let o1 := (triggers now o p1).1
+  let p2 := obligationSteps name o1
+  let o2 := (triggers now o1 p2).1
+  let p3 := retrySteps o2 now
   p1 ++ p2 ++ p3
 
-def drain (mat : Bool) (origin : String) (d : OriginDoc) (now : Nat) :
-    OriginDoc × List (String × Message) :=
-  stepDocs mat now d (drainSteps mat origin d now)
+def drain (name : String) (o : Origin) (now : Nat) : Origin × List (String × Message) :=
+  triggers now o (drainSteps name o now)
 
 inductive Work
   | request (rq : Request)
-
   | sweep (fired : Option Nat)
   deriving Repr
 
@@ -105,30 +97,23 @@ def Work.origin? (declared : String) : Work → Option String
   | .request rq => rq.origin?
   | .sweep _    => some declared
 
-def decide (mat : Bool) (origin : String) (work : Work) (now : Nat) (old : OriginDoc) :
-    Reply × OriginDoc × List (String × Message) :=
-  let (res, d1, sends1) :=
+def decide (name : String) (work : Work) (now : Nat) (old : Origin) : Reply × Commit :=
+  let (r, o1, sends1) :=
     match work with
-    | .request rq => stepDoc mat (.external rq) now old
+    | .request rq =>
+        let (res, c) := Handle.external rq now old
+        (Reply.external res, c.put, c.send)
     | .sweep _    => (Reply.stutter, old, [])
-  let (d2, sends2) := drain mat origin d1 now
-  (res, { d2 with timerAt := d2.minDeadline }, sends1 ++ sends2)
+  let (o2, sends2) := drain name o1 now
+  (r, Tx.commit old { origin := o2, sends := sends1 ++ sends2 })
 
-def armFx (old new : OriginDoc) : List Effect :=
-  if new.timerAt != old.timerAt then
-    match new.timerAt with
-    | some dl => [.armTimer dl]
-    | none    => []
-  else []
+def armFx (c : Commit) : List Effect :=
+  c.arm.map .armTimer
 
-def delFx (old new : OriginDoc) (work : Work) : List Effect :=
-  (if new.timerAt != old.timerAt then
-    match old.timerAt with
-    | some dl => [.delTimer dl]
-    | none    => []
-  else [])
+def delFx (c : Commit) (work : Work) : List Effect :=
+  c.del.map .delTimer
   ++ (match work with
-      | .sweep (some fired) => if new.timerAt != some fired then [.delTimer fired] else []
+      | .sweep (some fired) => if c.put.deadlines.contains fired then [] else [.delTimer fired]
       | _                   => [])
 
 def sendFx (sends : List (String × Message)) : List Effect :=
@@ -138,13 +123,13 @@ def emitAll : List Effect → C Unit
   | []      => pure ()
   | f :: fs => do emit f; emitAll fs
 
-def transact (mat : Bool) (work : Work) (now : Nat) : C Reply := do
+def transact (work : Work) (now : Nat) : C Reply := do
   let e ← ask
-  let (res, new, sends) := decide mat e.origin work now e.doc
-  emitAll (armFx e.doc new)
-  putDoc new
-  emitAll (delFx e.doc new work)
-  emitAll (sendFx sends)
-  return res
+  let (r, c) := decide e.origin work now e.snap
+  emitAll (armFx c)
+  putOrigin c.put
+  emitAll (delFx c work)
+  emitAll (sendFx c.send)
+  return r
 
 end Impl
