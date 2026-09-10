@@ -3,19 +3,21 @@
 The Resonate protocol, implemented on a compare-and-swap object store, and
 the proof that the implementation does what the specification says.
 
-Three parts, and the directory layout says so:
+Three parts under `src/`, and the directory layout says so:
 
 ```
-types.lean        the wire surface — records, requests, responses
-spec/             the specification: the abstract machine and its catalogue
-impl/             the implementation on S3, and its refinement proof
+src/types.lean    the protocol layer — records, requests, responses, tags, messages
+src/spec/         the specification: the abstract machine and its catalogue
+src/impl/         the implementation on S3, and its refinement proof
 ```
 
-`types.lean` is at the top level because it is the one thing both halves
-must agree on. The specification says what a server answers to each
-request; the implementation answers it; neither may redefine the alphabet.
+`types.lean` sits beside `spec/` and `impl/` because it is the one thing
+both halves must agree on. The specification says what a server answers
+to each request; the implementation answers it; neither may redefine the
+alphabet. It is the protocol's `01`; the specification's directories
+continue the numbering.
 
-## The specification (`spec/`)
+## The specification (`src/spec/`)
 
 A copy of the protocol's Lean specification: an executable **abstract
 machine** — a state, a set of effects, and one transition per request —
@@ -23,31 +25,32 @@ together with a catalogue of properties every run of it satisfies.
 
 | | |
 |---|---|
-| `spec/01-protocol` | validation, tags, the message vocabulary (imports `types`) |
-| `spec/02-abstract` | the machine: `state`, `external` (the 21 handlers), `internal` (the 6 background steps), `system` (the alphabet, `runFin`, `Valid`), `properties` (the catalogue) |
-| `spec/04-theorems` | what is proved about it, and the harnesses that evaluate it |
+| `src/types.lean` | the protocol layer: records, requests, responses, tag semantics, the message vocabulary |
+| `src/spec/02-abstract` | the machine: `state`, `external` (the 21 handlers), `internal` (the 6 background steps), `system` (the alphabet, `runFin`, `Valid`), `properties` (the catalogue) |
+| `src/spec/03-theorems` | what is proved about it, and the harnesses that evaluate it |
 
 The machine writes every step in a monad `H`: a reader of the state, a
 writer of `Effect`s, folded onto the state at the end — one step is one
-transaction. Nothing in `spec/` was changed except the one import that
-now points at the top-level `types`.
+transaction. The specification's code is unchanged; its former
+`01-protocol` (types and validation) is now `types.lean`, and its
+comments were removed along with everyone else's.
 
-## The implementation (`impl/`)
+## The implementation (`src/impl/`)
 
-Read the files in this order; each opens with a header saying what it is
-for and why it is shaped the way it is.
+Read the files in this order.
 
 | file | what it defines |
 |---|---|
-| `impl/cas.lean` | **The CAS machine.** A versioned key–value store with `get`, `put`, `del`, and a condition on every write: `any`, `absent` (`If-None-Match: *`), or `version v` (`If-Match: etag`). A write whose condition fails is *rejected* and changes nothing. Versions are drawn from a counter that never repeats, so a version seen once is never seen again at a different value (`put_version_fresh`). |
-| `impl/doc.lean` | **The document, the key space, the world.** One document per origin holding every promise and task of that origin; timer keys carrying a deadline and an origin; the world as the bucket plus the wire (the messages handed to the transport, kept in the specification's own outbox discipline). |
-| `impl/monad.lean` | **The monad `C`.** Same shape as the specification's `H`, different vocabulary: it reads one snapshot — the document a transaction fetched, with its version — and it emits `putDoc` (conditional on that version), `armTimer`, `delTimer`, `send`. Effects are performed in order; a refused `putDoc` stops the transaction there. |
-| `impl/kernel.lean` | **The kernel.** The specification's own handler, run against one origin's document: lift the document to a state, run `Abstraction.handle`, lower the result. The drain sweeps a document in three phases — expired deadlines, obligations of settled promises, tasks due for re-dispatch — each a list of the specification's internal steps. `transact` decides, then emits in the shell's order: arm the new timer, commit the document, clear the old timer, send. |
-| `impl/system.lean` | **The system.** Transactions `begin` (snapshot) and `commit` (decide, CAS-write) in any interleaving; sweeps are transactions too. `run` collects the observations of a finite run: every answered request, with its answer and instant. |
-| `impl/frame.lean` | **The frame lemmas.** For every handler and every internal step: two environments that agree on origin `o` get the same answer and effects (`Cong`), and every effect is a write at an id of origin `o` or a message (`LocAt`). The same-origin doors of the protocol are exactly where these proofs pick up the fact they need. |
-| `impl/apply.lean` | **Effects through lookups.** The specification's effects restated as lookup transformers; congruence on one origin, frame on every other, and the outbox as a fold of sends. |
-| `impl/commit.lean` | **The commit, performed.** The closed form of a transaction's effects, the two store invariants (`SInv`: versions are fresh; `TxnInv`: an in-flight snapshot is either the stored document or at a version that has moved), and the CAS as a theorem (`snapshot_current`). |
-| `impl/refinement.lean` | **The theorem.** |
+| `src/impl/cas.lean` | **The CAS machine.** A versioned key–value store with `get`, `put`, `del`, and a condition on every write: `any`, `absent` (`If-None-Match: *`), or `version v` (`If-Match: etag`). A write whose condition fails is *rejected* and changes nothing. Versions are drawn from a counter that never repeats, so a version seen once is never seen again at a different value (`put_version_fresh`). |
+| `src/impl/doc.lean` | **The document, the key space, the world.** One document per origin holding every promise and task of that origin; timer keys carrying a deadline and an origin; the world as the bucket plus the wire (the messages handed to the transport, kept in the specification's own outbox discipline). |
+| `src/impl/monad.lean` | **The monad `C`.** Same shape as the specification's `H`, different vocabulary: it reads one snapshot — the document a transaction fetched, with its version — and it emits `putDoc` (conditional on that version), `armTimer`, `delTimer`, `send`. Effects are performed in order; a refused `putDoc` stops the transaction there. |
+| `src/impl/kernel.lean` | **The kernel.** The specification's own handler, run against one origin's document: lift the document to a state, run `Abstraction.handle`, lower the result. The drain sweeps a document in three phases — expired deadlines, obligations of settled promises, tasks due for re-dispatch — each a list of the specification's internal steps. `transact` decides, then emits in the shell's order: arm the new timer, commit the document, clear the old timer, send. |
+| `src/impl/system.lean` | **The system.** Transactions `begin` (snapshot) and `commit` (decide, CAS-write) in any interleaving; sweeps are transactions too. `run` collects the observations of a finite run: every answered request, with its answer and instant. |
+| `src/impl/frame.lean` | **The frame lemmas.** For every handler and every internal step: two environments that agree on origin `o` get the same answer and effects (`Cong`), and every effect is a write at an id of origin `o` or a message (`LocAt`). The same-origin doors of the protocol are exactly where these proofs pick up the fact they need. |
+| `src/impl/apply.lean` | **Effects through lookups.** The specification's effects restated as lookup transformers; congruence on one origin, frame on every other, and the outbox as a fold of sends. |
+| `src/impl/commit.lean` | **The commit, performed.** The closed form of a transaction's effects, the two store invariants (`SInv`: versions are fresh; `TxnInv`: an in-flight snapshot is either the stored document or at a version that has moved), and the CAS as a theorem (`snapshot_current`). |
+| `src/impl/refinement.lean` | **The theorem.** |
+| `src/impl/demo.lean` | An executable scenario and its linearization; `lake build impl.demo` prints it. |
 
 ### The theorem
 
@@ -90,7 +93,7 @@ The proof is a forward simulation in three layers:
    document replaced and the sends appended to the wire
    (`commit_accepted`), which is the shape layer 1 produces.
 
-There is no `sorry` in `impl/`. The relation between a world and a
+There is no `sorry` in `src/impl/`. The relation between a world and a
 specification state is by lookup, not equality: the specification's object
 list is in the order its own writes left it, the bucket's documents in the
 order it lists them, and no answer this implementation gives depends on
