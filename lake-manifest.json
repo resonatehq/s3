@@ -1,0 +1,6 @@
+{"version": "1.2.0",
+ "packagesDir": ".lake/packages",
+ "packages": [],
+ "name": "«resonate-s3»",
+ "lakeDir": ".lake",
+ "fixedToolchain": false}

@@ -1,0 +1,4 @@
+.lake/
+
+# Transient analysis scratch files: never committed.
+**/zz-*.lean
