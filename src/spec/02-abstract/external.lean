@@ -18,8 +18,6 @@ def promiseGet (req : PromiseGetReq) (now : Nat) : H PromiseGetRes := do
       return { status := 200, promise := some (o.promise.toRecord o.id) }
 
 def promiseCreate (req : PromiseCreateReq) (now : Nat) : H PromiseCreateRes := do
-  if req.tags.timerTargeted then
-    return { status := 400, promise := none }
   match ← readObject req.id now with
   | some o =>
       return { status := 200, promise := some (o.promise.toRecord o.id) }
@@ -56,9 +54,9 @@ def promiseRegisterCallback (req : PromiseRegisterCallbackReq) (now : Nat) :
   | none =>
       return { status := 422 }
   | some oAwaiter =>
-      if oAwaiter.promise.otype != .runnable then
+      if !oAwaiter.promise.type.isRunnable then
         return { status := 422 }
-      if !oAwaited.promise.otype.awaitable then
+      if !oAwaited.promise.type.awaitable then
         return { status := 422 }
       if oAwaited.promise.state == .pending then
         if oAwaiter.promise.state == .pending then
@@ -73,7 +71,7 @@ def promiseRegisterListener (req : PromiseRegisterListenerReq) (now : Nat) :
   | none =>
       return { status := 404 }
   | some oAwaited =>
-      if !oAwaited.promise.otype.awaitable then
+      if !oAwaited.promise.type.awaitable then
         return { status := 422 }
       if oAwaited.promise.state == .pending then
         setPromise oAwaited.id (oAwaited.promise.addListener req.address)
@@ -109,13 +107,13 @@ def taskGet (req : TaskGetReq) (now : Nat) : H TaskGetRes := do
 
 def taskCreate (req : TaskCreateReq) (now : Nat) : H TaskCreateRes := do
   let a := req.action
-  if a.tags.otype != .runnable ∨ a.tags.timerTargeted then
+  if !a.type.isRunnable then
     return { status := 400 }
   match ← readObject a.id now with
   | none =>
       if a.timeoutAt > now then
         let p : PromiseObject :=
-          { state := .pending, param := a.param, tags := a.tags,
+          { state := .pending, param := a.param, type := a.type,
             timeoutAt := a.timeoutAt, createdAt := now }
         setPromise a.id p
         let t : TaskObject :=
@@ -128,7 +126,7 @@ def taskCreate (req : TaskCreateReq) (now : Nat) : H TaskCreateRes := do
       else
         let st := ServerModel.PromiseState.rejectedTimedout
         let p : PromiseObject :=
-          { state := st, param := a.param, tags := a.tags,
+          { state := st, param := a.param, type := a.type,
             timeoutAt := a.timeoutAt, createdAt := a.timeoutAt,
             settledAt := some a.timeoutAt }
         setPromise a.id p
@@ -137,7 +135,7 @@ def taskCreate (req : TaskCreateReq) (now : Nat) : H TaskCreateRes := do
         return { status := 200, task := some (t.toRecord a.id),
                  promise := some (p.toRecord a.id) }
   | some o =>
-      if o.promise.otype != .runnable then
+      if !o.promise.type.isRunnable then
         return { status := 422 }
       match o.task with
       | none =>
@@ -237,7 +235,7 @@ def checkAwaited (now : Nat) : List PromiseRegisterCallbackReq → H (Option Boo
       match ← readObject action.awaited now with
       | none => return none
       | some oa =>
-          if !oa.promise.otype.awaitable then
+          if !oa.promise.type.awaitable then
             return none
           else
             match ← checkAwaited now rest with
@@ -380,8 +378,6 @@ def scheduleGet (req : ScheduleGetReq) (_now : Nat) : H ScheduleGetRes := do
       return { status := 200, schedule := some s }
 
 def scheduleCreate (req : ScheduleCreateReq) (now : Nat) : H ScheduleCreateRes := do
-  if req.promiseTags.timerTargeted then
-    return { status := 400 }
   match ← getSchedule req.id with
   | some s =>
       return { status := 200, schedule := some s }
@@ -392,7 +388,7 @@ def scheduleCreate (req : ScheduleCreateReq) (now : Nat) : H ScheduleCreateRes :
           promiseId := req.promiseId
           promiseTimeout := req.promiseTimeout
           promiseParam := req.promiseParam
-          promiseTags := req.promiseTags
+          promiseType := req.promiseType
           createdAt := now
           nextRunAt := nextCron req.cron now
           lastRunAt := none }

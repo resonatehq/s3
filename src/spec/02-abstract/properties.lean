@@ -46,16 +46,12 @@ def well_formed_promise_pending_has_no_value (_now : Nat) (s : ServerState) : Bo
 def well_formed_promise_deadline_verdict_matches_timer_tag (_now : Nat) (s : ServerState) : Bool :=
   s.promises.all fun p =>
     p.settledAt != some p.timeoutAt
-      || p.state == (if p.tags.isTimer then .resolved else .rejectedTimedout)
+      || p.state == (if p.type == .deadline then .resolved else .rejectedTimedout)
 
 def well_formed_promise_deadline_settlement_has_no_value (_now : Nat) (s : ServerState) : Bool :=
   s.promises.all fun p =>
     p.settledAt != some p.timeoutAt
       || (p.value.data.isNone && p.value.headers.isEmpty)
-
-def well_formed_promise_timer_not_targeted (_now : Nat) (s : ServerState) : Bool :=
-  s.promises.all fun p =>
-    !p.tags.timerTargeted
 
 def well_formed_promise_timedout_is_server_owned (_now : Nat) (s : ServerState) : Bool :=
   s.promises.all fun p =>
@@ -71,7 +67,7 @@ def well_formed_promise_listeners_unique (_now : Nat) (s : ServerState) : Bool :
 
 def well_formed_promise_obligations_require_external (_now : Nat) (s : ServerState) : Bool :=
   s.promises.all fun p =>
-    (p.callbacks.isEmpty && p.listeners.isEmpty) || p.otype.awaitable
+    (p.callbacks.isEmpty && p.listeners.isEmpty) || p.type.awaitable
 
 def well_formed_promise_awaiter_is_not_self (_now : Nat) (s : ServerState) : Bool :=
   s.objects.all fun o =>
@@ -136,10 +132,6 @@ def well_formed_task_acquired_version_positive (_now : Nat) (s : ServerState) : 
   s.tasks.all fun t =>
     t.state != .acquired || 1 ≤ t.version
 
-def well_formed_schedule_promise_tags_not_timer_targeted (_now : Nat) (s : ServerState) : Bool :=
-  s.schedules.all fun c =>
-    !c.promiseTags.timerTargeted
-
 def well_formed_schedule_created_at_lte_next_run_at (_now : Nat) (s : ServerState) : Bool :=
   s.schedules.all fun c =>
     c.createdAt ≤ c.nextRunAt
@@ -167,7 +159,7 @@ def well_formed_store_outbox_keys_unique (_now : Nat) (s : ServerState) : Bool :
 
 def consistent_task_iff_kind_task (_now : Nat) (s : ServerState) : Bool :=
   s.objects.all fun o =>
-    o.task.isSome == (o.promise.otype == .runnable)
+    o.task.isSome == o.promise.type.isRunnable
 
 def consistent_settled_promise_has_fulfilled_task (_now : Nat) (s : ServerState) : Bool :=
   s.objects.all fun o =>
@@ -176,7 +168,7 @@ def consistent_settled_promise_has_fulfilled_task (_now : Nat) (s : ServerState)
 def consistent_callback_awaiter_is_targeted (_now : Nat) (s : ServerState) : Bool :=
   s.promises.all fun p =>
     p.callbacks.all fun a =>
-      s.objects.any (fun q => q.id == a && q.promise.otype == .runnable)
+      s.objects.any (fun q => q.id == a && q.promise.type.isRunnable)
 
 def consistent_outbox_execute_names_existing_task (_now : Nat) (s : ServerState) : Bool :=
   s.outbox.all fun e =>
@@ -198,7 +190,7 @@ def consistent_outbox_execute_address_is_target_tag (_now : Nat) (s : ServerStat
     match e.message with
     | .execute id _ =>
         match s.promise? id with
-        | some p => e.address == (p.tags.get? "resonate:target").getD ""
+        | some p => e.address == p.type.target?.getD ""
         | none   => true
     | .unblock _ => true
 
@@ -227,7 +219,7 @@ def preserved_promise_birth_fields_immutable (_now : Nat) (a b : ServerState) : 
     | none => true
     | some q =>
         q.param.data == p.param.data && q.param.headers == p.param.headers
-          && q.tags == p.tags && q.timeoutAt == p.timeoutAt && q.createdAt == p.createdAt
+          && q.type == p.type && q.timeoutAt == p.timeoutAt && q.createdAt == p.createdAt
 
 def preserved_settled_promise_record (_now : Nat) (a b : ServerState) : Bool :=
   a.objects.all fun o =>
@@ -501,7 +493,7 @@ def consistent_task_birth_couples_promise_birth (_now : Nat) (a b : ServerState)
      a.hasTask o.id
        || ((!a.objects.any (·.id == o.id))
             && (let q := o.promise
-                q.otype == .runnable
+                q.type.isRunnable
                   && (if u.state == .fulfilled then q.state != .pending
                       else q.state == .pending))
             && ((u.state == .pending && u.version == 0)
@@ -509,7 +501,7 @@ def consistent_task_birth_couples_promise_birth (_now : Nat) (a b : ServerState)
                 || (u.state == .fulfilled && u.version == 0))))
   && (b.objects.all fun o =>
         a.objects.any (·.id == o.id)
-          || o.promise.otype != .runnable
+          || !o.promise.type.isRunnable
           || o.task.isSome)
 
 def monotone_outbox_keys_never_disappear (_now : Nat) (a b : ServerState) : Bool :=
@@ -528,7 +520,7 @@ def consistent_new_execute_matches_task_and_target (_now : Nat) (a b : ServerSta
              | some t => t.version == v
              | none   => false)
             && (match b.promise? id with
-                | some p => f.address == (p.tags.get? "resonate:target").getD ""
+                | some p => f.address == p.type.target?.getD ""
                 | none   => false))
 
 def consistent_new_unblock_carries_stored_record (_now : Nat) (a b : ServerState) : Bool :=
@@ -570,7 +562,7 @@ def preserved_schedule_birth_fields_immutable (_now : Nat) (a b : ServerState) :
           && d.promiseTimeout == c.promiseTimeout
           && d.promiseParam.data == c.promiseParam.data
           && d.promiseParam.headers == c.promiseParam.headers
-          && d.promiseTags == c.promiseTags && d.createdAt == c.createdAt
+          && d.promiseType == c.promiseType && d.createdAt == c.createdAt
 
 def consistent_task_birth_state (_now : Nat) (a b : ServerState) : Bool :=
   b.objects.all fun o => o.task.all fun u =>
@@ -695,7 +687,7 @@ def consistent_promise_state_edge_internal_admissible (_now : Nat) (a b : Server
     | some q =>
         (p.state == q.state)
           || (p.state == .pending
-                && (q.state == .rejectedTimedout || (q.state == .resolved && p.isTimer)))
+                && (q.state == .rejectedTimedout || (q.state == .resolved && p.type == .deadline)))
 
 def internalChecks : List Named :=
   [ { name := "consistent_task_state_edge_internal_admissible"
@@ -723,7 +715,7 @@ def consistent_promise_settlement_stamp (now : Nat) (a b : ServerState) : Bool :
              || (q.settledAt == some now && now < q.timeoutAt
                    && q.state != .rejectedTimedout)
              || (q.settledAt == some q.timeoutAt && q.timeoutAt ≤ now
-                   && (if q.isTimer then q.state == .resolved
+                   && (if q.type == .deadline then q.state == .resolved
                        else q.state == .rejectedTimedout)
                    && q.value.data == p.value.data
                    && q.value.headers == p.value.headers))
@@ -747,7 +739,7 @@ def consistent_new_promise_born_clean (now : Nat) (a b : ServerState) : Bool :=
           && ((q.state == .pending && q.settledAt.isNone && q.createdAt < q.timeoutAt)
               || (q.settledAt == some q.timeoutAt && q.createdAt == q.timeoutAt
                   && q.timeoutAt ≤ now
-                  && (if q.isTimer then q.state == .resolved
+                  && (if q.type == .deadline then q.state == .resolved
                       else q.state == .rejectedTimedout))))
 
 def monotone_task_retry_rearm_advances (now : Nat) (a b : ServerState) : Bool :=
@@ -777,8 +769,6 @@ def catalogue : List Named :=
       , property := .state well_formed_promise_deadline_verdict_matches_timer_tag },
     { name := "well_formed_promise_deadline_settlement_has_no_value"
       , property := .state well_formed_promise_deadline_settlement_has_no_value },
-    { name := "well_formed_promise_timer_not_targeted"
-      , property := .state well_formed_promise_timer_not_targeted },
     { name := "well_formed_promise_timedout_is_server_owned"
       , property := .state well_formed_promise_timedout_is_server_owned },
     { name := "well_formed_promise_callbacks_unique"
@@ -815,8 +805,6 @@ def catalogue : List Named :=
       , property := .state well_formed_task_resumes_unique },
     { name := "well_formed_task_acquired_version_positive"
       , property := .state well_formed_task_acquired_version_positive },
-    { name := "well_formed_schedule_promise_tags_not_timer_targeted"
-      , property := .state well_formed_schedule_promise_tags_not_timer_targeted },
     { name := "well_formed_schedule_created_at_lte_next_run_at"
       , property := .state well_formed_schedule_created_at_lte_next_run_at },
     { name := "well_formed_schedule_created_at_lte_last_run_at"
@@ -968,15 +956,16 @@ def well_formed_task_ttl_positive (_now : Nat) (s : ServerState) : Bool :=
 
 def well_formed_promise_target_is_nonempty (_now : Nat) (s : ServerState) : Bool :=
   s.promises.all fun p =>
-    match p.tags.get? "resonate:target" with
-    | none      => true
-    | some addr => !addr.isEmpty
+    match p.type with
+    | .runnable target => !target.isEmpty
+    | _                => true
 
 def well_formed_promise_delay_before_deadline (_now : Nat) (s : ServerState) : Bool :=
-  s.promises.all fun p =>
-    match p.tags.get? "resonate:delay" with
-    | none   => true
-    | some d => parseNat d < p.timeoutAt
+  s.objects.all fun o =>
+    match o.task with
+    | some { state := .pending, version := 0, retryTimeoutAt := some due, .. } =>
+        due < o.promise.timeoutAt
+    | _ => true
 
 def well_formed_config_retry_positive (c : ServerConfig) : Bool :=
   0 < c.retryTimeout

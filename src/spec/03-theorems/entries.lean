@@ -48,14 +48,14 @@ structure HPromise (f : PromiseObject → Bool) : Prop where
                    f { p with listeners := p.listeners.filter (· != a) } = true
   dropCallback : ∀ (p : PromiseObject) (a : ServerModel.Ident), f p = true →
                    f { p with callbacks := p.callbacks.filter (· != a) } = true
-  live         : ∀ (id : ServerModel.Ident) (param : ServerModel.Value) (tags : ServerModel.Tags)
+  live         : ∀ (id : ServerModel.Ident) (param : ServerModel.Value) (type : ServerModel.OType)
                    (timeoutAt createdAt : Nat), createdAt < timeoutAt →
-                   f { state := .pending, param := param, tags := tags,
+                   f { state := .pending, param := param, type := type,
                        timeoutAt := timeoutAt, createdAt := createdAt } = true
   dead         : ∀ (id : ServerModel.Ident) (st : ServerModel.PromiseState)
-                   (param : ServerModel.Value) (tags : ServerModel.Tags) (timeoutAt : Nat),
-                   st = (if tags.isTimer then .resolved else .rejectedTimedout) →
-                   f { state := st, param := param, tags := tags,
+                   (param : ServerModel.Value) (type : ServerModel.OType) (timeoutAt : Nat),
+                   st = (if type == .deadline then .resolved else .rejectedTimedout) →
+                   f { state := st, param := param, type := type,
                        timeoutAt := timeoutAt, createdAt := timeoutAt,
                        settledAt := some timeoutAt } = true
 
@@ -67,8 +67,8 @@ theorem hereditary_onlyPromise {f : PromiseObject → Bool} (h : HPromise f)
   settle _ p st v t _ := h.settle p st v t
   dropListener _ p c _ _ := h.dropListener p c
   dropCallback _ p c _ _ := h.dropCallback p c
-  live := fun id param tags tAt cAt hlt _ => h.live id param tags tAt cAt hlt
-  dead := fun id st param tags tAt hst _ => h.dead id st param tags tAt hst
+  live := fun id param type tAt cAt hlt _ => h.live id param type tAt cAt hlt
+  dead := fun id st param type tAt hst _ => h.dead id st param type tAt hst
   tFulfill _ _ := rfl
   tBornPending _ := rfl
   tBornDone := rfl
@@ -83,7 +83,7 @@ theorem hereditary_onlyPromise {f : PromiseObject → Bool} (h : HPromise f)
   tResume _ _ _ _ _ := rfl
   tAddResume _ _ _ _ _ _ := rfl
   tRearm _ _ _ _ := rfl
-  cBorn _ _ _ _ _ _ _ _ := rfl
+  cBorn _ _ _ _ _ _ _ := rfl
   cAdvance _ _ _ := rfl
 
 theorem promise_step {f : PromiseObject → Bool} (h : HPromise f)
@@ -146,7 +146,7 @@ theorem hereditary_onlyTask {f : TaskObject → Bool} (h : HTask f)
   tResume := h.resume
   tAddResume := h.addResume
   tRearm := h.rearm
-  cBorn _ _ _ _ _ _ _ _ := rfl
+  cBorn _ _ _ _ _ _ _ := rfl
   cAdvance _ _ _ := rfl
 
 theorem task_step {f : TaskObject → Bool} (h : HTask f)
@@ -159,11 +159,11 @@ theorem task_step {f : TaskObject → Bool} (h : HTask f)
 
 structure HSchedule (f : ServerModel.Schedule → Bool) : Prop where
   born    : ∀ (id : ServerModel.Ident) (cron : String) (promiseId : ServerModel.Ident) (promiseTimeout : Nat)
-              (promiseParam : ServerModel.Value) (promiseTags : ServerModel.Tags)
-              (now : Nat), promiseTags.timerTargeted = false →
+              (promiseParam : ServerModel.Value) (promiseType : ServerModel.OType)
+              (now : Nat),
               f { id := id, cron := cron, promiseId := promiseId,
                   promiseTimeout := promiseTimeout, promiseParam := promiseParam,
-                  promiseTags := promiseTags, createdAt := now,
+                  promiseType := promiseType, createdAt := now,
                   nextRunAt := ServerModel.nextCron cron now, lastRunAt := none } = true
   advance : ∀ (c : ServerModel.Schedule) (last : Nat), f c = true →
               f { c with lastRunAt := some last, nextRunAt := ServerModel.nextCron c.cron last } = true
@@ -220,8 +220,8 @@ theorem hp_createdLeTimeout : HPromise qCreatedLeTimeout where
   settle p st v t _ _ _ h := by simpa [qCreatedLeTimeout] using h
   dropListener p a h := by simpa [qCreatedLeTimeout] using h
   dropCallback p a h := by simpa [qCreatedLeTimeout] using h
-  live id param tags timeoutAt createdAt h := by simp [qCreatedLeTimeout]; omega
-  dead id st param tags timeoutAt _ := by simp [qCreatedLeTimeout]
+  live id param type timeoutAt createdAt h := by simp [qCreatedLeTimeout]; omega
+  dead id st param type timeoutAt _ := by simp [qCreatedLeTimeout]
 
 def qPendingBeforeDeadline (p : PromiseObject) : Bool :=
   p.state != .pending || p.createdAt < p.timeoutAt
@@ -242,8 +242,8 @@ theorem hp_pendingBeforeDeadline : HPromise qPendingBeforeDeadline where
     cases st <;> simp_all [qPendingBeforeDeadline, ServerModel.PromiseState.settable]
   dropListener p a h := by simpa [qPendingBeforeDeadline] using h
   dropCallback p a h := by simpa [qPendingBeforeDeadline] using h
-  live id param tags timeoutAt createdAt h := by simp [qPendingBeforeDeadline]; omega
-  dead id st param tags timeoutAt hst := by subst hst; split <;> simp [qPendingBeforeDeadline]
+  live id param type timeoutAt createdAt h := by simp [qPendingBeforeDeadline]; omega
+  dead id st param type timeoutAt hst := by subst hst; split <;> simp [qPendingBeforeDeadline]
 
 def qSettledIffStamped (p : PromiseObject) : Bool :=
   (p.state != .pending) == p.settledAt.isSome
@@ -264,8 +264,8 @@ theorem hp_settledIffStamped : HPromise qSettledIffStamped where
     cases st <;> simp_all [qSettledIffStamped, ServerModel.PromiseState.settable]
   dropListener p a h := by simpa [qSettledIffStamped] using h
   dropCallback p a h := by simpa [qSettledIffStamped] using h
-  live id param tags timeoutAt createdAt h := by simp [qSettledIffStamped]
-  dead id st param tags timeoutAt hst := by subst hst; split <;> simp [qSettledIffStamped]
+  live id param type timeoutAt createdAt h := by simp [qSettledIffStamped]
+  dead id st param type timeoutAt hst := by subst hst; split <;> simp [qSettledIffStamped]
 
 def qTimedoutIsServerOwned (p : PromiseObject) : Bool :=
   p.state != .rejectedTimedout || p.settledAt == some p.timeoutAt
@@ -286,8 +286,8 @@ theorem hp_timedoutIsServerOwned : HPromise qTimedoutIsServerOwned where
     cases st <;> simp_all [qTimedoutIsServerOwned, ServerModel.PromiseState.settable]
   dropListener p a h := by simpa [qTimedoutIsServerOwned] using h
   dropCallback p a h := by simpa [qTimedoutIsServerOwned] using h
-  live id param tags timeoutAt createdAt h := by simp [qTimedoutIsServerOwned]
-  dead id st param tags timeoutAt hst := by subst hst; split <;> simp [qTimedoutIsServerOwned]
+  live id param type timeoutAt createdAt h := by simp [qTimedoutIsServerOwned]
+  dead id st param type timeoutAt hst := by subst hst; split <;> simp [qTimedoutIsServerOwned]
 
 def qSettledAtLeTimeout (p : PromiseObject) : Bool :=
   match p.settledAt with
@@ -309,18 +309,18 @@ theorem hp_settledAtLeTimeout : HPromise qSettledAtLeTimeout where
   settle p st v t _ _ hdue _ := by simp [qSettledAtLeTimeout]; omega
   dropListener p a h := by simpa [qSettledAtLeTimeout] using h
   dropCallback p a h := by simpa [qSettledAtLeTimeout] using h
-  live id param tags timeoutAt createdAt h := by simp [qSettledAtLeTimeout]
-  dead id st param tags timeoutAt hst := by subst hst; split <;> simp [qSettledAtLeTimeout]
+  live id param type timeoutAt createdAt h := by simp [qSettledAtLeTimeout]
+  dead id st param type timeoutAt hst := by subst hst; split <;> simp [qSettledAtLeTimeout]
 
 def qDeadlineVerdict (p : PromiseObject) : Bool :=
   p.settledAt != some p.timeoutAt
-    || p.state == (if p.tags.isTimer then .resolved else .rejectedTimedout)
+    || p.state == (if p.type == .deadline then .resolved else .rejectedTimedout)
 
 theorem hp_deadlineVerdict : HPromise qDeadlineVerdict where
   project p n h := by
     unfold PromiseObject.project
     split
-    · split <;> rename_i ht <;> simp_all [qDeadlineVerdict, PromiseObject.isTimer]
+    · split <;> rename_i ht <;> simp_all [qDeadlineVerdict]
     · simpa [qDeadlineVerdict] using h
   addCallback p a h := by
     unfold PromiseObject.addCallback
@@ -331,8 +331,8 @@ theorem hp_deadlineVerdict : HPromise qDeadlineVerdict where
   settle p st v t _ _ hdue _ := by simp [qDeadlineVerdict]; omega
   dropListener p a h := by simpa [qDeadlineVerdict] using h
   dropCallback p a h := by simpa [qDeadlineVerdict] using h
-  live id param tags timeoutAt createdAt h := by simp [qDeadlineVerdict]
-  dead id st param tags timeoutAt hst := by subst hst; split <;> simp_all [qDeadlineVerdict]
+  live id param type timeoutAt createdAt h := by simp [qDeadlineVerdict]
+  dead id st param type timeoutAt hst := by subst hst; split <;> simp_all [qDeadlineVerdict]
 
 def qNoValueUnlessSettled (p : PromiseObject) : Bool :=
   (p.state != .pending || (p.value.data.isNone && p.value.headers.isEmpty))
@@ -361,8 +361,8 @@ theorem hp_noValueUnlessSettled : HPromise qNoValueUnlessSettled where
       simp_all [qNoValueUnlessSettled, ServerModel.PromiseState.settable] <;> omega
   dropListener p a h := by simpa [qNoValueUnlessSettled] using h
   dropCallback p a h := by simpa [qNoValueUnlessSettled] using h
-  live id param tags timeoutAt createdAt h := by simp [qNoValueUnlessSettled]
-  dead id st param tags timeoutAt hst := by subst hst; split <;> simp [qNoValueUnlessSettled]
+  live id param type timeoutAt createdAt h := by simp [qNoValueUnlessSettled]
+  dead id st param type timeoutAt hst := by subst hst; split <;> simp [qNoValueUnlessSettled]
 
 def qTaskShape (t : TaskObject) : Bool :=
   ((t.state == .acquired) == t.pid.isSome)
@@ -394,13 +394,6 @@ theorem ht_taskShape : HTask qTaskShape where
   resume t a n hsusp h := by cases hst : t.state <;> simp_all [qTaskShape, ts_beq]
   addResume t a hns hnf hc h := by cases hst : t.state <;> simp_all [qTaskShape, ts_beq]
   rearm t n hpend h := by cases hst : t.state <;> simp_all [qTaskShape, ts_beq]
-
-def qScheduleTags (c : ServerModel.Schedule) : Bool := !c.promiseTags.timerTargeted
-
-theorem hc_scheduleTags : HSchedule qScheduleTags where
-  born id cron promiseId promiseTimeout promiseParam promiseTags now htt := by
-    simp [qScheduleTags, htt]
-  advance c last h := by simpa [qScheduleTags] using h
 
 section Entries
 
@@ -528,15 +521,6 @@ theorem task_acquired_version_positive_of_shape (now : Nat) (s : ServerState) :
     s.tasks.all qTaskShape = true → well_formed_task_acquired_version_positive now s = true :=
   all_mono (fun _ h => by
     simp only [qTaskShape, Bool.and_eq_true] at h; exact h.2) _
-
-theorem schedule_promise_tags_not_timer_targeted_init (now : Nat) :
-    well_formed_schedule_promise_tags_not_timer_targeted now ServerState.init = true := rfl
-
-theorem schedule_promise_tags_not_timer_targeted_step (mat : Bool) (st : Event) (now n' : Nat)
-    (s : ServerState) :
-    well_formed_schedule_promise_tags_not_timer_targeted now s = true →
-    well_formed_schedule_promise_tags_not_timer_targeted n' (step mat st now s).2 = true :=
-  schedule_step hc_scheduleTags mat st now s
 
 end Entries
 

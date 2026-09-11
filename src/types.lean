@@ -28,12 +28,31 @@ inductive TaskState
   | pending | acquired | suspended | halted | fulfilled
   deriving Repr, DecidableEq
 
+inductive OType
+  | internal
+  | deadline
+  | external
+  | runnable (target : String)
+  deriving Repr, DecidableEq
+
+def OType.awaitable : OType → Bool
+  | .internal => false
+  | _         => true
+
+def OType.isRunnable : OType → Bool
+  | .runnable _ => true
+  | _           => false
+
+def OType.target? : OType → Option String
+  | .runnable t => some t
+  | _           => none
+
 structure PromiseRecord where
   id        : Ident
   state     : PromiseState
   param     : Value
   value     : Value       := {}
-  tags      : Tags
+  type      : OType
   timeoutAt : Nat
   createdAt : Nat
   settledAt : Option Nat  := none
@@ -54,7 +73,7 @@ structure Schedule where
   promiseId      : Ident
   promiseTimeout : Nat
   promiseParam   : Value
-  promiseTags    : Tags
+  promiseType    : OType
   nextRunAt      : Nat
   lastRunAt      : Option Nat := none
   createdAt      : Nat
@@ -73,7 +92,8 @@ structure PromiseCreateReq where
   id        : Ident
   timeoutAt : Nat
   param     : Value
-  tags      : Tags
+  type      : OType
+  delay     : Option Nat := none
   deriving Repr
 
 structure PromiseCreateRes where
@@ -114,7 +134,6 @@ structure PromiseRegisterListenerRes where
 
 structure PromiseSearchReq where
   state  : Option PromiseState := none
-  tags   : Tags := []
   limit  : Option Nat := none
   cursor : Option String := none
   deriving Repr
@@ -140,7 +159,7 @@ structure ScheduleCreateReq where
   promiseId      : Ident
   promiseTimeout : Nat
   promiseParam   : Value
-  promiseTags    : Tags
+  promiseType    : OType
   deriving Repr
 
 structure ScheduleCreateRes where
@@ -331,48 +350,6 @@ inductive ResumeOutcome
 structure ResumeRes where
   outcome : ResumeOutcome
   deriving Repr
-
-def Tags.get? (t : Tags) (k : String) : Option String :=
-  (t.find? (·.fst == k)).map (·.snd)
-
-def Tags.has (t : Tags) (k : String) : Bool :=
-  (t.get? k).isSome
-
-def Tags.isTimer (t : Tags) : Bool :=
-  t.get? "resonate:timer" == some "true"
-
-inductive OType
-  | internal
-  | external
-  | runnable
-  deriving Repr, DecidableEq
-
-def OType.awaitable : OType → Bool
-  | .internal => false
-  | _         => true
-
-def Tags.otype (t : Tags) : OType :=
-  if t.has "resonate:target" then
-    .runnable
-  else if t.get? "resonate:scope" == some "global"
-      || t.get? "resonate:external" == some "true"
-      || t.isTimer then
-    .external
-  else
-    .internal
-
-theorem otype_runnable_iff_targeted (t : Tags) :
-    t.otype = .runnable ↔ t.has "resonate:target" = true := by
-  cases ht : t.has "resonate:target" with
-  | true  => simp [Tags.otype, ht]
-  | false => simp [Tags.otype, ht]; split <;> simp
-
-theorem targeted_implies_awaitable (t : Tags) :
-    t.has "resonate:target" = true → t.otype.awaitable = true := by
-  intro h; simp [Tags.otype, h, OType.awaitable]
-
-def Tags.timerTargeted (t : Tags) : Bool :=
-  t.isTimer && t.has "resonate:target"
 
 def PromiseState.settable : PromiseState → Bool
   | .resolved | .rejected | .rejectedCanceled => true

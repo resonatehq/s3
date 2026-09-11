@@ -14,7 +14,7 @@ def enabledInternal (st : Event) (now : Nat) (s : ServerState) : Bool :=
   match st with
   | .internal (.promiseTimeout { id := id }) =>
       match promiseAt s id with
-      | some p => p.otype.awaitable && p.state == .pending && p.timeoutAt ≤ now
+      | some p => p.type.awaitable && p.state == .pending && p.timeoutAt ≤ now
       | none   => false
   | .internal (.callback { awaited := id, awaiter := x }) =>
       match promiseAt s id with
@@ -63,7 +63,7 @@ def isListenerStep : Event → Bool
 def EventuallyEveryExternalPromiseSettles : Prop :=
   ∀ tr : Trace, Valid true tr → ClockAdvances tr → WeaklyFairOn tr isSettlementStep →
     ∀ (t : Nat) (id : ServerModel.Ident),
-      (∀ p, promiseAt (tr t).state id = some p → p.otype.awaitable = true) →
+      (∀ p, promiseAt (tr t).state id = some p → p.type.awaitable = true) →
       (promiseAt (tr t).state id).isSome →
       ∃ u : Nat, t ≤ u ∧
         ∀ p, promiseAt (tr u).state id = some p → p.state ≠ .pending
@@ -148,8 +148,8 @@ set_option maxRecDepth 100000
 set_option maxHeartbeats 4000000
 
 def wWake : List (Event × Nat) :=
-  [ (.external (.promiseCreate { id := oid "a", timeoutAt := 9000, param := {}, tags := extTags }), 100),
-    (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "x", timeoutAt := 9000, param := {}, tags := tgtTags } }), 100),
+  [ (.external (.promiseCreate { id := oid "a", timeoutAt := 9000, param := {}, type := extType }), 100),
+    (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "x", timeoutAt := 9000, param := {}, type := tgtType } }), 100),
     (.external (.taskSuspend { id := oid "x", version := 1, actions := [{ awaited := oid "a", awaiter := oid "x" }] }), 120),
     (.external (.promiseSettle { id := oid "a", state := .resolved, value := {} }), 200) ]
 
@@ -157,8 +157,8 @@ example : wakeMaterializes wWake 300 := by decide
 example : resumeRecorded wWake 300 := by decide
 
 def wWakeTimedOut : List (Event × Nat) :=
-  [ (.external (.promiseCreate { id := oid "a", timeoutAt := 9000, param := {}, tags := extTags }), 100),
-    (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "x", timeoutAt := 250, param := {}, tags := tgtTags } }), 100),
+  [ (.external (.promiseCreate { id := oid "a", timeoutAt := 9000, param := {}, type := extType }), 100),
+    (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "x", timeoutAt := 250, param := {}, type := tgtType } }), 100),
     (.external (.taskSuspend { id := oid "x", version := 1, actions := [{ awaited := oid "a", awaiter := oid "x" }] }), 120),
     (.external (.promiseSettle { id := oid "a", state := .resolved, value := {} }), 200) ]
 

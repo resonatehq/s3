@@ -261,16 +261,16 @@ structure Hereditary (g : Q) (a : ServerState) : Prop where
   dropCallback : ∀ (id : ServerModel.Ident) (p : PromiseObject) (c : ServerModel.Ident), Stored a id →
                    p.state ≠ .pending → g.promise id p = true →
                    g.promise id { p with callbacks := p.callbacks.filter (· != c) } = true
-  live         : ∀ (id : ServerModel.Ident) (param : ServerModel.Value) (tags : ServerModel.Tags)
+  live         : ∀ (id : ServerModel.Ident) (param : ServerModel.Value) (type : ServerModel.OType)
                    (timeoutAt createdAt : Nat), createdAt < timeoutAt →
                    a.objects.find? (·.id == id) = none →
-                   g.promise id { state := .pending, param := param, tags := tags,
+                   g.promise id { state := .pending, param := param, type := type,
                                   timeoutAt := timeoutAt, createdAt := createdAt } = true
   dead         : ∀ (id : ServerModel.Ident) (st : ServerModel.PromiseState)
-                   (param : ServerModel.Value) (tags : ServerModel.Tags) (timeoutAt : Nat),
-                   st = (if tags.isTimer then .resolved else .rejectedTimedout) →
+                   (param : ServerModel.Value) (type : ServerModel.OType) (timeoutAt : Nat),
+                   st = (if type == .deadline then .resolved else .rejectedTimedout) →
                    a.objects.find? (·.id == id) = none →
-                   g.promise id { state := st, param := param, tags := tags,
+                   g.promise id { state := st, param := param, type := type,
                                   timeoutAt := timeoutAt, createdAt := timeoutAt,
                                   settledAt := some timeoutAt } = true
 
@@ -307,11 +307,11 @@ structure Hereditary (g : Q) (a : ServerState) : Prop where
                    g.task t = true → g.task { t with retryTimeoutAt := some n } = true
 
   cBorn        : ∀ (id : ServerModel.Ident) (cron : String) (promiseId : ServerModel.Ident) (promiseTimeout : Nat)
-                   (promiseParam : ServerModel.Value) (promiseTags : ServerModel.Tags)
-                   (now : Nat), promiseTags.timerTargeted = false →
+                   (promiseParam : ServerModel.Value) (promiseType : ServerModel.OType)
+                   (now : Nat),
                    g.schedule { id := id, cron := cron, promiseId := promiseId,
                                 promiseTimeout := promiseTimeout,
-                                promiseParam := promiseParam, promiseTags := promiseTags,
+                                promiseParam := promiseParam, promiseType := promiseType,
                                 createdAt := now,
                                 nextRunAt := ServerModel.nextCron cron now,
                                 lastRunAt := none } = true

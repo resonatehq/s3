@@ -8,7 +8,7 @@ open AbstractModel
 
 def badState : ServerState :=
   { objects := [{ id := oid "p",
-                  promise := { state := .pending, param := {}, tags := [],
+                  promise := { state := .pending, param := {}, type := .internal,
                                timeoutAt := 1, createdAt := 5 } }] }
 
 theorem legal_body_is_falsifiable :

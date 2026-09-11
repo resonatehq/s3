@@ -62,42 +62,39 @@ def promiseGet (now : Nat) (org : Origin) (req : PromiseGetReq) : PromiseGetRes 
       ({ status := 200, promise := some (o.promise.toRecord o.id) }, { put := org })
 
 def promiseCreate (now : Nat) (org : Origin) (req : PromiseCreateReq) : PromiseCreateRes × Commands :=
-  if req.tags.timerTargeted then
-    ({ status := 400, promise := none }, { put := org })
-  else
-    match org.get req.id now with
-    | some o =>
-        ({ status := 200, promise := some (o.promise.toRecord o.id) }, { put := org })
-    | none =>
-        if req.timeoutAt > now then
-          let p : PromiseObject :=
-            { state := .pending, param := req.param, tags := req.tags,
-              timeoutAt := req.timeoutAt, createdAt := now }
-          if p.otype == .runnable then
-            let due :=
-              match p.tags.get? "resonate:delay" with
-              | some d =>
-                  max (ServerModel.parseNat d) now
-              | none =>
-                  now
-            let t : TaskObject := { state := .pending, version := 0, retryTimeoutAt := some due }
-            ({ status := 200, promise := some (p.toRecord req.id) },
-             { arm := [⟨req.timeoutAt, req.id, .promise⟩, ⟨due, req.id, .retry⟩],
-               put := org.write ⟨req.id, p, some t⟩ })
-          else
-            ({ status := 200, promise := some (p.toRecord req.id) },
-             { arm := [⟨req.timeoutAt, req.id, .promise⟩],
-               put := org.write ⟨req.id, p, none⟩ })
-        else
-          let p : PromiseObject :=
-            { state := if req.tags.isTimer then .resolved else .rejectedTimedout,
-              param := req.param, tags := req.tags,
-              timeoutAt := req.timeoutAt, createdAt := req.timeoutAt,
-              settledAt := some req.timeoutAt }
-          let t : Option TaskObject :=
-            if p.otype == .runnable then some { state := .fulfilled, version := 0 } else none
+  match org.get req.id now with
+  | some o =>
+      ({ status := 200, promise := some (o.promise.toRecord o.id) }, { put := org })
+  | none =>
+      if req.timeoutAt > now then
+        let p : PromiseObject :=
+          { state := .pending, param := req.param, type := req.type,
+            timeoutAt := req.timeoutAt, createdAt := now }
+        if p.type.isRunnable then
+          let due :=
+            match req.delay with
+            | some d =>
+                max d now
+            | none =>
+                now
+          let t : TaskObject := { state := .pending, version := 0, retryTimeoutAt := some due }
           ({ status := 200, promise := some (p.toRecord req.id) },
-           { put := org.write ⟨req.id, p, t⟩ })
+           { arm := [⟨req.timeoutAt, req.id, .promise⟩, ⟨due, req.id, .retry⟩],
+             put := org.write ⟨req.id, p, some t⟩ })
+        else
+          ({ status := 200, promise := some (p.toRecord req.id) },
+           { arm := [⟨req.timeoutAt, req.id, .promise⟩],
+             put := org.write ⟨req.id, p, none⟩ })
+      else
+        let p : PromiseObject :=
+          { state := if req.type == .deadline then .resolved else .rejectedTimedout,
+            param := req.param, type := req.type,
+            timeoutAt := req.timeoutAt, createdAt := req.timeoutAt,
+            settledAt := some req.timeoutAt }
+        let t : Option TaskObject :=
+          if p.type.isRunnable then some { state := .fulfilled, version := 0 } else none
+        ({ status := 200, promise := some (p.toRecord req.id) },
+         { put := org.write ⟨req.id, p, t⟩ })
 
 def promiseSettle (now : Nat) (org : Origin) (req : PromiseSettleReq) : PromiseSettleRes × Commands :=
   if !req.state.settable then
@@ -125,7 +122,7 @@ def promiseRegisterCallback (now : Nat) (org : Origin) (req : PromiseRegisterCal
     | some _, none =>
         ({ status := 422 }, { put := org })
     | some awaited, some awaiter =>
-        if awaiter.promise.otype != .runnable ∨ !awaited.promise.otype.awaitable then
+        if !awaiter.promise.type.isRunnable ∨ !awaited.promise.type.awaitable then
           ({ status := 422 }, { put := org })
         else if awaited.promise.state == .pending ∧ awaiter.promise.state == .pending then
           ({ status := 200, promise := some (awaited.promise.toRecord awaited.id) },
@@ -138,7 +135,7 @@ def promiseRegisterListener (now : Nat) (org : Origin) (req : PromiseRegisterLis
   | none =>
       ({ status := 404 }, { put := org })
   | some awaited =>
-      if !awaited.promise.otype.awaitable then
+      if !awaited.promise.type.awaitable then
         ({ status := 422 }, { put := org })
       else if awaited.promise.state == .pending then
         ({ status := 200, promise := some (awaited.promise.toRecord awaited.id) },
@@ -170,14 +167,14 @@ def taskGet (now : Nat) (org : Origin) (req : TaskGetReq) : TaskGetRes × Comman
 
 def taskCreate (now : Nat) (org : Origin) (req : TaskCreateReq) : TaskCreateRes × Commands :=
   let a := req.action
-  if a.tags.otype != .runnable ∨ a.tags.timerTargeted then
+  if !a.type.isRunnable then
     ({ status := 400 }, { put := org })
   else
     match org.get a.id now with
     | none =>
         if a.timeoutAt > now then
           let p : PromiseObject :=
-            { state := .pending, param := a.param, tags := a.tags,
+            { state := .pending, param := a.param, type := a.type,
               timeoutAt := a.timeoutAt, createdAt := now }
           let t : TaskObject :=
             { state := .acquired, version := 1, ttl := some req.ttl, pid := some req.pid,
@@ -187,13 +184,13 @@ def taskCreate (now : Nat) (org : Origin) (req : TaskCreateReq) : TaskCreateRes 
              put := org.write ⟨a.id, p, some t⟩ })
         else
           let p : PromiseObject :=
-            { state := .rejectedTimedout, param := a.param, tags := a.tags,
+            { state := .rejectedTimedout, param := a.param, type := a.type,
               timeoutAt := a.timeoutAt, createdAt := a.timeoutAt, settledAt := some a.timeoutAt }
           let t : TaskObject := { state := .fulfilled, version := 0 }
           ({ status := 200, task := some (t.toRecord a.id), promise := some (p.toRecord a.id) },
            { put := org.write ⟨a.id, p, some t⟩ })
     | some o =>
-        if o.promise.otype != .runnable then
+        if !o.promise.type.isRunnable then
           ({ status := 422 }, { put := org })
         else
           match o.task with
@@ -284,7 +281,7 @@ def taskSuspend (now : Nat) (org : Origin) (req : TaskSuspendReq) : TaskSuspendR
           ({ status := 409 }, { put := org })
         else
           let awaited := awaitedIds.map (org.get · now)
-          if awaited.any (fun oa => !(oa.map (·.promise.otype.awaitable)).getD false) then
+          if awaited.any (fun oa => !(oa.map (·.promise.type.awaitable)).getD false) then
             ({ status := 422 }, { put := org })
           else if awaited.any (fun oa => (oa.map (·.promise.state != .pending)).getD false) then
             ({ status := 300 }, { put := org.write { o with task := some { t with resumes := [] } } })

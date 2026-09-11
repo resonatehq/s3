@@ -21,14 +21,14 @@ structure HRel (R : PromiseObject → PromiseObject → Bool)
                    R p₀ { p with listeners := p.listeners.filter (· != c) } = true
   dropCallback : ∀ p₀ p (c : ServerModel.Ident), p.state ≠ .pending → R p₀ p = true →
                    R p₀ { p with callbacks := p.callbacks.filter (· != c) } = true
-  freshLive    : ∀ (param : ServerModel.Value) (tags : ServerModel.Tags)
+  freshLive    : ∀ (param : ServerModel.Value) (type : ServerModel.OType)
                    (timeoutAt createdAt : Nat), createdAt < timeoutAt →
-                   Rf { state := .pending, param := param, tags := tags,
+                   Rf { state := .pending, param := param, type := type,
                         timeoutAt := timeoutAt, createdAt := createdAt } = true
   freshDead    : ∀ (st : ServerModel.PromiseState)
-                   (param : ServerModel.Value) (tags : ServerModel.Tags) (timeoutAt : Nat),
-                   st = (if tags.isTimer then .resolved else .rejectedTimedout) →
-                   Rf { state := st, param := param, tags := tags,
+                   (param : ServerModel.Value) (type : ServerModel.OType) (timeoutAt : Nat),
+                   st = (if type == .deadline then .resolved else .rejectedTimedout) →
+                   Rf { state := st, param := param, type := type,
                         timeoutAt := timeoutAt, createdAt := timeoutAt,
                         settledAt := some timeoutAt } = true
 
@@ -98,12 +98,12 @@ theorem hereditary_rel {R : PromiseObject → PromiseObject → Bool}
     | some p₀ =>
         have hp' : R p₀ p = true := by simpa [relQ, relPred, hf] using hp
         simp [relPred, hf, h.dropCallback p₀ p c hns hp']
-  live id param tags tAt cAt hlt hfresh := by
+  live id param type tAt cAt hlt hfresh := by
     simp [relQ, relPred, promise?_none_of_find?_none hfresh,
-          h.freshLive param tags tAt cAt hlt]
-  dead id st param tags tAt hst hfresh := by
+          h.freshLive param type tAt cAt hlt]
+  dead id st param type tAt hst hfresh := by
     simp [relQ, relPred, promise?_none_of_find?_none hfresh,
-          h.freshDead st param tags tAt hst]
+          h.freshDead st param type tAt hst]
   tFulfill _ _ := rfl
   tBornPending _ := rfl
   tBornDone := rfl
@@ -118,7 +118,7 @@ theorem hereditary_rel {R : PromiseObject → PromiseObject → Bool}
   tResume _ _ _ _ _ := rfl
   tAddResume _ _ _ _ _ _ := rfl
   tRearm _ _ _ _ := rfl
-  cBorn _ _ _ _ _ _ _ _ := rfl
+  cBorn _ _ _ _ _ _ _ := rfl
   cAdvance _ _ _ := rfl
 
 theorem promise?_self_of_nodup {s : ServerState} (hnd : (s.objects.map (·.id)).Nodup)
@@ -181,7 +181,7 @@ open Properties
 
 def rBirthFields (p q : PromiseObject) : Bool :=
   q.param.data == p.param.data && q.param.headers == p.param.headers
-    && q.tags == p.tags && q.timeoutAt == p.timeoutAt && q.createdAt == p.createdAt
+    && q.type == p.type && q.timeoutAt == p.timeoutAt && q.createdAt == p.createdAt
 
 theorem hrel_birthFields : HRel rBirthFields (fun _ => true) where
   refl p := by simp [rBirthFields]
@@ -397,7 +397,7 @@ theorem hrel_callbacksGrow :
   dropListener p₀ p c _ h := by simpa [rCallbacksGrow] using h
   dropCallback p₀ p c hns _ := by simp [rCallbacksGrow, hns]
   freshLive _ _ _ _ _ := rfl
-  freshDead st param tags tAt hst := by subst hst; split <;> simp
+  freshDead st param type tAt hst := by subst hst; split <;> simp
 
 theorem monotone_promise_callbacks_grow_while_pending_step (mat : Bool) (st : Event)
     (now n' : Nat) (s : ServerState) (hnd : StoreNodup s) :
@@ -439,7 +439,7 @@ theorem hrel_listenersGrow :
   dropListener p₀ p c hns _ := by simp [rListenersGrow, hns]
   dropCallback p₀ p c _ h := by simpa [rListenersGrow] using h
   freshLive _ _ _ _ _ := rfl
-  freshDead st param tags tAt hst := by subst hst; split <;> simp
+  freshDead st param type tAt hst := by subst hst; split <;> simp
 
 theorem monotone_promise_listeners_grow_while_pending_step (mat : Bool) (st : Event)
     (now n' : Nat) (s : ServerState) (hnd : StoreNodup s) :

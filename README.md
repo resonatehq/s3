@@ -6,7 +6,7 @@ the proof that the implementation does what the specification says.
 Three parts under `src/`, and the directory layout says so:
 
 ```
-src/types.lean    the protocol layer — records, requests, responses, tags, messages
+src/types.lean    the protocol layer — records, requests, responses, the object kind, messages
 src/spec/         the specification: the abstract machine and its catalogue
 src/impl/         the implementation on S3, and its refinement proof
 ```
@@ -25,7 +25,7 @@ together with a catalogue of properties every run of it satisfies.
 
 | | |
 |---|---|
-| `src/types.lean` | the protocol layer: records, requests, responses, tag semantics, the message vocabulary |
+| `src/types.lean` | the protocol layer: records, requests, responses, the object kind `OType` (internal, deadline, external, runnable with its target), the message vocabulary |
 | `src/spec/02-abstract` | the machine: `state`, `external` (the 21 handlers), `internal` (the 6 triggers), `system` (the alphabet `Event`/`Reply`, `step`, `exec`, `Trace`, `Valid`), `properties` (the catalogue) |
 | `src/spec/03-theorems` | what is proved about it, and the harnesses that evaluate it |
 

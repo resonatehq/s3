@@ -2,7 +2,7 @@ import types
 
 namespace AbstractModel
 
-open ServerModel (Ident Tags Value PromiseState TaskState PromiseRecord
+open ServerModel (Ident Value PromiseState TaskState PromiseRecord
                   TaskRecord Schedule Message OutboxEntry OutboxKey
                   PromiseCreateReq OType)
 
@@ -10,7 +10,7 @@ structure PromiseObject where
   state     : PromiseState
   param     : Value
   value     : Value       := {}
-  tags      : Tags
+  type      : OType
   timeoutAt : Nat
   createdAt : Nat
   settledAt : Option Nat  := none
@@ -20,12 +20,8 @@ structure PromiseObject where
 
 def PromiseObject.toRecord (p : PromiseObject) (id : Ident) : PromiseRecord :=
   { id := id, state := p.state, param := p.param, value := p.value,
-    tags := p.tags, timeoutAt := p.timeoutAt, createdAt := p.createdAt,
+    type := p.type, timeoutAt := p.timeoutAt, createdAt := p.createdAt,
     settledAt := p.settledAt }
-
-def PromiseObject.isTimer (p : PromiseObject) : Bool := p.tags.isTimer
-
-def PromiseObject.otype (p : PromiseObject) : OType := p.tags.otype
 
 def PromiseObject.addCallback (p : PromiseObject) (awaiterId : Ident) : PromiseObject :=
   if p.callbacks.contains awaiterId then
@@ -41,7 +37,7 @@ def PromiseObject.addListener (p : PromiseObject) (address : String) : PromiseOb
 
 def PromiseObject.project (p : PromiseObject) (now : Nat) : PromiseObject :=
   if p.state == .pending ∧ p.timeoutAt ≤ now then
-    if p.isTimer then
+    if p.type == .deadline then
       { p with state := .resolved, settledAt := some p.timeoutAt }
     else
       { p with state := .rejectedTimedout, settledAt := some p.timeoutAt }
@@ -183,13 +179,13 @@ def setSettled (o : Object) (p : PromiseObject) : H Unit := do
 def createPromise (req : PromiseCreateReq) (now : Nat) : H Object := do
   if req.timeoutAt > now then
     let p : PromiseObject :=
-      { state := .pending, param := req.param, tags := req.tags,
+      { state := .pending, param := req.param, type := req.type,
         timeoutAt := req.timeoutAt, createdAt := now }
     setPromise req.id p
-    if p.otype == .runnable then
+    if p.type.isRunnable then
       let due :=
-        match p.tags.get? "resonate:delay" with
-        | some d => max (ServerModel.parseNat d) now
+        match req.delay with
+        | some d => max d now
         | none => now
       let t : TaskObject := { state := .pending, version := 0, retryTimeoutAt := some due }
       setTask req.id t
@@ -198,13 +194,13 @@ def createPromise (req : PromiseCreateReq) (now : Nat) : H Object := do
       return { id := req.id, promise := p }
   else
     let state :=
-      if req.tags.isTimer then PromiseState.resolved else PromiseState.rejectedTimedout
+      if req.type == .deadline then PromiseState.resolved else PromiseState.rejectedTimedout
     let p : PromiseObject :=
-      { state := state, param := req.param, tags := req.tags,
+      { state := state, param := req.param, type := req.type,
         timeoutAt := req.timeoutAt, createdAt := req.timeoutAt,
         settledAt := some req.timeoutAt }
     setPromise req.id p
-    if p.otype == .runnable then
+    if p.type.isRunnable then
       let t : TaskObject := { state := .fulfilled, version := 0 }
       setTask req.id t
       return { id := req.id, promise := p, task := some t }

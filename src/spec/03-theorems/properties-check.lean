@@ -45,13 +45,13 @@ def witnesses (ws : List (List (Event × Nat))) (p : AbstractModel.ServerState �
   ws.any fun w => (trace w).any (fun (_, s) => p s)
 
 def covInternal : List (Event × Nat) :=
-  [ (.external (.promiseCreate { id := oid "i", timeoutAt := 1000, param := {}, tags := [] }), 100),
+  [ (.external (.promiseCreate { id := oid "i", timeoutAt := 1000, param := {}, type := .internal }), 100),
     (.external (.promiseRegisterListener { awaited := oid "i", address := "https://l" }), 110),
-    (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "x", timeoutAt := 2000, param := {}, tags := tgtTags } }), 120),
+    (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "x", timeoutAt := 2000, param := {}, type := tgtType } }), 120),
     (.external (.promiseRegisterCallback { awaited := oid "i", awaiter := oid "x" }), 130) ]
 
 def covListeners : List (Event × Nat) :=
-  [ (.external (.promiseCreate { id := oid "a", timeoutAt := 1000, param := {}, tags := extTags }), 100),
+  [ (.external (.promiseCreate { id := oid "a", timeoutAt := 1000, param := {}, type := extType }), 100),
     (.external (.promiseRegisterListener { awaited := oid "a", address := "https://l1" }), 110),
     (.external (.promiseRegisterListener { awaited := oid "a", address := "https://l2" }), 120),
     (.external (.promiseSettle { id := oid "a", state := .resolved, value := {} }), 200),
@@ -59,15 +59,15 @@ def covListeners : List (Event × Nat) :=
     (.internal (.listener { awaited := oid "a", address := "https://l2" }), 220) ]
 
 def covTwoTasks : List (Event × Nat) :=
-  [ (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "x", timeoutAt := 5000, param := {}, tags := tgtTags } }), 100),
-    (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "y", timeoutAt := 5000, param := {}, tags := tgtTags } }), 110),
+  [ (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "x", timeoutAt := 5000, param := {}, type := tgtType } }), 100),
+    (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "y", timeoutAt := 5000, param := {}, type := tgtType } }), 110),
     (.external (.taskRelease { id := oid "x", version := 1 }), 120),
     (.external (.taskRelease { id := oid "y", version := 1 }), 130),
     (.internal (.taskRetryTimeout { id := oid "x" }), 140),
     (.internal (.taskRetryTimeout { id := oid "y" }), 150) ]
 
 def covHalt : List (Event × Nat) :=
-  [ (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "h", timeoutAt := 5000, param := {}, tags := tgtTags } }), 100),
+  [ (.external (.taskCreate { pid := "p0", ttl := 100, action := { id := oid "h", timeoutAt := 5000, param := {}, type := tgtType } }), 100),
     (.external (.taskHalt { id := oid "h" }), 110),
     (.external (.taskContinue { id := oid "h" }), 120) ]
 
@@ -83,7 +83,7 @@ theorem stage1_sweep :
     ((seqsUpToA kernelsResp 3).map instantiateA).all legalRun = true := by decide
 
 def carrier : AbstractModel.PromiseObject :=
-  { state := .pending, param := {}, tags := [("resonate:target","w")],
+  { state := .pending, param := {}, type := .runnable "w",
     timeoutAt := 100, createdAt := 10 }
 
 def onePromise (p : AbstractModel.PromiseObject) : AbstractModel.ServerState :=
@@ -98,14 +98,14 @@ def oneSchedule (c : ServerModel.Schedule) : AbstractModel.ServerState :=
 open ServerModel AbstractModel.Properties in
 def mutants : List (String × Bool) :=
   let P : AbstractModel.PromiseObject :=
-    { state := .pending, param := {}, tags := [("resonate:external","true")],
+    { state := .pending, param := {}, type := .external,
       timeoutAt := 100, createdAt := 10 }
   let T : AbstractModel.TaskObject := { state := .pending, version := 1, retryTimeoutAt := some 0 }
   let obj : AbstractModel.PromiseObject → Option AbstractModel.TaskObject →
               AbstractModel.ServerState :=
     fun p t => { objects := [{ id := oid "a", promise := p, task := t }] }
   let C : Schedule := { id := oid "c", cron := "*", promiseId := oid "p", promiseTimeout := 1,
-                        promiseParam := {}, promiseTags := [], nextRunAt := 50, createdAt := 10 }
+                        promiseParam := {}, promiseType := .internal, nextRunAt := 50, createdAt := 10 }
   [ ("well_formed_promise_created_at_lte_timeout_at",
        well_formed_promise_created_at_lte_timeout_at 0 (onePromise { P with createdAt := 500 })),
     ("well_formed_promise_settled_at_lte_timeout_at",
@@ -118,8 +118,6 @@ def mutants : List (String × Bool) :=
        well_formed_promise_settled_at_iff_not_pending 0 (onePromise { P with state := .resolved })),
     ("well_formed_promise_pending_has_no_value",
        well_formed_promise_pending_has_no_value 0 (onePromise { P with value := { data := some "x" } })),
-    ("well_formed_promise_timer_not_targeted",
-       well_formed_promise_timer_not_targeted 0 (onePromise { P with tags := [("resonate:timer","true"), ("resonate:target","w")] })),
 
     ("well_formed_promise_timedout_is_server_owned",
        well_formed_promise_timedout_is_server_owned 0 (onePromise { P with state := .rejectedTimedout, settledAt := some 50 })),
@@ -128,7 +126,7 @@ def mutants : List (String × Bool) :=
     ("well_formed_promise_listeners_unique",
        well_formed_promise_listeners_unique 0 (onePromise { P with listeners := ["u","u"] })),
     ("well_formed_promise_obligations_require_external",
-       well_formed_promise_obligations_require_external 0 (onePromise { P with tags := [], callbacks := [oid "x"] })),
+       well_formed_promise_obligations_require_external 0 (onePromise { P with type := .internal, callbacks := [oid "x"] })),
     ("well_formed_promise_awaiter_is_not_self",
        well_formed_promise_awaiter_is_not_self 0 (onePromise { P with callbacks := [oid "a"] })),
     ("well_formed_promise_created_at_lte_now",
@@ -153,8 +151,6 @@ def mutants : List (String × Bool) :=
        well_formed_task_suspended_has_no_resumes 0 (oneTask { T with state := .suspended, resumes := [oid "b"] })),
     ("well_formed_task_resumes_unique",
        well_formed_task_resumes_unique 0 (oneTask { T with resumes := [oid "b", oid "b"] })),
-    ("well_formed_schedule_promise_tags_not_timer_targeted",
-       well_formed_schedule_promise_tags_not_timer_targeted 0 (oneSchedule { C with promiseTags := [("resonate:timer","true"), ("resonate:target","w")] })),
     ("well_formed_schedule_created_at_lte_next_run_at",
        well_formed_schedule_created_at_lte_next_run_at 0 (oneSchedule { C with nextRunAt := 1 })),
     ("well_formed_schedule_created_at_lte_last_run_at",
@@ -164,7 +160,7 @@ def mutants : List (String × Bool) :=
     ("well_formed_promise_pending_created_before_deadline",
        well_formed_promise_pending_created_before_deadline 0 (onePromise { P with createdAt := 100 })),
     ("well_formed_promise_deadline_verdict_matches_timer_tag",
-       well_formed_promise_deadline_verdict_matches_timer_tag 0 (onePromise { P with tags := [("resonate:timer","true")], state := .rejectedTimedout, settledAt := some 100 })),
+       well_formed_promise_deadline_verdict_matches_timer_tag 0 (onePromise { P with type := .deadline, state := .rejectedTimedout, settledAt := some 100 })),
     ("well_formed_promise_deadline_settlement_has_no_value",
        well_formed_promise_deadline_settlement_has_no_value 0 (onePromise { P with state := .rejectedTimedout, settledAt := some 100, value := { data := some "boom" } })),
     ("well_formed_task_acquired_version_positive",
@@ -174,7 +170,7 @@ def mutants : List (String × Bool) :=
        consistent_task_iff_kind_task 0 (obj P (some T))),
     ("consistent_task_iff_kind_task/kind_task_without_task",
        consistent_task_iff_kind_task 0
-         (obj { P with tags := [("resonate:target","w")] } none)),
+         (obj { P with type := .runnable "w" } none)),
     ("consistent_settled_promise_has_fulfilled_task",
        consistent_settled_promise_has_fulfilled_task 0
          (obj { P with state := .resolved, settledAt := some 20 } (some T))),
@@ -188,7 +184,7 @@ def mutants : List (String × Bool) :=
            outbox := [{ address := "w", message := .execute (oid "a") 9 }] }),
     ("consistent_outbox_execute_address_is_target_tag",
        consistent_outbox_execute_address_is_target_tag 0
-         { objects := [{ id := oid "a", promise := { P with tags := [("resonate:target","w")] } }],
+         { objects := [{ id := oid "a", promise := { P with type := .runnable "w" } }],
            outbox := [{ address := "wrong", message := .execute (oid "a") 0 }] }),
     ("consistent_outbox_unblock_names_settled_promise",
        consistent_outbox_unblock_names_settled_promise 0
@@ -214,14 +210,14 @@ theorem reaches_settled_promise :
     witnesses battery (fun s => s.promises.any (·.settledAt.isSome)) = true := by decide
 
 theorem reaches_timer_promise :
-    witnesses battery (fun s => s.promises.any (·.isTimer)) = true := by decide
+    witnesses battery (fun s => s.promises.any (·.type == .deadline)) = true := by decide
 
 theorem reaches_internal_promise :
-    witnesses battery (fun s => s.promises.any (fun p => p.otype == .internal)) = true := by decide
+    witnesses battery (fun s => s.promises.any (fun p => p.type == .internal)) = true := by decide
 
 theorem reaches_idle_external_promise :
     witnesses battery
-      (fun s => s.promises.any (fun p => p.otype == .external)) = true := by
+      (fun s => s.promises.any (fun p => p.type == .external)) = true := by
   decide
 
 theorem reaches_callbacks :
@@ -279,15 +275,13 @@ open AbstractModel.Properties (well_formed_task_ttl_positive
   well_formed_promise_delay_before_deadline)
 
 def wGapTtlZero : List (Event × Nat) :=
-  [ (.external (.taskCreate { pid := "p", ttl := 0, action := { id := oid "x", timeoutAt := 9000, param := {}, tags := tgtTags } }), 100) ]
+  [ (.external (.taskCreate { pid := "p", ttl := 0, action := { id := oid "x", timeoutAt := 9000, param := {}, type := tgtType } }), 100) ]
 
 theorem gap_task_ttl_positive_is_violable :
     (trace wGapTtlZero).any (fun (n, s) => !well_formed_task_ttl_positive n s) = true := by decide
 
-def emptyTargetTags : ServerModel.Tags := [("resonate:target", "")]
-
 def wGapEmptyTarget : List (Event × Nat) :=
-  [ (.external (.promiseCreate { id := oid "y", timeoutAt := 9000, param := {}, tags := emptyTargetTags }), 100),
+  [ (.external (.promiseCreate { id := oid "y", timeoutAt := 9000, param := {}, type := .runnable "" }), 100),
     (.internal (.taskRetryTimeout { id := oid "y" }), 110) ]
 
 theorem gap_promise_target_is_nonempty_is_violable :
@@ -299,10 +293,8 @@ theorem ordinary_target_is_nonempty :
 theorem gap_empty_target_reaches_the_outbox :
     (trace wGapEmptyTarget).any (fun (_, s) => s.outbox.any (·.address == "")) = true := by decide
 
-def lateDelayTags : ServerModel.Tags := [("resonate:target", "w"), ("resonate:delay", "5000")]
-
 def wGapLateDelay : List (Event × Nat) :=
-  [ (.external (.promiseCreate { id := oid "z", timeoutAt := 200, param := {}, tags := lateDelayTags }), 100) ]
+  [ (.external (.promiseCreate { id := oid "z", timeoutAt := 200, param := {}, type := .runnable "w", delay := some 5000 }), 100) ]
 
 theorem gap_promise_delay_before_deadline_is_violable :
     (trace wGapLateDelay).any (fun (n, s) => !well_formed_promise_delay_before_deadline n s) = true := by decide

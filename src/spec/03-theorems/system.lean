@@ -15,8 +15,8 @@ theorem valid_implies_legal (mat : Bool) (tr : Trace)
 
 def oid (suffix : String) : ServerModel.Ident := { origin := "o", suffix }
 
-def extTags   : ServerModel.Tags := [("resonate:external", "true")]
-def tgtTags   : ServerModel.Tags := [("resonate:target", "w1")]
-def timerTags : ServerModel.Tags := [("resonate:timer", "true")]
+def extType      : ServerModel.OType := .external
+def tgtType      : ServerModel.OType := .runnable "w1"
+def deadlineType : ServerModel.OType := .deadline
 
 end Abstract

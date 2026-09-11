@@ -72,7 +72,6 @@ theorem writesGood_promiseGet (req : ServerModel.PromiseGetReq) (now : Nat) :
 theorem writesGood_promiseCreate (req : ServerModel.PromiseCreateReq) (now : Nat) :
     WritesGood g e (promiseCreate req now) := by
   unfold promiseCreate
-  wg_guard
   refine writesGood_afterReadObjectP hq hs _ _ _ (fun hfresh => ?_) ?_
   · exact writesGood_bind' _ _ _ _ (writesGood_createPromise hq hs _ _ hfresh)
       (writesGood_pure _ _ _)
@@ -145,14 +144,8 @@ theorem writesGood_taskCreate (req : ServerModel.TaskCreateReq) (now : Nat) :
   refine writesGood_iteH _ _ _ _ _ (fun _ => writesGood_pure _ _ _) (fun hgd => ?_)
   refine writesGood_pureBind _ _ _ _ ?_
 
-  have hnotimer : req.action.tags.isTimer = false := by
-    have h1 : ¬ ((req.action.tags.otype != .runnable) = true) := fun h => hgd (Or.inl h)
-    have h2 : ¬ (req.action.tags.timerTargeted = true) := fun h => hgd (Or.inr h)
-    have htgt : req.action.tags.has "resonate:target" = true := by
-      simp at h1
-      exact (ServerModel.otype_runnable_iff_targeted _).mp h1
-    simp [ServerModel.Tags.timerTargeted, htgt] at h2
-    exact h2
+  have hnotimer : (req.action.type == .deadline) = false := by
+    cases h : req.action.type <;> simp_all [ServerModel.OType.isRunnable]
   refine writesGood_afterReadObject hq hs _ _ _ (fun hfresh => ?_) ?_
   · dsimp only
     refine writesGood_iteH _ _ _ _ _ (fun h => ?_) (fun _ => ?_)
@@ -382,13 +375,11 @@ theorem writesGood_scheduleGet (req : ServerModel.ScheduleGetReq) (now : Nat) :
 theorem writesGood_scheduleCreate (req : ServerModel.ScheduleCreateReq) (now : Nat) :
     WritesGood g e (scheduleCreate req now) := by
   unfold scheduleCreate
-  refine writesGood_iteH _ _ _ _ _ (fun _ => writesGood_pure _ _ _) (fun htt => ?_)
-  refine writesGood_pureBind _ _ _ _ ?_
   refine writesGood_bind' _ _ _ _ (writesGood_getSchedule _ _ _) ?_
   split
   · exact writesGood_pure _ _ _
   · exact writesGood_bind' _ _ _ _
-      (writesGood_setSchedule _ _ _ (hq.cBorn _ _ _ _ _ _ _ (by simpa using htt)))
+      (writesGood_setSchedule _ _ _ (hq.cBorn _ _ _ _ _ _ _))
       (writesGood_pure _ _ _)
 
 theorem writesGood_scheduleDelete (req : ServerModel.ScheduleDeleteReq) (now : Nat) :
@@ -485,10 +476,12 @@ theorem writesGood_processRetryTimeout (req : ServerModel.TaskRetryTimeoutReq) (
     · exact writesGood_pure _ _ _
     · refine writesGood_iteH _ _ _ _ _ (fun hgd => ?_) (fun _ => writesGood_pure _ _ _)
       refine writesGood_ite _ _ _ _ _ ?_ (writesGood_pure _ _ _)
-      refine writesGood_bind' _ _ _ _ (writesGood_ask _ _) ?_
-      exact writesGood_bind' _ _ _ _
-        (writesGood_setTask _ _ _ _ (hq.tRearm t _ hgd.1 hgt))
-        (writesGood_setMessage _ _ _ _)
+      split
+      · refine writesGood_bind' _ _ _ _ (writesGood_ask _ _) ?_
+        exact writesGood_bind' _ _ _ _
+          (writesGood_setTask _ _ _ _ (hq.tRearm t _ hgd.1 hgt))
+          (writesGood_setMessage _ _ _ _)
+      · exact writesGood_pure _ _ _
 
 theorem writesGood_fireOccurrence (c : ServerModel.Schedule) (t : Nat) :
     WritesGood g e (Internal.fireOccurrence c t) := by

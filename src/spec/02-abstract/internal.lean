@@ -76,15 +76,17 @@ def processRetryTimeout (req : TaskRetryTimeoutReq) (now : Nat) : H Unit := do
       | some due =>
           if t.state == .pending ∧ due ≤ now then
             if o.promise.state == .pending then
-              setTask o.id { t with
-                             retryTimeoutAt := some (now + (← ask).config.retryTimeout) }
-              setMessage ((o.promise.tags.get? "resonate:target").getD "")
-                (.execute o.id t.version)
+              match o.promise.type with
+              | .runnable target =>
+                  setTask o.id { t with
+                                 retryTimeoutAt := some (now + (← ask).config.retryTimeout) }
+                  setMessage target (.execute o.id t.version)
+              | _ => pure ()
 
 def fireOccurrence (s : Schedule) (t : Nat) : H Unit :=
   createIfAbsent
     { id := expand s.promiseId s.id t, timeoutAt := t + s.promiseTimeout,
-      param := s.promiseParam, tags := s.promiseTags } t
+      param := s.promiseParam, type := s.promiseType } t
 
 def fireAll (s : Schedule) : List Nat → H Unit
   | [] => pure ()

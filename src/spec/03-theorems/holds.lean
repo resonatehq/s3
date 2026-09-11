@@ -152,13 +152,6 @@ theorem task_acquired_version_positive :
   invariant_along_trace_via Induction.task_shape_init Induction.task_shape_step
     Induction.task_acquired_version_positive_of_shape mat tr hv h0
 
-theorem schedule_promise_tags_not_timer_targeted :
-    ∀ n, well_formed_schedule_promise_tags_not_timer_targeted (tr n).now (tr n).state = true :=
-  invariant_along_trace Induction.schedule_promise_tags_not_timer_targeted_init
-    (fun mat st now n' s =>
-      Induction.schedule_promise_tags_not_timer_targeted_step mat st now n' s)
-    mat tr hv h0
-
 theorem store_nodup : ∀ n, StoreNodup (tr n).state := by
   intro n
   induction n with
@@ -263,7 +256,7 @@ def sneaky : ServerState :=
   { objects := [{ id := oid "p",
                   promise := { state := .pending, param := {},
                                value := { data := some "x", headers := [] },
-                               tags := [], timeoutAt := 10, createdAt := 0 } }] }
+                               type := .internal, timeoutAt := 10, createdAt := 0 } }] }
 
 theorem sneaky_satisfies_the_entry :
     Properties.well_formed_promise_deadline_settlement_has_no_value 0 sneaky = true := by

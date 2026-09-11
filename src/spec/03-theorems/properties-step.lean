@@ -44,17 +44,17 @@ def objWith (id : ServerModel.Ident) (p : AbstractModel.PromiseObject)
 open ServerModel in
 def stepMutants : List (String × Bool) :=
   let P : PromiseObject :=
-    { state := .pending, param := {}, tags := [("resonate:external","true")],
+    { state := .pending, param := {}, type := .external,
       timeoutAt := 100, createdAt := 10 }
   let S : PromiseObject := { P with state := .resolved, settledAt := some 20, listeners := ["https://l"] }
   let T : TaskObject := { state := .pending, version := 3, retryTimeoutAt := some 0 }
   let A : TaskObject := { state := .acquired, version := 4, pid := some "w", ttl := some 5, leaseTimeoutAt := some 9 }
   let F : TaskObject := { state := .fulfilled, version := 3 }
   let S0 : PromiseObject := { P with state := .resolved, settledAt := some 20 }
-  let PT : PromiseObject := { P with tags := [("resonate:target","w")] }
+  let PT : PromiseObject := { P with type := .runnable "w" }
   let PTs : PromiseObject := { PT with state := .resolved, settledAt := some 20 }
   let C : Schedule := { id := oid "c", cron := "* * * * *", promiseId := oid "p", promiseTimeout := 100,
-                        promiseParam := {}, promiseTags := [], nextRunAt := 60, createdAt := 10 }
+                        promiseParam := {}, promiseType := .internal, nextRunAt := 60, createdAt := 10 }
   let ex : OutboxEntry := { address := "w", message := .execute (oid "a") 3 }
   [ ("preserved_promise_birth_fields_immutable",
        preserved_promise_birth_fields_immutable 0 { objects := [objOf (oid "a") (P)] } { objects := [objOf (oid "a") ({ P with timeoutAt := 9999 })] }),
@@ -214,7 +214,7 @@ theorem reaches_fulfilled_task_step :
 def sTaskless : AbstractModel.ServerState :=
   { objects := [{ id := oid "a",
                   promise := { state := .pending, param := {},
-                               tags := [("resonate:external","true")],
+                               type := .external,
                                timeoutAt := 250, createdAt := 100 } }] }
 
 theorem taskless_id_task_request_writes_nothing :

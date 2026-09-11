@@ -39,7 +39,7 @@ theorem project_not_pending (p : PromiseObject) (n : Nat)
 
 theorem project_due (p : PromiseObject) {n : Nat}
     (hc : (p.state == PromiseState.pending) = true) (hd : p.timeoutAt ≤ n) :
-    p.project n = if p.isTimer then { p with state := PromiseState.resolved, settledAt := some p.timeoutAt } else { p with state := PromiseState.rejectedTimedout, settledAt := some p.timeoutAt } := by
+    p.project n = if p.type == .deadline then { p with state := PromiseState.resolved, settledAt := some p.timeoutAt } else { p with state := PromiseState.rejectedTimedout, settledAt := some p.timeoutAt } := by
   unfold PromiseObject.project
   rw [if_pos ⟨hc, hd⟩]
 
@@ -53,7 +53,7 @@ theorem project_absorb (p : PromiseObject) {n n' : Nat} (h : n ≤ n') :
   by_cases hc : (p.state == PromiseState.pending) = true
   · by_cases hd : p.timeoutAt ≤ n
     · rw [project_due p hc hd, project_due p hc (Nat.le_trans hd h)]
-      by_cases ht : p.isTimer = true
+      by_cases ht : (p.type == .deadline) = true
       · rw [if_pos ht]; exact project_not_pending _ n' rfl
       · rw [if_neg ht]; exact project_not_pending _ n' rfl
     · rw [project_undue p hd]
@@ -65,7 +65,7 @@ theorem project_of_pending {p : PromiseObject} {n : Nat}
   · by_cases hd : p.timeoutAt ≤ n
     · exfalso
       rw [project_due p hc hd] at h
-      by_cases ht : p.isTimer = true
+      by_cases ht : (p.type == .deadline) = true
       · rw [if_pos ht] at h; simp at h
       · rw [if_neg ht] at h; simp at h
     · exact project_undue p hd
@@ -80,7 +80,7 @@ theorem project_pending_not_due {p : PromiseObject} {n : Nat}
   · exfalso
     have hdue := project_due p h hd
     rw [he] at hdue
-    by_cases ht : p.isTimer = true
+    by_cases ht : (p.type == .deadline) = true
     · rw [if_pos ht] at hdue
       have hst := congrArg PromiseObject.state hdue
       simp at hst
