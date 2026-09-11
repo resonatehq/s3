@@ -42,7 +42,7 @@ a time.
 
 | file | what it defines |
 |---|---|
-| `src/impl/external.lean` | `Origin` (one document per origin), `Timer` (a deadline, an object, a kind: promise, lease, retry), `Commands` (timers to arm, the document to put, timers to delete, messages to send), and the pure transition for every external request: `Request → now → Document → Response × Commands`. Each handler names the timers it arms and deletes. |
+| `src/impl/external.lean` | `Origin` (one document per origin), `Timer` (a deadline, an object, a kind: promise, lease, retry), `Commands` (timers to arm, the document to put, timers to delete, messages to send), and the pure transition for every external request: `now → Origin → Request → Response × Commands`. Each handler names the timers it arms and deletes. |
 
 ## Build
 
