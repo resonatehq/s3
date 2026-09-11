@@ -451,12 +451,12 @@ theorem commit_accepted {t : Txn} {now : Nat} {w : World} {res : Reply}
     simp only [hp, Option.some.injEq] at h
     simp only
     have hrest := applyEffects_noput (n := t.origin) (c := (envOf t).cond)
-      (Impl.delFx (decOf t now).2 t.work ++ Impl.sendFx (decOf t now).2.send)
+      (Impl.delFx (decOf t now).2 ++ Impl.sendFx (decOf t now).2.send)
       { armed t now w with store := st }
       (by intro f hf
           simp only [List.mem_append] at hf
           rcases hf with hf | hf
-          · exact delFx_noput _ t.work f hf
+          · exact delFx_noput _ f hf
           · exact sendFx_noput _ f hf)
     have hget_armed : ∀ o', (armed t now w).store.get (.origin o') = w.store.get (.origin o') := by
       intro o'; rw [harmed]; exact harm.2.1 o'
@@ -576,7 +576,7 @@ theorem timers_accepted {t : Txn} {now : Nat} {w : World} {res : Reply}
       rw [hcur] at hd
       have hd' := hd
       rw [htx] at hd'
-      refine applyEffects_timer_keep _ _ (htx ▸ tail_nodel t.work hd') ?_
+      refine applyEffects_timer_keep _ _ (htx ▸ tail_nodel hd') ?_
       show (st.get (.timer d t.origin)).isSome = true
       rw [Cas.get_put_other _ _ _ _ _ _ _ hp (by simp)]
       rcases commit_arm_or_old hd' with harm | hold'

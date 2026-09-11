@@ -114,11 +114,8 @@ def decide (name : String) (work : Work) (now : Nat) (old : Origin) : Reply × C
 def armFx (c : Commit) : List Effect :=
   c.arm.map .armTimer
 
-def delFx (c : Commit) (work : Work) : List Effect :=
+def delFx (c : Commit) : List Effect :=
   c.del.map .delTimer
-  ++ (match work with
-      | .sweep fired => if c.put.deadlines.contains fired then [] else [.delTimer fired]
-      | .request _   => [])
 
 def sendFx (sends : List (String × Message)) : List Effect :=
   sends.map fun (a, m) => .send a m
@@ -132,7 +129,7 @@ def transact (work : Work) (now : Nat) : C Reply := do
   let (r, c) := decide e.origin work now e.snap
   emitAll (armFx c)
   putOrigin c.put
-  emitAll (delFx c work)
+  emitAll (delFx c)
   emitAll (sendFx c.send)
   return r
 

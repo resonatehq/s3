@@ -27,7 +27,7 @@ theorem transact_apply (work : Work) (now : Nat) (e : Impl.Env) :
       ((Impl.decide e.origin work now e.snap).1,
        Impl.armFx (Impl.decide e.origin work now e.snap).2 ++
         [Impl.Effect.putOrigin (Impl.decide e.origin work now e.snap).2.put] ++
-        Impl.delFx (Impl.decide e.origin work now e.snap).2 work ++
+        Impl.delFx (Impl.decide e.origin work now e.snap).2 ++
         Impl.sendFx (Impl.decide e.origin work now e.snap).2.send) := by
   simp [Impl.transact, Cbind_apply, Cpure_apply, emitAll_apply, Impl.ask, Impl.putOrigin, Impl.emit]
 
@@ -62,27 +62,16 @@ theorem armFx_nosend (c : Commit) : sendsOfC (Impl.armFx c) = [] := by
   | nil => rfl
   | cons d ds ih => simp [sendsOfC, ih]
 
-theorem delFx_noput (c : Commit) (work : Work) : ∀ f ∈ Impl.delFx c work, f.isPut = false := by
+theorem delFx_noput (c : Commit) : ∀ f ∈ Impl.delFx c, f.isPut = false := by
   intro f hf
-  simp only [Impl.delFx, List.mem_append, List.mem_map] at hf
-  rcases hf with ⟨_, _, rfl⟩ | hf
-  · rfl
-  · split at hf
-    · split at hf
-      · simp at hf
-      · simp only [List.mem_singleton] at hf; subst hf; rfl
-    · simp at hf
+  obtain ⟨_, _, rfl⟩ := List.mem_map.mp hf
+  rfl
 
-theorem delFx_nosend (c : Commit) (work : Work) : sendsOfC (Impl.delFx c work) = [] := by
-  simp only [Impl.delFx, sendsOfC_append]
-  have h1 : sendsOfC (c.del.map Impl.Effect.delTimer) = [] := by
-    induction c.del with
-    | nil => rfl
-    | cons d ds ih => simp [sendsOfC, ih]
-  rw [h1, List.nil_append]
-  split
-  · split <;> rfl
-  · rfl
+theorem delFx_nosend (c : Commit) : sendsOfC (Impl.delFx c) = [] := by
+  simp only [Impl.delFx]
+  induction c.del with
+  | nil => rfl
+  | cons d ds ih => simp [sendsOfC, ih]
 
 theorem sendFx_noput (sends : List (String × Message)) : ∀ f ∈ Impl.sendFx sends, f.isPut = false := by
   intro f hf
@@ -256,7 +245,7 @@ theorem runC_transact (t : Txn) (now : Nat) (w : World) :
       | .ok (st, _) =>
           (some (decOf t now).1,
            (Impl.applyEffects t.origin (envOf t).cond { armed t now w with store := st }
-             (Impl.delFx (decOf t now).2 t.work ++ Impl.sendFx (decOf t now).2.send)).1)
+             (Impl.delFx (decOf t now).2 ++ Impl.sendFx (decOf t now).2.send)).1)
       | .rejected => (none, armed t now w) := by
   have harm := applyEffects_noput (n := t.origin) (c := (envOf t).cond) _ w
     (armFx_noput (decOf t now).2)
@@ -275,13 +264,13 @@ theorem runC_transact (t : Txn) (now : Nat) (w : World) :
   | ok x =>
     obtain ⟨st, v⟩ := x
     have hrest := applyEffects_noput (n := t.origin) (c := (envOf t).cond)
-      (Impl.delFx (Impl.decide t.origin t.work now (envOf t).snap).2 t.work ++
+      (Impl.delFx (Impl.decide t.origin t.work now (envOf t).snap).2 ++
         Impl.sendFx (Impl.decide t.origin t.work now (envOf t).snap).2.send)
       { w1 with store := st }
       (by intro f hf
           simp only [List.mem_append] at hf
           rcases hf with hf | hf
-          · exact delFx_noput _ t.work f hf
+          · exact delFx_noput _ f hf
           · exact sendFx_noput _ f hf)
     simp only [hrest.1, ↓reduceIte]
   | rejected => rfl
@@ -437,30 +426,17 @@ theorem commit_del_not {old : Origin} {tx : Impl.Tx} {d : Nat}
   simp at h
   exact h hd
 
-theorem tail_nodel {old : Origin} {tx : Impl.Tx} {d : Nat} (work : Work)
+theorem tail_nodel {old : Origin} {tx : Impl.Tx} {d : Nat}
     (hd : d ∈ (Impl.Tx.commit old tx).put.deadlines) :
-    ∀ f ∈ Impl.delFx (Impl.Tx.commit old tx) work ++ Impl.sendFx (Impl.Tx.commit old tx).send,
+    ∀ f ∈ Impl.delFx (Impl.Tx.commit old tx) ++ Impl.sendFx (Impl.Tx.commit old tx).send,
       f ≠ .delTimer d := by
   intro f hf
   rw [List.mem_append] at hf
   rcases hf with hf | hf
-  · simp only [Impl.delFx, List.mem_append] at hf
-    rcases hf with hf | hf
-    · obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hf
-      intro heq
-      cases heq
-      exact commit_del_not hd hx
-    · split at hf
-      · rename_i fired
-        split at hf
-        · simp at hf
-        · rename_i hcont
-          rw [List.mem_singleton] at hf
-          subst hf
-          intro heq
-          cases heq
-          exact hcont (by simpa using hd)
-      · simp at hf
+  · obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hf
+    intro heq
+    cases heq
+    exact commit_del_not hd hx
   · obtain ⟨⟨a, m⟩, _, rfl⟩ := List.mem_map.mp hf
     exact Impl.Effect.noConfusion
 

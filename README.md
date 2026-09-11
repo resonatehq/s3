@@ -46,7 +46,7 @@ Read the files in this order.
 | `src/impl/handlers.lean` | **The handlers.** The 21 request handlers and the 6 trigger handlers of the protocol, written as plain functions `Origin → Tx → Response × Tx` — no monad. `Handle.external` and `Handle.trigger` run one against a snapshot and commit it, so every handler is a function from a document to a `Commit`: arm these timers, put this document, delete those timers, send these messages. |
 | `src/impl/doc.lean` | **The key space and the world.** `Key.origin o` holds the document, `Key.timer dl o` a deadline; the world is the bucket plus the wire (the messages handed to the transport). |
 | `src/impl/monad.lean` | **The monad `C`.** Same shape as the specification's `H`, different vocabulary: it reads one snapshot — the document a transaction fetched, with its version — and it emits `putOrigin` (conditional on that version), `armTimer`, `delTimer`, `send`. Effects are performed in order; a refused `putOrigin` stops the transaction there. |
-| `src/impl/kernel.lean` | **The kernel.** `decide` runs the handler for the request, then drains the document in three phases — expired deadlines, obligations of settled promises, tasks due for re-dispatch — each a list of triggers run through `Handle.trigger`. `transact` emits the resulting `Commit` in the shell's order: arm the new timers, put the document, delete the old timers and the fired one, send. |
+| `src/impl/kernel.lean` | **The kernel.** `decide` runs the handler for the request, then drains the document in three phases — expired deadlines, obligations of settled promises, tasks due for re-dispatch — each a list of triggers run through `Handle.trigger`. `transact` emits the resulting `Commit` in the shell's order: arm the new timers, put the document, delete the timers the handler dropped, send. |
 | `src/impl/system.lean` | **The system.** Transactions `begin` (snapshot) and `commit` (decide, CAS-write) in any interleaving, or `stutter`. A sweep is a transaction that names the timer that fired, and it may `begin` only while that timer key is stored and its deadline has passed: the machine never takes an internal step on its own. `run` collects the observations of a finite run: every answered request, with its answer and instant. |
 | `src/impl/equiv.lean` | **Handlers against the specification.** `liftH` maps the specification's `H` computations onto `Tx`, and it is a monad morphism. Every handler and every trigger is shown equal to the specification's under it (`promiseCreate_eq`, …, `retryTimeout_eq`); `external_eq` and `trigger_eq` sum this up as: the impl's `Commit` has the same response, the same document and the same sends as one specification step. |
 | `src/impl/frame.lean` | **The frame lemmas.** For every specification handler and trigger: two environments that agree on origin `o` get the same answer and effects (`Cong`), and every effect is a write at an id of origin `o` or a message (`LocAt`). |
@@ -126,11 +126,13 @@ The first: a sweep that changes anything was admitted while its timer
 was stored and due. Nothing internal happens without a timer. The second:
 every deadline any document mentions has its timer key in the bucket, so
 nothing that should be woken is left without a timer. It holds because
-timers are armed before the document that mentions them is written,
+timers are armed before the document that mentions them is written, and
 deleted only after a successful write of a document that no longer
-mentions them, and the fired timer is deleted only if the new document
-does not re-arm it. A refused commit may leave a timer behind; the sweep
-it wakes finds nothing due, changes nothing, and deletes it.
+mentions them. The shell never deletes a timer on its own, the fired one
+included: a timer goes when the handler's commit drops its deadline, and
+otherwise it stays armed and fires again. A refused commit may leave a
+timer behind that no document mentions; the sweeps it wakes find nothing
+due and change nothing.
 
 Requests still drain: a commit of a request runs every trigger due on its
 document. That is a reaction to the request, not a spontaneous step, and
@@ -159,7 +161,8 @@ sends strictly after the commit. Where it differs, it says so:
   daemon would wake it. The machine has no other source of internal steps.
 - **One timer key per deadline.** A deadline is armed when the document
   after a commit mentions it and the one before did not, and deleted in
-  the opposite case; a fired timer is deleted unless the sweep re-arms it.
+  the opposite case. Firing does not delete a timer; only a handler that
+  drops the deadline does.
 - **Out of scope**: schedules (cross-origin, their own objects in the S3
   backend), searches (501 in the specification), and heartbeats spanning
   origins (refused by the backend's validators). `Request.origin?` says
