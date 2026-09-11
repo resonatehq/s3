@@ -90,12 +90,16 @@ def drain (name : String) (o : Origin) (now : Nat) : Origin × List (String × M
 
 inductive Work
   | request (rq : Request)
-  | sweep (fired : Option Nat)
+  | sweep (fired : Nat)
   deriving Repr
 
 def Work.origin? (declared : String) : Work → Option String
   | .request rq => rq.origin?
   | .sweep _    => some declared
+
+def Work.licensed (declared : String) (now : Nat) (w : World) : Work → Bool
+  | .request _  => true
+  | .sweep dl   => (w.store.get (.timer dl declared)).isSome && decide (dl ≤ now)
 
 def decide (name : String) (work : Work) (now : Nat) (old : Origin) : Reply × Commit :=
   let (r, o1, sends1) :=
@@ -113,8 +117,8 @@ def armFx (c : Commit) : List Effect :=
 def delFx (c : Commit) (work : Work) : List Effect :=
   c.del.map .delTimer
   ++ (match work with
-      | .sweep (some fired) => if c.put.deadlines.contains fired then [] else [.delTimer fired]
-      | _                   => [])
+      | .sweep fired => if c.put.deadlines.contains fired then [] else [.delTimer fired]
+      | .request _   => [])
 
 def sendFx (sends : List (String × Message)) : List Effect :=
   sends.map fun (a, m) => .send a m

@@ -29,8 +29,8 @@ structure Obs where
   now : Nat
   deriving Repr
 
-def begin (origin : String) (work : Work) (s : State) : State :=
-  if work.origin? origin == some origin then
+def begin (origin : String) (work : Work) (now : Nat) (s : State) : State :=
+  if work.origin? origin == some origin ∧ work.licensed origin now s.world = true then
     { s with inflight := s.inflight ++ [⟨origin, work, s.world.origin? origin⟩] }
   else
     s
@@ -47,7 +47,7 @@ def commit (i : Nat) (now : Nat) (s : State) : Option Obs × State :=
 
 def step (st : Step) (now : Nat) (s : State) : Option Obs × State :=
   match st with
-  | .begin o w => (none, begin o w s)
+  | .begin o w => (none, begin o w now s)
   | .commit i  => commit i now s
   | .stutter   => (none, s)
 

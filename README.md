@@ -46,13 +46,14 @@ Read the files in this order.
 | `src/impl/handlers.lean` | **The handlers.** The 21 request handlers and the 6 trigger handlers of the protocol, written as plain functions `Origin → Tx → Response × Tx` — no monad. `Handle.external` and `Handle.trigger` run one against a snapshot and commit it, so every handler is a function from a document to a `Commit`: arm these timers, put this document, delete those timers, send these messages. |
 | `src/impl/doc.lean` | **The key space and the world.** `Key.origin o` holds the document, `Key.timer dl o` a deadline; the world is the bucket plus the wire (the messages handed to the transport). |
 | `src/impl/monad.lean` | **The monad `C`.** Same shape as the specification's `H`, different vocabulary: it reads one snapshot — the document a transaction fetched, with its version — and it emits `putOrigin` (conditional on that version), `armTimer`, `delTimer`, `send`. Effects are performed in order; a refused `putOrigin` stops the transaction there. |
-| `src/impl/kernel.lean` | **The kernel.** `decide` runs the handler for the request, then drains the document in three phases — expired deadlines, obligations of settled promises, tasks due for re-dispatch — each a list of triggers run through `Handle.trigger`. `transact` emits the resulting `Commit` in the shell's order: arm the new timers, put the document, delete the old timers, send. |
-| `src/impl/system.lean` | **The system.** Transactions `begin` (snapshot) and `commit` (decide, CAS-write) in any interleaving, or `stutter`; sweeps are transactions too. `run` collects the observations of a finite run: every answered request, with its answer and instant. |
+| `src/impl/kernel.lean` | **The kernel.** `decide` runs the handler for the request, then drains the document in three phases — expired deadlines, obligations of settled promises, tasks due for re-dispatch — each a list of triggers run through `Handle.trigger`. `transact` emits the resulting `Commit` in the shell's order: arm the new timers, put the document, delete the old timers and the fired one, send. |
+| `src/impl/system.lean` | **The system.** Transactions `begin` (snapshot) and `commit` (decide, CAS-write) in any interleaving, or `stutter`. A sweep is a transaction that names the timer that fired, and it may `begin` only while that timer key is stored and its deadline has passed: the machine never takes an internal step on its own. `run` collects the observations of a finite run: every answered request, with its answer and instant. |
 | `src/impl/equiv.lean` | **Handlers against the specification.** `liftH` maps the specification's `H` computations onto `Tx`, and it is a monad morphism. Every handler and every trigger is shown equal to the specification's under it (`promiseCreate_eq`, …, `retryTimeout_eq`); `external_eq` and `trigger_eq` sum this up as: the impl's `Commit` has the same response, the same document and the same sends as one specification step. |
 | `src/impl/frame.lean` | **The frame lemmas.** For every specification handler and trigger: two environments that agree on origin `o` get the same answer and effects (`Cong`), and every effect is a write at an id of origin `o` or a message (`LocAt`). |
 | `src/impl/apply.lean` | **Effects through lookups.** The specification's effects restated as lookup transformers; congruence on one origin, frame on every other, and the outbox as a fold of sends. |
-| `src/impl/commit.lean` | **The commit, performed.** The closed form of a transaction's effects, the two store invariants (`SInv`: versions are fresh; `TxnInv`: an in-flight snapshot is either the stored document or at a version that has moved). |
+| `src/impl/commit.lean` | **The commit, performed.** The closed form of a transaction's effects, and the store invariants: `SInv` (versions are fresh), `TxnInv` (an in-flight snapshot is either the stored document or at a version that has moved), `TimerInv` (every deadline a document mentions has its timer key). |
 | `src/impl/refinement.lean` | **The theorem.** |
+| `src/impl/trace.lean` | **Concrete traces.** `Concrete.Frame`, `Trace`, `Valid`, mirroring the specification's; the timer properties as statements about every valid trace. |
 | `src/impl/demo.lean` | An executable scenario and its linearization; `lake build impl.demo` prints it. |
 
 ### The theorem
@@ -103,6 +104,39 @@ The proof is a forward simulation in four layers:
    document replaced and the sends appended to the wire
    (`commit_accepted`), which is the shape layers 1 and 2 produce.
 
+### Timers
+
+The specification has no scheduler: an internal event may occur at any
+instant, or never. The implementation is stricter, because the real one
+is woken by an external timer service and cannot act on its own. Two
+theorems in `trace.lean` say so, for every valid concrete trace from the
+initial state:
+
+```lean
+theorem Valid.sweep (hv : Valid tr) (t : Nat)
+    (he : (tr t).event = .begin o (.sweep fired))
+    (hne : (tr (t + 1)).state ≠ (tr t).state) :
+    ((tr t).state.world.store.get (.timer fired o)).isSome = true ∧ fired ≤ (tr t).now
+
+theorem Valid.timers (hv : Valid tr) (h0 : (tr 0).state = State.init) (t : Nat) :
+    TimerInv (tr t).state.world
+```
+
+The first: a sweep that changes anything was admitted while its timer
+was stored and due. Nothing internal happens without a timer. The second:
+every deadline any document mentions has its timer key in the bucket, so
+nothing that should be woken is left without a timer. It holds because
+timers are armed before the document that mentions them is written,
+deleted only after a successful write of a document that no longer
+mentions them, and the fired timer is deleted only if the new document
+does not re-arm it. A refused commit may leave a timer behind; the sweep
+it wakes finds nothing due, changes nothing, and deletes it.
+
+Requests still drain: a commit of a request runs every trigger due on its
+document. That is a reaction to the request, not a spontaneous step, and
+the specification permits it since each drained trigger is due at that
+instant.
+
 There is no `sorry` in `src/impl/`. The relation between a world and a
 specification state is by lookup, not equality: the specification's object
 list is in the order its own writes left it, the bucket's documents in the
@@ -120,6 +154,9 @@ sends strictly after the commit. Where it differs, it says so:
   request names and leaves the rest to its tick. Sweeping the whole document
   on every commit is the simpler invariant, and each swept step is one the
   specification could have taken anyway.
+- **Sweeps are timer-driven.** A sweep names the timer that fired and is
+  admitted only while that key is stored and due, as the backend's timer
+  daemon would wake it. The machine has no other source of internal steps.
 - **One timer key per deadline.** A deadline is armed when the document
   after a commit mentions it and the one before did not, and deleted in
   the opposite case; a fired timer is deleted unless the sweep re-arms it.
@@ -128,8 +165,9 @@ sends strictly after the commit. Where it differs, it says so:
   origins (refused by the backend's validators). `Request.origin?` says
   exactly which requests are served; the others open no transaction.
 - **Not modelled**: crashes mid-transaction beyond a refused CAS, the codec,
-  retries of `Conflict` responses, and the timer daemon's scheduling — a
-  sweep may happen at any time, as the specification's triggers may.
+  retries of `Conflict` responses, and the promptness of the timer daemon —
+  a due timer may be picked up late or not at all; that it is eventually
+  picked up is a liveness assumption on the daemon, not a theorem here.
 
 ## Build
 

@@ -533,6 +533,66 @@ theorem mem_of_get {st : Cas.Store Key Blob} {k : Key} {b : Blob} {v : Cas.Versi
   subst hk
   exact List.mem_of_find?_eq_some hf
 
+theorem timers_rejected {t : Txn} {now : Nat} {w : World}
+    (h : (Impl.runC (Impl.transact t.work now) (envOf t) w).1 = none)
+    (hinv : TimerInv w) : TimerInv (Impl.runC (Impl.transact t.work now) (envOf t) w).2 := by
+  obtain ⟨hget, _, _, _⟩ := commit_rejected h
+  intro n d hd
+  rw [current_of_get_eq (hget n)] at hd
+  have hs := hinv n d hd
+  rw [runC_transact] at h ⊢
+  cases hp : (armed t now w).store.put (.origin t.origin) (.origin (decOf t now).2.put)
+      (envOf t).cond with
+  | ok x => obtain ⟨st, v⟩ := x; simp [hp] at h
+  | rejected =>
+    simp only
+    by_cases hn : n = t.origin
+    · subst hn
+      exact applyEffects_timer_keep _ _ (armFx_nodel _ _) hs
+    · unfold armed
+      rw [applyEffects_timer_other hn]
+      exact hs
+
+theorem timers_accepted {t : Txn} {now : Nat} {w : World} {res : Reply}
+    (h : (Impl.runC (Impl.transact t.work now) (envOf t) w).1 = some res)
+    (htxn : TxnInv w.store t) (hinv : TimerInv w) :
+    TimerInv (Impl.runC (Impl.transact t.work now) (envOf t) w).2 := by
+  obtain ⟨_, hcond, ⟨v0, hdocget⟩, hother, _⟩ := commit_accepted h
+  have hsnap := accepted_snapshot htxn hcond
+  have hold : (envOf t).snap = current w t.origin := envOf_snap_eq_current hsnap
+  have hcur := current_of_get hdocget
+  obtain ⟨tx, htx⟩ := decOf_shape t now
+  revert hcur hother
+  rw [runC_transact] at h ⊢
+  cases hp : (armed t now w).store.put (.origin t.origin) (.origin (decOf t now).2.put)
+      (envOf t).cond with
+  | rejected => simp [hp] at h
+  | ok x =>
+    obtain ⟨st, v⟩ := x
+    simp only
+    intro hother hcur n d hd
+    by_cases hn : n = t.origin
+    · subst hn
+      rw [hcur] at hd
+      have hd' := hd
+      rw [htx] at hd'
+      refine applyEffects_timer_keep _ _ (htx ▸ tail_nodel t.work hd') ?_
+      show (st.get (.timer d t.origin)).isSome = true
+      rw [Cas.get_put_other _ _ _ _ _ _ _ hp (by simp)]
+      rcases commit_arm_or_old hd' with harm | hold'
+      · rw [← htx] at harm
+        exact applyEffects_arm _ _ harm
+      · rw [hold] at hold'
+        exact applyEffects_timer_keep _ _ (armFx_nodel _ _) (hinv t.origin d hold')
+    · rw [current_of_get_eq (hother n hn)] at hd
+      have hs := hinv n d hd
+      rw [applyEffects_timer_other hn]
+      show (st.get (.timer d n)).isSome = true
+      rw [Cas.get_put_other _ _ _ _ _ _ _ hp (by simp)]
+      unfold armed
+      rw [applyEffects_timer_other hn]
+      exact hs
+
 theorem TxnInv.fresh {w : World} (hs : SInv w.store) (o : String) (work : Work) :
     TxnInv w.store ⟨o, work, w.origin? o⟩ := by
   intro d v hsnap
@@ -552,15 +612,18 @@ theorem TxnInv.fresh {w : World} (hs : SInv w.store) (o : String) (work : Work) 
       exact hb.1.symm
 
 structure Inv (s : State) : Prop where
-  sinv  : SInv s.world.store
-  docs  : DocInv s.world
-  txns  : ∀ t ∈ s.inflight, TxnInv s.world.store t
-  works : ∀ t ∈ s.inflight, t.work.origin? t.origin = some t.origin
+  sinv   : SInv s.world.store
+  docs   : DocInv s.world
+  timers : TimerInv s.world
+  txns   : ∀ t ∈ s.inflight, TxnInv s.world.store t
+  works  : ∀ t ∈ s.inflight, t.work.origin? t.origin = some t.origin
 
 theorem Inv.init : Inv State.init where
   sinv := fun _ h => by simp [State.init] at h
   docs := fun o ob h => by
     simp [current, World.origin?, Cas.Store.get, State.init] at h
+  timers := fun n d h => by
+    simp [current, World.origin?, Cas.Store.get, State.init, Impl.Origin.deadlines] at h
   txns := fun _ h => by simp [State.init] at h
   works := fun _ h => by simp [State.init] at h
 
@@ -672,7 +735,7 @@ theorem decide_request (n : String) (rq : Request) (now : Nat) (old : Origin) :
            sends := (Impl.Handle.external rq now old).2.send ++
                     (Impl.drain n (Impl.Handle.external rq now old).2.put now).2 }) := rfl
 
-theorem decide_sweep (n : String) (fired : Option Nat) (now : Nat) (old : Origin) :
+theorem decide_sweep (n : String) (fired : Nat) (now : Nat) (old : Origin) :
     Impl.decide n (.sweep fired) now old =
       (.stutter,
        Impl.Tx.commit old
@@ -813,7 +876,7 @@ theorem step_sim (st : Impl.Step) (now : Nat) (s : State) (S : ServerState)
     · split <;> exact hrel
     · split
       · rename_i hguard
-        refine ⟨hinv.sinv, hinv.docs, ?_, ?_⟩
+        refine ⟨hinv.sinv, hinv.docs, hinv.timers, ?_, ?_⟩
         · intro t ht
           simp only [List.mem_append, List.mem_singleton] at ht
           rcases ht with ht | rfl
@@ -823,7 +886,7 @@ theorem step_sim (st : Impl.Step) (now : Nat) (s : State) (S : ServerState)
           simp only [List.mem_append, List.mem_singleton] at ht
           rcases ht with ht | rfl
           · exact hinv.works t ht
-          · simpa using hguard
+          · simpa using hguard.1
       · exact hinv
   | commit i =>
     cases hget : s.inflight[i]? with
@@ -839,11 +902,12 @@ theorem step_sim (st : Impl.Step) (now : Nat) (s : State) (S : ServerState)
       cases hres : (Impl.runC (Impl.transact t.work now) (envOf t) s.world).1 with
       | none =>
         obtain ⟨hget', hwire, hnext, hsinv⟩ := commit_rejected hres
+        have htim := timers_rejected hres hinv.timers
         have hlin : lin = [] := by simp only [lin, expand, hget, hres, List.map_nil]
         rw [hlin]
         simp only [Abstract.exec]
         generalize Impl.runC (Impl.transact t.work now) (envOf t) s.world = r
-          at hget' hwire hnext hsinv hres ⊢
+          at hget' hwire hnext hsinv htim hres ⊢
         refine ⟨?_, ?_, ?_⟩
         · cases t.work <;> rfl
         · refine ⟨?_, hrel.sched, ?_⟩
@@ -852,7 +916,7 @@ theorem step_sim (st : Impl.Step) (now : Nat) (s : State) (S : ServerState)
             simp only [Impl.World.find?]
             rw [current_of_get_eq (hget' j.origin)]
           · rw [hrel.outbox, hwire]
-        · refine ⟨hsinv hinv.sinv, ?_, ?_, ?_⟩
+        · refine ⟨hsinv hinv.sinv, ?_, htim, ?_, ?_⟩
           · intro o ob hob
             rw [current_of_get_eq (hget' o)] at hob
             exact hinv.docs o ob hob
@@ -867,12 +931,13 @@ theorem step_sim (st : Impl.Step) (now : Nat) (s : State) (S : ServerState)
         obtain ⟨hobs, hrel', hdocs', hsinv', htxns'⟩ :=
           accepted_sim (t := t) (now := now) (w := s.world) (S := S)
             hrel hinv.sinv hinv.docs (hinv.txns t ht) (hinv.works t ht) hres
+        have htim := timers_accepted hres (hinv.txns t ht) hinv.timers
         generalize Impl.runC (Impl.transact t.work now) (envOf t) s.world = r
-          at hobs hrel' hdocs' hsinv' htxns' hres ⊢
+          at hobs hrel' hdocs' hsinv' htxns' htim hres ⊢
         refine ⟨?_, hrel', ?_⟩
         · rw [hobs]
           exact obsFor_eq _ _ _
-        · refine ⟨hsinv', hdocs', ?_, ?_⟩
+        · refine ⟨hsinv', hdocs', htim, ?_, ?_⟩
           · intro u hu
             exact htxns' u (hinv.txns u (mem_of_mem_eraseIdx _ _ _ hu))
           · intro u hu

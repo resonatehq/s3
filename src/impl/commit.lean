@@ -286,4 +286,189 @@ theorem runC_transact (t : Txn) (now : Nat) (w : World) :
     simp only [hrest.1, ↓reduceIte]
   | rejected => rfl
 
+def TimerInv (w : World) : Prop :=
+  ∀ (n : String) (d : Nat), d ∈ (current w n).deadlines → (w.store.get (.timer d n)).isSome = true
+
+theorem apply_timer_keep {n : String} {c : Cas.Cond} {w w' : World} {f : Impl.Effect} {d : Nat}
+    (hok : f.apply n c w = .ok w') (hf : f ≠ .delTimer d)
+    (hs : (w.store.get (.timer d n)).isSome = true) :
+    (w'.store.get (.timer d n)).isSome = true := by
+  cases f with
+  | putOrigin o =>
+    simp only [Impl.Effect.apply] at hok
+    split at hok
+    · rename_i st v hp
+      cases hok
+      show (st.get (.timer d n)).isSome = true
+      rw [Cas.get_put_other _ _ _ _ _ _ _ hp (by simp)]
+      exact hs
+    · cases hok
+  | armTimer dl =>
+    simp only [Impl.Effect.apply] at hok
+    split at hok
+    · rename_i st v hp
+      cases hok
+      show (st.get (.timer d n)).isSome = true
+      by_cases hdl : dl = d
+      · subst hdl
+        rw [Cas.get_put_same _ _ _ _ _ _ hp]
+        rfl
+      · rw [Cas.get_put_other _ _ _ _ _ _ _ hp (by simp [Ne.symm hdl])]
+        exact hs
+    · cases hok
+  | delTimer dl =>
+    simp only [Impl.Effect.apply] at hok
+    split at hok
+    · rename_i st hp
+      cases hok
+      show (st.get (.timer d n)).isSome = true
+      have hdl : dl ≠ d := fun h => hf (by rw [h])
+      rw [Cas.get_del_other _ _ _ _ _ hp (by simp [Ne.symm hdl])]
+      exact hs
+    · cases hok
+  | send a m =>
+    cases hok
+    exact hs
+
+theorem apply_timer_other {n n' : String} {c : Cas.Cond} {w w' : World} {f : Impl.Effect} {d : Nat}
+    (hok : f.apply n c w = .ok w') (hn : n' ≠ n) :
+    w'.store.get (.timer d n') = w.store.get (.timer d n') := by
+  cases f with
+  | putOrigin o =>
+    simp only [Impl.Effect.apply] at hok
+    split at hok
+    · rename_i st v hp
+      cases hok
+      exact Cas.get_put_other _ _ _ _ _ _ _ hp (by simp)
+    · cases hok
+  | armTimer dl =>
+    simp only [Impl.Effect.apply] at hok
+    split at hok
+    · rename_i st v hp
+      cases hok
+      exact Cas.get_put_other _ _ _ _ _ _ _ hp (by simp [hn])
+    · cases hok
+  | delTimer dl =>
+    simp only [Impl.Effect.apply] at hok
+    split at hok
+    · rename_i st hp
+      cases hok
+      exact Cas.get_del_other _ _ _ _ _ hp (by simp [hn])
+    · cases hok
+  | send a m =>
+    cases hok
+    rfl
+
+theorem apply_arm {n : String} {c : Cas.Cond} {w w' : World} {d : Nat}
+    (hok : (Impl.Effect.armTimer d).apply n c w = .ok w') :
+    (w'.store.get (.timer d n)).isSome = true := by
+  simp only [Impl.Effect.apply] at hok
+  split at hok
+  · rename_i st v hp
+    cases hok
+    show (st.get (.timer d n)).isSome = true
+    rw [Cas.get_put_same _ _ _ _ _ _ hp]
+    rfl
+  · cases hok
+
+theorem applyEffects_timer_keep {n : String} {c : Cas.Cond} {d : Nat} :
+    ∀ (fx : List Impl.Effect) (w : World), (∀ f ∈ fx, f ≠ .delTimer d) →
+      (w.store.get (.timer d n)).isSome = true →
+      ((Impl.applyEffects n c w fx).1.store.get (.timer d n)).isSome = true
+  | [], _, _, hs => hs
+  | f :: fs, w, h, hs => by
+      simp only [Impl.applyEffects]
+      split
+      · rename_i w' hok
+        exact applyEffects_timer_keep fs w' (fun g hg => h g (List.mem_cons_of_mem _ hg))
+          (apply_timer_keep hok (h f (List.mem_cons_self ..)) hs)
+      · exact hs
+
+theorem applyEffects_timer_other {n n' : String} {c : Cas.Cond} {d : Nat} (hn : n' ≠ n) :
+    ∀ (fx : List Impl.Effect) (w : World),
+      (Impl.applyEffects n c w fx).1.store.get (.timer d n') = w.store.get (.timer d n')
+  | [], _ => rfl
+  | f :: fs, w => by
+      simp only [Impl.applyEffects]
+      split
+      · rename_i w' hok
+        rw [applyEffects_timer_other hn fs w', apply_timer_other hok hn]
+      · rfl
+
+theorem applyEffects_arm {n : String} {c : Cas.Cond} {d : Nat} :
+    ∀ (l : List Nat) (w : World), d ∈ l →
+      ((Impl.applyEffects n c w (l.map .armTimer)).1.store.get (.timer d n)).isSome = true
+  | [], _, h => by simp at h
+  | x :: xs, w, h => by
+      simp only [List.map_cons, Impl.applyEffects]
+      split
+      · rename_i w' hok
+        rcases List.mem_cons.mp h with rfl | h
+        · refine applyEffects_timer_keep _ w' ?_ (apply_arm hok)
+          intro g hg
+          obtain ⟨_, _, rfl⟩ := List.mem_map.mp hg
+          exact Impl.Effect.noConfusion
+        · exact applyEffects_arm xs w' h
+      · rename_i hrej
+        obtain ⟨w', hok, _⟩ := apply_noput (n := n) (c := c) (w := w) (f := .armTimer x) rfl
+        rw [hok] at hrej
+        cases hrej
+
+theorem armFx_nodel (c : Commit) (d : Nat) : ∀ f ∈ Impl.armFx c, f ≠ .delTimer d := by
+  intro f hf
+  obtain ⟨_, _, rfl⟩ := List.mem_map.mp hf
+  exact Impl.Effect.noConfusion
+
+theorem commit_arm_or_old {old : Origin} {tx : Impl.Tx} {d : Nat}
+    (hd : d ∈ (Impl.Tx.commit old tx).put.deadlines) :
+    d ∈ (Impl.Tx.commit old tx).arm ∨ d ∈ old.deadlines := by
+  simp only [Impl.Tx.commit] at hd ⊢
+  by_cases h : d ∈ old.deadlines
+  · exact Or.inr h
+  · left
+    rw [List.mem_filter]
+    exact ⟨hd, by simpa using h⟩
+
+theorem commit_del_not {old : Origin} {tx : Impl.Tx} {d : Nat}
+    (hd : d ∈ (Impl.Tx.commit old tx).put.deadlines) : d ∉ (Impl.Tx.commit old tx).del := by
+  simp only [Impl.Tx.commit] at hd ⊢
+  rw [List.mem_filter]
+  intro ⟨_, h⟩
+  simp at h
+  exact h hd
+
+theorem tail_nodel {old : Origin} {tx : Impl.Tx} {d : Nat} (work : Work)
+    (hd : d ∈ (Impl.Tx.commit old tx).put.deadlines) :
+    ∀ f ∈ Impl.delFx (Impl.Tx.commit old tx) work ++ Impl.sendFx (Impl.Tx.commit old tx).send,
+      f ≠ .delTimer d := by
+  intro f hf
+  rw [List.mem_append] at hf
+  rcases hf with hf | hf
+  · simp only [Impl.delFx, List.mem_append] at hf
+    rcases hf with hf | hf
+    · obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hf
+      intro heq
+      cases heq
+      exact commit_del_not hd hx
+    · split at hf
+      · rename_i fired
+        split at hf
+        · simp at hf
+        · rename_i hcont
+          rw [List.mem_singleton] at hf
+          subst hf
+          intro heq
+          cases heq
+          exact hcont (by simpa using hd)
+      · simp at hf
+  · obtain ⟨⟨a, m⟩, _, rfl⟩ := List.mem_map.mp hf
+    exact Impl.Effect.noConfusion
+
+theorem decOf_shape (t : Txn) (now : Nat) :
+    ∃ tx, (decOf t now).2 = Impl.Tx.commit (envOf t).snap tx := by
+  unfold decOf
+  cases t.work with
+  | request rq => exact ⟨_, rfl⟩
+  | sweep fired => exact ⟨_, rfl⟩
+
 end Commit

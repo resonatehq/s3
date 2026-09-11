@@ -16,7 +16,7 @@ def scenario : List (Step × Nat) :=
   , (.begin "o" (.request (.taskRelease { id := oid "root", version := 1 })), 200)
   , (.commit 1, 300)
   , (.commit 0, 400)
-  , (.begin "o" (.sweep (some 300)), 5000)
+  , (.begin "o" (.sweep 5300), 5300)
   , (.commit 0, 6000) ]
 
 def result := Impl.run scenario State.init
