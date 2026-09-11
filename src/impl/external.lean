@@ -36,9 +36,12 @@ def Origin.write (org : Origin) (o : Object) : Origin :=
 
 def _root_.AbstractModel.TaskObject.timers (t : TaskObject) (id : Ident) : List Timer :=
   match t.state, t.leaseTimeoutAt, t.retryTimeoutAt with
-  | .acquired, some dl, _ => [⟨dl, id, .lease⟩]
-  | .pending,  _, some dl => [⟨dl, id, .retry⟩]
-  | _,         _, _       => []
+  | .acquired, some dl, _ =>
+      [⟨dl, id, .lease⟩]
+  | .pending, _, some dl =>
+      [⟨dl, id, .retry⟩]
+  | _, _, _ =>
+      []
 
 def _root_.AbstractModel.Object.timers (o : Object) : List Timer :=
   (if o.promise.state == .pending then [⟨o.promise.timeoutAt, o.id, .promise⟩] else [])
@@ -54,8 +57,10 @@ open ServerModel (PromiseGetReq PromiseGetRes
 def promiseGet (now : Nat) (org : Origin) (req : PromiseGetReq) :
     PromiseGetRes × Commands :=
   match org.get req.id now with
-  | none   => ({ status := 404 }, { put := org })
-  | some o => ({ status := 200, promise := some (o.promise.toRecord o.id) }, { put := org })
+  | none =>
+      ({ status := 404 }, { put := org })
+  | some o =>
+      ({ status := 200, promise := some (o.promise.toRecord o.id) }, { put := org })
 
 def promiseCreate (now : Nat) (org : Origin) (req : PromiseCreateReq) :
     PromiseCreateRes × Commands :=
@@ -73,8 +78,10 @@ def promiseCreate (now : Nat) (org : Origin) (req : PromiseCreateReq) :
           if p.otype == .runnable then
             let due :=
               match p.tags.get? "resonate:delay" with
-              | some d => max (ServerModel.parseNat d) now
-              | none   => now
+              | some d =>
+                  max (ServerModel.parseNat d) now
+              | none =>
+                  now
             let t : TaskObject := { state := .pending, version := 0, retryTimeoutAt := some due }
             ({ status := 200, promise := some (p.toRecord req.id) },
              { arm := [⟨req.timeoutAt, req.id, .promise⟩, ⟨due, req.id, .retry⟩],
@@ -100,7 +107,8 @@ def promiseSettle (now : Nat) (org : Origin) (req : PromiseSettleReq) :
     ({ status := 400 }, { put := org })
   else
     match org.get req.id now with
-    | none => ({ status := 404 }, { put := org })
+    | none =>
+        ({ status := 404 }, { put := org })
     | some o =>
         if o.promise.state == .pending then
           let p := { o.promise with state := req.state, value := req.value, settledAt := some now }
@@ -116,8 +124,10 @@ def promiseRegisterCallback (now : Nat) (org : Origin) (req : PromiseRegisterCal
     ({ status := 400 }, { put := org })
   else
     match org.get req.awaited now, org.get req.awaiter now with
-    | none, _ => ({ status := 404 }, { put := org })
-    | some _, none => ({ status := 422 }, { put := org })
+    | none, _ =>
+        ({ status := 404 }, { put := org })
+    | some _, none =>
+        ({ status := 422 }, { put := org })
     | some awaited, some awaiter =>
         if awaiter.promise.otype != .runnable ∨ !awaited.promise.otype.awaitable then
           ({ status := 422 }, { put := org })
@@ -130,7 +140,8 @@ def promiseRegisterCallback (now : Nat) (org : Origin) (req : PromiseRegisterCal
 def promiseRegisterListener (now : Nat) (org : Origin) (req : PromiseRegisterListenerReq) :
     PromiseRegisterListenerRes × Commands :=
   match org.get req.awaited now with
-  | none => ({ status := 404 }, { put := org })
+  | none =>
+      ({ status := 404 }, { put := org })
   | some awaited =>
       if !awaited.promise.otype.awaitable then
         ({ status := 422 }, { put := org })
@@ -158,8 +169,10 @@ open ServerModel (TaskGetReq TaskGetRes
 
 def taskGet (now : Nat) (org : Origin) (req : TaskGetReq) : TaskGetRes × Commands :=
   match (org.get req.id now).bind fun o => o.task.map (o.id, ·) with
-  | none        => ({ status := 404 }, { put := org })
-  | some (id, t) => ({ status := 200, task := some (t.toRecord id) }, { put := org })
+  | none =>
+      ({ status := 404 }, { put := org })
+  | some (id, t) =>
+      ({ status := 200, task := some (t.toRecord id) }, { put := org })
 
 def taskCreate (now : Nat) (org : Origin) (req : TaskCreateReq) : TaskCreateRes × Commands :=
   let a := req.action
@@ -190,7 +203,8 @@ def taskCreate (now : Nat) (org : Origin) (req : TaskCreateReq) : TaskCreateRes 
           ({ status := 422 }, { put := org })
         else
           match o.task with
-          | none => ({ status := 409 }, { put := org })
+          | none =>
+              ({ status := 409 }, { put := org })
           | some t =>
               if t.state == .fulfilled then
                 ({ status := 200, task := some (t.toRecord o.id),
@@ -210,7 +224,8 @@ def taskCreate (now : Nat) (org : Origin) (req : TaskCreateReq) : TaskCreateRes 
 
 def taskAcquire (now : Nat) (org : Origin) (req : TaskAcquireReq) : TaskAcquireRes × Commands :=
   match (org.get req.id now).bind fun o => o.task.map (o, ·) with
-  | none => ({ status := 404 }, { put := org })
+  | none =>
+      ({ status := 404 }, { put := org })
   | some (o, t) =>
       if t.state != .pending ∨ o.promise.state != .pending ∨ t.version != req.version then
         ({ status := 409 }, { put := org })
@@ -229,7 +244,8 @@ def taskFence (now : Nat) (org : Origin) (req : TaskFenceReq) : TaskFenceRes × 
     ({ status := 400 }, { put := org })
   else
     match (org.get req.id now).bind fun o => o.task.map (o, ·) with
-    | none => ({ status := 404 }, { put := org })
+    | none =>
+        ({ status := 404 }, { put := org })
     | some (o, t) =>
         if t.state != .acquired ∨ o.promise.state != .pending ∨ t.version != req.version then
           ({ status := 409 }, { put := org })
@@ -247,7 +263,8 @@ def taskHeartbeat (now : Nat) (org : Origin) (req : TaskHeartbeatReq) :
   ({ status := 200 },
    req.tasks.foldl (init := { put := org }) fun c ref =>
      match (c.put.get ref.id now).bind fun o => o.task.map (o, ·) with
-     | none => c
+     | none =>
+         c
      | some (o, t) =>
          if t.state == .acquired ∧ t.version == ref.version
              ∧ t.pid == some req.pid ∧ o.promise.state == .pending then
@@ -267,21 +284,24 @@ def taskSuspend (now : Nat) (org : Origin) (req : TaskSuspendReq) : TaskSuspendR
     ({ status := 400 }, { put := org })
   else
     match (org.get req.id now).bind fun o => o.task.map (o, ·) with
-    | none => ({ status := 404 }, { put := org })
+    | none =>
+        ({ status := 404 }, { put := org })
     | some (o, t) =>
         if t.state != .acquired ∨ o.promise.state != .pending ∨ t.version != req.version then
           ({ status := 409 }, { put := org })
         else
           let awaited := awaitedIds.map (org.get · now)
-          if awaited.any (fun | none => true | some oa => !oa.promise.otype.awaitable) then
+          if awaited.any (fun oa => !(oa.map (·.promise.otype.awaitable)).getD false) then
             ({ status := 422 }, { put := org })
-          else if awaited.any (fun | some oa => oa.promise.state != .pending | none => false) then
+          else if awaited.any (fun oa => (oa.map (·.promise.state != .pending)).getD false) then
             ({ status := 300 }, { put := org.write { o with task := some { t with resumes := [] } } })
           else
             let registered := awaited.foldl (init := org) fun d oa =>
               match oa with
-              | some oa => d.write { oa with promise := oa.promise.addCallback req.id }
-              | none    => d
+              | some oa =>
+                  d.write { oa with promise := oa.promise.addCallback req.id }
+              | none =>
+                  d
             ({ status := 200 },
              { put := registered.write
                  { o with task := some { t with state := .suspended, pid := none, ttl := none,
@@ -294,7 +314,8 @@ def taskFulfill (now : Nat) (org : Origin) (req : TaskFulfillReq) : TaskFulfillR
     ({ status := 400 }, { put := org })
   else
     match (org.get req.id now).bind fun o => o.task.map (o, ·) with
-    | none => ({ status := 404 }, { put := org })
+    | none =>
+        ({ status := 404 }, { put := org })
     | some (o, t) =>
         if t.state != .acquired ∨ o.promise.state != .pending ∨ t.version != req.version then
           ({ status := 409 }, { put := org })
@@ -307,7 +328,8 @@ def taskFulfill (now : Nat) (org : Origin) (req : TaskFulfillReq) : TaskFulfillR
 
 def taskRelease (now : Nat) (org : Origin) (req : TaskReleaseReq) : TaskReleaseRes × Commands :=
   match (org.get req.id now).bind fun o => o.task.map (o, ·) with
-  | none => ({ status := 404 }, { put := org })
+  | none =>
+      ({ status := 404 }, { put := org })
   | some (o, t) =>
       if t.state != .acquired ∨ o.promise.state != .pending ∨ t.version != req.version then
         ({ status := 409 }, { put := org })
@@ -321,7 +343,8 @@ def taskRelease (now : Nat) (org : Origin) (req : TaskReleaseReq) : TaskReleaseR
 
 def taskHalt (now : Nat) (org : Origin) (req : TaskHaltReq) : TaskHaltRes × Commands :=
   match (org.get req.id now).bind fun o => o.task.map (o, ·) with
-  | none => ({ status := 404 }, { put := org })
+  | none =>
+      ({ status := 404 }, { put := org })
   | some (o, t) =>
       if t.state == .fulfilled then
         ({ status := 409 }, { put := org })
@@ -336,7 +359,8 @@ def taskHalt (now : Nat) (org : Origin) (req : TaskHaltReq) : TaskHaltRes × Com
 
 def taskContinue (now : Nat) (org : Origin) (req : TaskContinueReq) : TaskContinueRes × Commands :=
   match (org.get req.id now).bind fun o => o.task.map (o, ·) with
-  | none => ({ status := 404 }, { put := org })
+  | none =>
+      ({ status := 404 }, { put := org })
   | some (o, t) =>
       if t.state != .halted ∨ o.promise.state != .pending then
         ({ status := 409 }, { put := org })
