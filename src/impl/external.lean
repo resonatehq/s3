@@ -1,0 +1,371 @@
+import «02-abstract».«state»
+
+namespace Concrete
+
+open ServerModel (Ident Message PromiseState TaskState)
+open AbstractModel (Object PromiseObject TaskObject)
+
+structure Document where
+  objects : List Object := []
+  deriving Repr
+
+inductive TimerKind
+  | promise
+  | lease
+  | retry
+  deriving Repr, DecidableEq
+
+structure Timer where
+  deadline : Nat
+  id       : Ident
+  kind     : TimerKind
+  deriving Repr, DecidableEq
+
+structure Commands where
+  arm  : List Timer := []
+  put  : Document
+  del  : List Timer := []
+  send : List (String × Message) := []
+  deriving Repr
+
+def Document.read (doc : Document) (id : Ident) (now : Nat) : Option Object :=
+  (doc.objects.find? (·.id == id)).map (·.project now)
+
+def Document.write (doc : Document) (o : Object) : Document :=
+  ⟨o :: doc.objects.filter (·.id != o.id)⟩
+
+def _root_.AbstractModel.TaskObject.timers (t : TaskObject) (id : Ident) : List Timer :=
+  match t.state, t.leaseTimeoutAt, t.retryTimeoutAt with
+  | .acquired, some dl, _ => [⟨dl, id, .lease⟩]
+  | .pending,  _, some dl => [⟨dl, id, .retry⟩]
+  | _,         _, _       => []
+
+def _root_.AbstractModel.Object.timers (o : Object) : List Timer :=
+  (if o.promise.state == .pending then [⟨o.promise.timeoutAt, o.id, .promise⟩] else [])
+  ++ (o.task.map (·.timers o.id)).getD []
+
+open ServerModel (PromiseGetReq PromiseGetRes
+                  PromiseCreateReq PromiseCreateRes
+                  PromiseSettleReq PromiseSettleRes
+                  PromiseRegisterCallbackReq PromiseRegisterCallbackRes
+                  PromiseRegisterListenerReq PromiseRegisterListenerRes
+                  PromiseSearchReq PromiseSearchRes)
+
+def promiseGet (req : PromiseGetReq) (now : Nat) (doc : Document) :
+    PromiseGetRes × Commands :=
+  match doc.read req.id now with
+  | none   => ({ status := 404 }, { put := doc })
+  | some o => ({ status := 200, promise := some (o.promise.toRecord o.id) }, { put := doc })
+
+def promiseCreate (req : PromiseCreateReq) (now : Nat) (doc : Document) :
+    PromiseCreateRes × Commands :=
+  if req.tags.timerTargeted then
+    ({ status := 400, promise := none }, { put := doc })
+  else
+    match doc.read req.id now with
+    | some o =>
+        ({ status := 200, promise := some (o.promise.toRecord o.id) }, { put := doc })
+    | none =>
+        if req.timeoutAt > now then
+          let p : PromiseObject :=
+            { state := .pending, param := req.param, tags := req.tags,
+              timeoutAt := req.timeoutAt, createdAt := now }
+          if p.otype == .runnable then
+            let due :=
+              match p.tags.get? "resonate:delay" with
+              | some d => max (ServerModel.parseNat d) now
+              | none   => now
+            let t : TaskObject := { state := .pending, version := 0, retryTimeoutAt := some due }
+            ({ status := 200, promise := some (p.toRecord req.id) },
+             { arm := [⟨req.timeoutAt, req.id, .promise⟩, ⟨due, req.id, .retry⟩],
+               put := doc.write ⟨req.id, p, some t⟩ })
+          else
+            ({ status := 200, promise := some (p.toRecord req.id) },
+             { arm := [⟨req.timeoutAt, req.id, .promise⟩],
+               put := doc.write ⟨req.id, p, none⟩ })
+        else
+          let p : PromiseObject :=
+            { state := if req.tags.isTimer then .resolved else .rejectedTimedout,
+              param := req.param, tags := req.tags,
+              timeoutAt := req.timeoutAt, createdAt := req.timeoutAt,
+              settledAt := some req.timeoutAt }
+          let t : Option TaskObject :=
+            if p.otype == .runnable then some { state := .fulfilled, version := 0 } else none
+          ({ status := 200, promise := some (p.toRecord req.id) },
+           { put := doc.write ⟨req.id, p, t⟩ })
+
+def promiseSettle (req : PromiseSettleReq) (now : Nat) (doc : Document) :
+    PromiseSettleRes × Commands :=
+  if !req.state.settable then
+    ({ status := 400 }, { put := doc })
+  else
+    match doc.read req.id now with
+    | none => ({ status := 404 }, { put := doc })
+    | some o =>
+        if o.promise.state == .pending then
+          let p := { o.promise with state := req.state, value := req.value, settledAt := some now }
+          ({ status := 200, promise := some (p.toRecord o.id) },
+           { put := doc.write { o with promise := p, task := o.task.map (·.fulfill) },
+             del := o.timers })
+        else
+          ({ status := 200, promise := some (o.promise.toRecord o.id) }, { put := doc })
+
+def promiseRegisterCallback (req : PromiseRegisterCallbackReq) (now : Nat) (doc : Document) :
+    PromiseRegisterCallbackRes × Commands :=
+  if req.awaited == req.awaiter ∨ !req.awaited.sameOrigin req.awaiter then
+    ({ status := 400 }, { put := doc })
+  else
+    match doc.read req.awaited now, doc.read req.awaiter now with
+    | none, _ => ({ status := 404 }, { put := doc })
+    | some _, none => ({ status := 422 }, { put := doc })
+    | some awaited, some awaiter =>
+        if awaiter.promise.otype != .runnable ∨ !awaited.promise.otype.awaitable then
+          ({ status := 422 }, { put := doc })
+        else if awaited.promise.state == .pending ∧ awaiter.promise.state == .pending then
+          ({ status := 200, promise := some (awaited.promise.toRecord awaited.id) },
+           { put := doc.write { awaited with promise := awaited.promise.addCallback req.awaiter } })
+        else
+          ({ status := 200, promise := some (awaited.promise.toRecord awaited.id) }, { put := doc })
+
+def promiseRegisterListener (req : PromiseRegisterListenerReq) (now : Nat) (doc : Document) :
+    PromiseRegisterListenerRes × Commands :=
+  match doc.read req.awaited now with
+  | none => ({ status := 404 }, { put := doc })
+  | some awaited =>
+      if !awaited.promise.otype.awaitable then
+        ({ status := 422 }, { put := doc })
+      else if awaited.promise.state == .pending then
+        ({ status := 200, promise := some (awaited.promise.toRecord awaited.id) },
+         { put := doc.write { awaited with promise := awaited.promise.addListener req.address } })
+      else
+        ({ status := 200, promise := some (awaited.promise.toRecord awaited.id) }, { put := doc })
+
+def promiseSearch (_req : PromiseSearchReq) (_now : Nat) (doc : Document) :
+    PromiseSearchRes × Commands :=
+  ({ status := 501 }, { put := doc })
+
+open ServerModel (TaskGetReq TaskGetRes
+                  TaskCreateReq TaskCreateRes
+                  TaskAcquireReq TaskAcquireRes
+                  TaskFenceReq TaskFenceRes
+                  TaskHeartbeatReq TaskHeartbeatRes
+                  TaskSuspendReq TaskSuspendRes
+                  TaskFulfillReq TaskFulfillRes
+                  TaskReleaseReq TaskReleaseRes
+                  TaskHaltReq TaskHaltRes
+                  TaskContinueReq TaskContinueRes
+                  TaskSearchReq TaskSearchRes)
+
+def taskGet (req : TaskGetReq) (now : Nat) (doc : Document) : TaskGetRes × Commands :=
+  match (doc.read req.id now).bind fun o => o.task.map (o.id, ·) with
+  | none        => ({ status := 404 }, { put := doc })
+  | some (id, t) => ({ status := 200, task := some (t.toRecord id) }, { put := doc })
+
+def taskCreate (req : TaskCreateReq) (now : Nat) (doc : Document) : TaskCreateRes × Commands :=
+  let a := req.action
+  if a.tags.otype != .runnable ∨ a.tags.timerTargeted then
+    ({ status := 400 }, { put := doc })
+  else
+    match doc.read a.id now with
+    | none =>
+        if a.timeoutAt > now then
+          let p : PromiseObject :=
+            { state := .pending, param := a.param, tags := a.tags,
+              timeoutAt := a.timeoutAt, createdAt := now }
+          let t : TaskObject :=
+            { state := .acquired, version := 1, ttl := some req.ttl, pid := some req.pid,
+              leaseTimeoutAt := some (now + req.ttl) }
+          ({ status := 200, task := some (t.toRecord a.id), promise := some (p.toRecord a.id) },
+           { arm := [⟨a.timeoutAt, a.id, .promise⟩, ⟨now + req.ttl, a.id, .lease⟩],
+             put := doc.write ⟨a.id, p, some t⟩ })
+        else
+          let p : PromiseObject :=
+            { state := .rejectedTimedout, param := a.param, tags := a.tags,
+              timeoutAt := a.timeoutAt, createdAt := a.timeoutAt, settledAt := some a.timeoutAt }
+          let t : TaskObject := { state := .fulfilled, version := 0 }
+          ({ status := 200, task := some (t.toRecord a.id), promise := some (p.toRecord a.id) },
+           { put := doc.write ⟨a.id, p, some t⟩ })
+    | some o =>
+        if o.promise.otype != .runnable then
+          ({ status := 422 }, { put := doc })
+        else
+          match o.task with
+          | none => ({ status := 409 }, { put := doc })
+          | some t =>
+              if t.state == .fulfilled then
+                ({ status := 200, task := some (t.toRecord o.id),
+                   promise := some (o.promise.toRecord o.id) }, { put := doc })
+              else if t.state == .pending then
+                let t' := { t with state := .acquired, version := t.version + 1,
+                                   ttl := some req.ttl, pid := some req.pid,
+                                   leaseTimeoutAt := some (now + req.ttl),
+                                   retryTimeoutAt := none, resumes := [] }
+                ({ status := 200, task := some (t'.toRecord o.id),
+                   promise := some (o.promise.toRecord o.id) },
+                 { arm := [⟨now + req.ttl, o.id, .lease⟩],
+                   put := doc.write { o with task := some t' },
+                   del := t.timers o.id })
+              else
+                ({ status := 409 }, { put := doc })
+
+def taskAcquire (req : TaskAcquireReq) (now : Nat) (doc : Document) : TaskAcquireRes × Commands :=
+  match (doc.read req.id now).bind fun o => o.task.map (o, ·) with
+  | none => ({ status := 404 }, { put := doc })
+  | some (o, t) =>
+      if t.state != .pending ∨ o.promise.state != .pending ∨ t.version != req.version then
+        ({ status := 409 }, { put := doc })
+      else
+        let t' := { t with state := .acquired, version := t.version + 1,
+                           ttl := some req.ttl, pid := some req.pid,
+                           leaseTimeoutAt := some (now + req.ttl),
+                           retryTimeoutAt := none, resumes := [] }
+        ({ status := 200, task := some (t'.toRecord o.id), promise := some (o.promise.toRecord o.id) },
+         { arm := [⟨now + req.ttl, o.id, .lease⟩],
+           put := doc.write { o with task := some t' },
+           del := t.timers o.id })
+
+def taskFence (req : TaskFenceReq) (now : Nat) (doc : Document) : TaskFenceRes × Commands :=
+  if req.action.targetId == req.id ∨ !req.action.targetId.sameOrigin req.id then
+    ({ status := 400 }, { put := doc })
+  else
+    match (doc.read req.id now).bind fun o => o.task.map (o, ·) with
+    | none => ({ status := 404 }, { put := doc })
+    | some (o, t) =>
+        if t.state != .acquired ∨ o.promise.state != .pending ∨ t.version != req.version then
+          ({ status := 409 }, { put := doc })
+        else
+          match req.action with
+          | .create r =>
+              let (res, c) := promiseCreate r now doc
+              ({ status := 200, action := some (.create res) }, c)
+          | .settle r =>
+              let (res, c) := promiseSettle r now doc
+              ({ status := 200, action := some (.settle res) }, c)
+
+def taskHeartbeat (req : TaskHeartbeatReq) (now : Nat) (doc : Document) :
+    TaskHeartbeatRes × Commands :=
+  ({ status := 200 },
+   req.tasks.foldl (init := { put := doc }) fun c ref =>
+     match (c.put.read ref.id now).bind fun o => o.task.map (o, ·) with
+     | none => c
+     | some (o, t) =>
+         if t.state == .acquired ∧ t.version == ref.version
+             ∧ t.pid == some req.pid ∧ o.promise.state == .pending then
+           let lease := now + t.ttl.getD 0
+           { c with
+             arm := c.arm ++ (if t.leaseTimeoutAt == some lease then [] else [⟨lease, o.id, .lease⟩]),
+             put := c.put.write { o with task := some { t with leaseTimeoutAt := some lease } },
+             del := c.del ++ (if t.leaseTimeoutAt == some lease then [] else t.timers o.id) }
+         else
+           c)
+
+def taskSuspend (req : TaskSuspendReq) (now : Nat) (doc : Document) : TaskSuspendRes × Commands :=
+  let awaitedIds := req.actions.map (·.awaited)
+  if req.actions.isEmpty ∨ awaitedIds.contains req.id
+      ∨ awaitedIds.any (fun a => !a.sameOrigin req.id)
+      ∨ awaitedIds.eraseDups.length != awaitedIds.length then
+    ({ status := 400 }, { put := doc })
+  else
+    match (doc.read req.id now).bind fun o => o.task.map (o, ·) with
+    | none => ({ status := 404 }, { put := doc })
+    | some (o, t) =>
+        if t.state != .acquired ∨ o.promise.state != .pending ∨ t.version != req.version then
+          ({ status := 409 }, { put := doc })
+        else
+          let awaited := awaitedIds.map (doc.read · now)
+          if awaited.any (fun | none => true | some oa => !oa.promise.otype.awaitable) then
+            ({ status := 422 }, { put := doc })
+          else if awaited.any (fun | some oa => oa.promise.state != .pending | none => false) then
+            ({ status := 300 }, { put := doc.write { o with task := some { t with resumes := [] } } })
+          else
+            let registered := awaited.foldl (init := doc) fun d oa =>
+              match oa with
+              | some oa => d.write { oa with promise := oa.promise.addCallback req.id }
+              | none    => d
+            ({ status := 200 },
+             { put := registered.write
+                 { o with task := some { t with state := .suspended, pid := none, ttl := none,
+                                                leaseTimeoutAt := none, retryTimeoutAt := none,
+                                                resumes := [] } },
+               del := t.timers o.id })
+
+def taskFulfill (req : TaskFulfillReq) (now : Nat) (doc : Document) : TaskFulfillRes × Commands :=
+  if !req.action.state.settable then
+    ({ status := 400 }, { put := doc })
+  else
+    match (doc.read req.id now).bind fun o => o.task.map (o, ·) with
+    | none => ({ status := 404 }, { put := doc })
+    | some (o, t) =>
+        if t.state != .acquired ∨ o.promise.state != .pending ∨ t.version != req.version then
+          ({ status := 409 }, { put := doc })
+        else
+          let p := { o.promise with state := req.action.state, value := req.action.value,
+                                    settledAt := some now }
+          ({ status := 200, promise := some (p.toRecord o.id) },
+           { put := doc.write { o with promise := p, task := some t.fulfill },
+             del := o.timers })
+
+def taskRelease (req : TaskReleaseReq) (now : Nat) (doc : Document) : TaskReleaseRes × Commands :=
+  match (doc.read req.id now).bind fun o => o.task.map (o, ·) with
+  | none => ({ status := 404 }, { put := doc })
+  | some (o, t) =>
+      if t.state != .acquired ∨ o.promise.state != .pending ∨ t.version != req.version then
+        ({ status := 409 }, { put := doc })
+      else
+        ({ status := 200 },
+         { arm := [⟨now, o.id, .retry⟩],
+           put := doc.write { o with task := some { t with state := .pending, pid := none, ttl := none,
+                                                           leaseTimeoutAt := none,
+                                                           retryTimeoutAt := some now } },
+           del := t.timers o.id })
+
+def taskHalt (req : TaskHaltReq) (now : Nat) (doc : Document) : TaskHaltRes × Commands :=
+  match (doc.read req.id now).bind fun o => o.task.map (o, ·) with
+  | none => ({ status := 404 }, { put := doc })
+  | some (o, t) =>
+      if t.state == .fulfilled then
+        ({ status := 409 }, { put := doc })
+      else if t.state == .halted then
+        ({ status := 200 }, { put := doc })
+      else
+        ({ status := 200 },
+         { put := doc.write { o with task := some { t with state := .halted, pid := none, ttl := none,
+                                                           leaseTimeoutAt := none,
+                                                           retryTimeoutAt := none } },
+           del := t.timers o.id })
+
+def taskContinue (req : TaskContinueReq) (now : Nat) (doc : Document) : TaskContinueRes × Commands :=
+  match (doc.read req.id now).bind fun o => o.task.map (o, ·) with
+  | none => ({ status := 404 }, { put := doc })
+  | some (o, t) =>
+      if t.state != .halted ∨ o.promise.state != .pending then
+        ({ status := 409 }, { put := doc })
+      else
+        ({ status := 200 },
+         { arm := [⟨now, o.id, .retry⟩],
+           put := doc.write { o with task := some { t with state := .pending, retryTimeoutAt := some now } } })
+
+def taskSearch (_req : TaskSearchReq) (_now : Nat) (doc : Document) : TaskSearchRes × Commands :=
+  ({ status := 501 }, { put := doc })
+
+open ServerModel (ScheduleGetReq ScheduleGetRes
+                  ScheduleCreateReq ScheduleCreateRes
+                  ScheduleDeleteReq ScheduleDeleteRes
+                  ScheduleSearchReq ScheduleSearchRes)
+
+def scheduleGet (_req : ScheduleGetReq) (_now : Nat) (doc : Document) : ScheduleGetRes × Commands :=
+  ({ status := 501 }, { put := doc })
+
+def scheduleCreate (_req : ScheduleCreateReq) (_now : Nat) (doc : Document) :
+    ScheduleCreateRes × Commands :=
+  ({ status := 501 }, { put := doc })
+
+def scheduleDelete (_req : ScheduleDeleteReq) (_now : Nat) (doc : Document) :
+    ScheduleDeleteRes × Commands :=
+  ({ status := 501 }, { put := doc })
+
+def scheduleSearch (_req : ScheduleSearchReq) (_now : Nat) (doc : Document) :
+    ScheduleSearchRes × Commands :=
+  ({ status := 501 }, { put := doc })
+
+end Concrete
