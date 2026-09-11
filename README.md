@@ -43,7 +43,7 @@ a time.
 | file | what it defines |
 |---|---|
 | `src/impl/external.lean` | `Origin` (one document per origin), `Timer` (a deadline, an object, a kind: promise, lease, retry), `Commands` (timers to arm, the document to put, timers to delete, messages to send), and the pure transition for every external request: `now → Origin → Request → Response × Commands`. Each handler names the timers it arms and deletes. |
-| `src/impl/system.lean` | The machine, in the abstract machine's own shape. `State` is a bucket of `Path × Blob` (one blob per origin, one per armed timer) plus the outbox. `Event` is a request, a timer firing, or a stutter; `Reply` mirrors it. `step` reads the origin, runs the handler, and folds the resulting effects (put, del, send) over the bucket. A timer fires only if its path is in the bucket and its deadline has passed; otherwise the step is a stutter. `exec`, `Frame`, `Trace`, `Valid` as in the spec. |
+| `src/impl/system.lean` | The machine, in the abstract machine's own shape. `State` is a versioned bucket of `Path × Blob × Version` (one blob per origin, one per armed timer) plus the outbox. `Effect` is a conditional put (`any`, `absent`, or `version v`, the S3 `If-Match`), a delete, or a send; `perform` folds effects and stops at a refused put. `step` reads the origin and its version, runs the handler, and performs the commands with the document put conditioned on the version read. A timer fires only if its path is stored and its deadline has passed. `effects_accepted` proves the atomic step is never refused; the CAS is the same primitive the interleaved machine will fail on. `exec`, `Frame`, `Trace`, `Valid` as in the spec. |
 
 ## Build
 
