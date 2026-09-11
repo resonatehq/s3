@@ -4,6 +4,27 @@ namespace Concrete
 
 open ServerModel (Ident Message PromiseState TaskState)
 open AbstractModel (Object PromiseObject TaskObject)
+open ServerModel (PromiseGetReq PromiseGetRes
+                  PromiseCreateReq PromiseCreateRes
+                  PromiseSettleReq PromiseSettleRes
+                  PromiseRegisterCallbackReq PromiseRegisterCallbackRes
+                  PromiseRegisterListenerReq PromiseRegisterListenerRes
+                  PromiseSearchReq PromiseSearchRes
+                  TaskGetReq TaskGetRes
+                  TaskCreateReq TaskCreateRes
+                  TaskAcquireReq TaskAcquireRes
+                  TaskFenceReq TaskFenceRes
+                  TaskHeartbeatReq TaskHeartbeatRes
+                  TaskSuspendReq TaskSuspendRes
+                  TaskFulfillReq TaskFulfillRes
+                  TaskReleaseReq TaskReleaseRes
+                  TaskHaltReq TaskHaltRes
+                  TaskContinueReq TaskContinueRes
+                  TaskSearchReq TaskSearchRes
+                  ScheduleGetReq ScheduleGetRes
+                  ScheduleCreateReq ScheduleCreateRes
+                  ScheduleDeleteReq ScheduleDeleteRes
+                  ScheduleSearchReq ScheduleSearchRes)
 
 structure Origin where
   objects : List Object := []
@@ -46,13 +67,6 @@ def _root_.AbstractModel.TaskObject.timers (t : TaskObject) (id : Ident) : List 
 def _root_.AbstractModel.Object.timers (o : Object) : List Timer :=
   (if o.promise.state == .pending then [⟨o.promise.timeoutAt, o.id, .promise⟩] else [])
   ++ (o.task.map (·.timers o.id)).getD []
-
-open ServerModel (PromiseGetReq PromiseGetRes
-                  PromiseCreateReq PromiseCreateRes
-                  PromiseSettleReq PromiseSettleRes
-                  PromiseRegisterCallbackReq PromiseRegisterCallbackRes
-                  PromiseRegisterListenerReq PromiseRegisterListenerRes
-                  PromiseSearchReq PromiseSearchRes)
 
 def promiseGet (now : Nat) (org : Origin) (req : PromiseGetReq) : PromiseGetRes × Commands :=
   match org.get req.id now with
@@ -145,18 +159,6 @@ def promiseRegisterListener (now : Nat) (org : Origin) (req : PromiseRegisterLis
 
 def promiseSearch (_now : Nat) (org : Origin) (_req : PromiseSearchReq) : PromiseSearchRes × Commands :=
   ({ status := 501 }, { put := org })
-
-open ServerModel (TaskGetReq TaskGetRes
-                  TaskCreateReq TaskCreateRes
-                  TaskAcquireReq TaskAcquireRes
-                  TaskFenceReq TaskFenceRes
-                  TaskHeartbeatReq TaskHeartbeatRes
-                  TaskSuspendReq TaskSuspendRes
-                  TaskFulfillReq TaskFulfillRes
-                  TaskReleaseReq TaskReleaseRes
-                  TaskHaltReq TaskHaltRes
-                  TaskContinueReq TaskContinueRes
-                  TaskSearchReq TaskSearchRes)
 
 def taskGet (now : Nat) (org : Origin) (req : TaskGetReq) : TaskGetRes × Commands :=
   match (org.get req.id now).bind fun o => o.task.map (o.id, ·) with
@@ -361,11 +363,6 @@ def taskContinue (now : Nat) (org : Origin) (req : TaskContinueReq) : TaskContin
 
 def taskSearch (_now : Nat) (org : Origin) (_req : TaskSearchReq) : TaskSearchRes × Commands :=
   ({ status := 501 }, { put := org })
-
-open ServerModel (ScheduleGetReq ScheduleGetRes
-                  ScheduleCreateReq ScheduleCreateRes
-                  ScheduleDeleteReq ScheduleDeleteRes
-                  ScheduleSearchReq ScheduleSearchRes)
 
 def scheduleGet (_now : Nat) (org : Origin) (_req : ScheduleGetReq) : ScheduleGetRes × Commands :=
   ({ status := 501 }, { put := org })
