@@ -19,10 +19,19 @@ def promiseTimeouts (now : Nat) (org : Origin) : Commands :=
 def listeners (now : Nat) (org : Origin) : Commands :=
   org.objects.foldl (init := { put := org }) fun c o =>
     let o := o.project now
-    if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
-      { c with
-        put := c.put.write { o with promise := { o.promise with listeners := [] } },
-        send := c.send ++ o.promise.listeners.map fun a => (a, .unblock (o.promise.toRecord o.id)) }
+    if o.promise.state != .pending then
+      o.promise.listeners.foldl (init := c) fun c address =>
+        match c.put.get o.id now with
+        | some cur =>
+            if cur.promise.state != .pending ∧ cur.promise.listeners.contains address then
+              { c with
+                put := c.put.write { cur with promise :=
+                  { cur.promise with listeners := cur.promise.listeners.filter (· != address) } },
+                send := c.send ++ [(address, .unblock (cur.promise.toRecord cur.id))] }
+            else
+              { c with put := c.put.write cur }
+        | none =>
+            c
     else
       c
 
@@ -52,10 +61,13 @@ def callbacks (now : Nat) (org : Origin) : Commands :=
       o.promise.callbacks.foldl (init := c) fun c awaiter =>
         match c.put.get o.id now with
         | some cur =>
-            resume now o.id
-              { c with put := c.put.write { cur with promise :=
-                  { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } } }
-              awaiter
+            if cur.promise.state != .pending ∧ cur.promise.callbacks.contains awaiter then
+              resume now o.id
+                { c with put := c.put.write { cur with promise :=
+                    { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } } }
+                awaiter
+            else
+              { c with put := c.put.write cur }
         | none =>
             c
     else

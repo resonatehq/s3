@@ -54,7 +54,7 @@ def promiseTimeoutTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
 def listenerTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
   org.objects.flatMap fun o =>
     let o := o.project now
-    if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
+    if o.promise.state != .pending then
       o.promise.listeners.map fun a => .listener ⟨o.id, a⟩
     else
       []
