@@ -75,13 +75,13 @@ def Effect.apply {H : Hasher} (s : State) : Effect H → Option State
       let entry := OutboxEntry.mk a m
       some { s with outbox := entry :: s.outbox.filter (fun e => e.key != entry.key) }
 
-def perform {H : Hasher} : State → List (Effect H) → State × Bool
+def applyAll {H : Hasher} : State → List (Effect H) → State × Bool
   | s, [] =>
       (s, true)
   | s, e :: es =>
       match e.apply s with
       | some s' =>
-          perform s' es
+          applyAll s' es
       | none =>
           (s, false)
 
@@ -92,13 +92,10 @@ def Commands.effects {H : Hasher} (name : String) (cond : Cond H) (c : Commands)
   ++ c.del.map (fun t => .del (.timer t))
   ++ c.send.map (fun (a, m) => .send a m)
 
-def commit (H : Hasher) (name : String) (c : Commands) (s : State) : State × Bool :=
-  perform s (c.effects name (Cond.of H (s.blob? (.origin name))))
-
 def run (H : Hasher) (name : String) (f : Origin → α × Commands) (s : State) :
     α × State × Bool :=
   let (a, c) := f (s.origin name)
-  let (s', ok) := commit H name c s
+  let (s', ok) := applyAll s (c.effects name (Cond.of H (s.blob? (.origin name))))
   (a, s', ok)
 
 def _root_.ServerModel.Request.origin? : Request → Option String
@@ -317,22 +314,22 @@ theorem apply_unconditional {e : Effect H} (h : e.unconditional = true) (s : Sta
 
 theorem perform_unconditional :
     ∀ (es : List (Effect H)) (s : State), (∀ e ∈ es, e.unconditional = true) →
-      (perform s es).2 = true
+      (applyAll s es).2 = true
   | [], _, _ =>
       rfl
   | e :: es, s, h => by
       obtain ⟨s', hs⟩ := apply_unconditional (h e (List.mem_cons_self ..)) s
-      simp only [perform, hs]
+      simp only [applyAll, hs]
       exact perform_unconditional es s' (fun e he => h e (List.mem_cons_of_mem _ he))
 
 theorem perform_append (a b : List (Effect H)) (s : State) :
-    perform s (a ++ b) =
-      if (perform s a).2 then perform (perform s a).1 b else perform s a := by
+    applyAll s (a ++ b) =
+      if (applyAll s a).2 then applyAll (applyAll s a).1 b else applyAll s a := by
   induction a generalizing s with
   | nil =>
-      simp [perform]
+      simp [applyAll]
   | cons e es ih =>
-      simp only [List.cons_append, perform]
+      simp only [List.cons_append, applyAll]
       cases e.apply s with
       | some s' =>
           exact ih s'
@@ -366,30 +363,30 @@ theorem blob?_put_other {s : State} {p q : Path} {b : Blob} {c : Cond H} {s' : S
 
 theorem perform_arm (name : String) :
     ∀ (ts : List Timer) (s : State),
-      (perform s (ts.map fun t => Effect.put (H := H) (.timer t) .timer .any)).2 = true ∧
-      (perform s (ts.map fun t => Effect.put (H := H) (.timer t) .timer .any)).1.blob?
+      (applyAll s (ts.map fun t => Effect.put (H := H) (.timer t) .timer .any)).2 = true ∧
+      (applyAll s (ts.map fun t => Effect.put (H := H) (.timer t) .timer .any)).1.blob?
         (.origin name) = s.blob? (.origin name)
   | [], _ =>
       ⟨rfl, rfl⟩
   | t :: ts, s => by
       obtain ⟨s', hs⟩ := apply_unconditional (e := Effect.put (H := H) (.timer t) .timer .any) rfl s
-      simp only [List.map_cons, perform, hs]
+      simp only [List.map_cons, applyAll, hs]
       obtain ⟨h1, h2⟩ := perform_arm name ts s'
       exact ⟨h1, by rw [h2, blob?_put_other hs (by simp)]⟩
 
-theorem commit_accepted (s : State) (name : String) (c : Commands) :
-    (commit H name c s).2 = true := by
-  unfold commit Commands.effects
+theorem applyAll_accepted (s : State) (name : String) (c : Commands) :
+    (applyAll s (c.effects name (Cond.of H (s.blob? (.origin name))))).2 = true := by
+  unfold Commands.effects
   obtain ⟨h1, h2⟩ := perform_arm (H := H) name c.arm s
   simp only [List.append_assoc, List.singleton_append]
   rw [perform_append, if_pos h1]
   have key : ∀ s1 : State,
       (Cond.of H (s.blob? (.origin name))).holds (s1.blob? (.origin name)) = true →
-      (perform s1 (Effect.put (.origin name) (.origin c.put) (Cond.of H (s.blob? (.origin name))) ::
+      (applyAll s1 (Effect.put (.origin name) (.origin c.put) (Cond.of H (s.blob? (.origin name))) ::
         (c.del.map (fun t => Effect.del (H := H) (.timer t)) ++
          c.send.map (fun (a, m) => Effect.send (H := H) a m)))).2 = true := by
     intro s1 hh
-    simp only [perform, Effect.apply, hh, ↓reduceIte]
+    simp only [applyAll, Effect.apply, hh, ↓reduceIte]
     apply perform_unconditional
     intro e he
     simp only [List.mem_append, List.mem_map] at he
@@ -398,17 +395,17 @@ theorem commit_accepted (s : State) (name : String) (c : Commands) :
 
 theorem run_accepted (name : String) (f : Origin → α × Commands) (s : State) :
     (run H name f s).2.2 = true := by
-  simp only [run, commit_accepted]
+  simp only [run, applyAll_accepted]
 
 theorem step_external_accepted (now : Nat) (s : State) (req : Request) (name : String)
     (h : req.origin? = some name) :
     (step H (.external req) now s).1 =
       .external (handleExternal now (s.origin name) req).1 := by
-  simp only [step, h, run, commit_accepted, ↓reduceIte]
+  simp only [step, h, run, applyAll_accepted, ↓reduceIte]
 
 theorem step_internal_accepted (now : Nat) (s : State) (t : Timer)
     (h : (s.blob? (.timer t)).isSome = true) (hd : t.deadline ≤ now) :
     (step H (.internal t) now s).1 = .internal := by
-  simp only [step, h, hd, and_self, ↓reduceIte, run, commit_accepted]
+  simp only [step, h, hd, and_self, ↓reduceIte, run, applyAll_accepted]
 
 end Concrete
