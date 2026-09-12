@@ -2,7 +2,7 @@ import impl.internal
 
 namespace Concrete
 
-open ServerModel (Message OutboxEntry Request Response)
+open Protocol (Message OutboxEntry Request Response)
 
 inductive Path
   | origin (name : String)
@@ -98,7 +98,7 @@ def run (H : Hasher) (name : String) (f : Origin → α × Commands) (s : State)
   let (s', ok) := applyAll s (c.effects name (Cond.of H (s.blob? (.origin name))))
   (a, s', ok)
 
-def _root_.ServerModel.Request.origin? : Request → Option String
+def _root_.Protocol.Request.origin? : Request → Option String
   | .promiseGet req =>
       some req.id.origin
   | .promiseCreate req =>

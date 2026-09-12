@@ -2,7 +2,7 @@ import «03-theorems».«liveness»
 
 namespace Abstract
 
-open ServerModel AbstractModel
+open Protocol Abstract
 
 
 private def idOf (suffix : String) : Ident := { origin := "o", suffix := suffix }
@@ -13,7 +13,7 @@ private def promiseWith (type : OType) : PromiseObject :=
 private def objectWith (suffix : String) (type : OType) (task : Option TaskObject) : Object :=
   { id := idOf suffix, promise := promiseWith type, task := task }
 
-private def state : ServerState :=
+private def state : State :=
   { objects := [ objectWith "root" (.runnable "poll://any@w") (some { state := .acquired, version := 1 })
                , objectWith "runnable" (.runnable "poll://any@w") (some { state := .pending, version := 0 })
                , objectWith "external" .external none
@@ -38,7 +38,7 @@ theorem listener_refuses_internal : listenerStatus "internal" = 422 := by rfl
 private def latePromise (type : OType) : PromiseObject :=
   { state := .pending, param := {}, type := type, timeoutAt := 50, createdAt := 0 }
 
-private def lateState : ServerState :=
+private def lateState : State :=
   { objects := [ { id := idOf "runnable", promise := latePromise (.runnable "poll://any@w"),
                    task := some { state := .pending, version := 0 } }
                , { id := idOf "external", promise := latePromise .external }

@@ -4,15 +4,15 @@ import «03-theorems».«trans»
 namespace Abstract
 namespace Holds
 
-open AbstractModel
+open Abstract
 open Abstract.Bounded
 
-theorem invariant_along_trace {P : Nat → ServerState → Bool}
-    (hinit : ∀ now, P now ServerState.init = true)
-    (hstep : ∀ (mat : Bool) (st : Event) (now n' : Nat) (s : ServerState),
+theorem invariant_along_trace {P : Nat → State → Bool}
+    (hinit : ∀ now, P now State.init = true)
+    (hstep : ∀ (mat : Bool) (st : Event) (now n' : Nat) (s : State),
                P now s = true → P n' (step mat st now s).2 = true)
     (mat : Bool) (tr : Trace) (hv : Valid mat tr)
-    (h0 : (tr 0).state = ServerState.init) :
+    (h0 : (tr 0).state = State.init) :
     ∀ n, P (tr n).now (tr n).state = true
   | 0     => by rw [h0]; exact hinit _
   | n + 1 => by
@@ -20,13 +20,13 @@ theorem invariant_along_trace {P : Nat → ServerState → Bool}
       exact hstep mat (tr n).event (tr n).now (tr (n + 1)).now (tr n).state
         (invariant_along_trace hinit hstep mat tr hv h0 n)
 
-theorem invariant_along_trace_via {S : ServerState → Bool} {P : Nat → ServerState → Bool}
-    (hinit : S ServerState.init = true)
-    (hstep : ∀ (mat : Bool) (st : Event) (now : Nat) (s : ServerState),
+theorem invariant_along_trace_via {S : State → Bool} {P : Nat → State → Bool}
+    (hinit : S State.init = true)
+    (hstep : ∀ (mat : Bool) (st : Event) (now : Nat) (s : State),
                S s = true → S (step mat st now s).2 = true)
-    (himp : ∀ (now : Nat) (s : ServerState), S s = true → P now s = true)
+    (himp : ∀ (now : Nat) (s : State), S s = true → P now s = true)
     (mat : Bool) (tr : Trace) (hv : Valid mat tr)
-    (h0 : (tr 0).state = ServerState.init) :
+    (h0 : (tr 0).state = State.init) :
     ∀ n, P (tr n).now (tr n).state = true := by
   have key : ∀ n, S (tr n).state = true := by
     intro n
@@ -35,13 +35,13 @@ theorem invariant_along_trace_via {S : ServerState → Bool} {P : Nat → Server
     | succ k ih => rw [(hv.state k)]; exact hstep mat _ _ _ ih
   exact fun n => himp _ _ (key n)
 
-theorem invariant_along_trace_prop {S : ServerState → Prop} {P : Nat → ServerState → Bool}
-    (hinit : S ServerState.init)
-    (hstep : ∀ (mat : Bool) (st : Event) (now : Nat) (s : ServerState),
+theorem invariant_along_trace_prop {S : State → Prop} {P : Nat → State → Bool}
+    (hinit : S State.init)
+    (hstep : ∀ (mat : Bool) (st : Event) (now : Nat) (s : State),
                S s → S (step mat st now s).2)
-    (himp : ∀ (now : Nat) (s : ServerState), S s → P now s = true)
+    (himp : ∀ (now : Nat) (s : State), S s → P now s = true)
     (mat : Bool) (tr : Trace) (hv : Valid mat tr)
-    (h0 : (tr 0).state = ServerState.init) :
+    (h0 : (tr 0).state = State.init) :
     ∀ n, P (tr n).now (tr n).state = true := by
   have key : ∀ n, S (tr n).state := by
     intro n
@@ -53,7 +53,7 @@ theorem invariant_along_trace_prop {S : ServerState → Prop} {P : Nat → Serve
 section Along
 
 variable (mat : Bool) (tr : Trace) (hv : Valid mat tr)
-  (h0 : (tr 0).state = ServerState.init)
+  (h0 : (tr 0).state = State.init)
 
 include mat hv h0
 
@@ -250,9 +250,9 @@ end Along
 
 section NotInductiveAlone
 
-open AbstractModel
+open Abstract
 
-def sneaky : ServerState :=
+def sneaky : State :=
   { objects := [{ id := oid "p",
                   promise := { state := .pending, param := {},
                                value := { data := some "x", headers := [] },

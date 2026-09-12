@@ -2,10 +2,10 @@ import «03-theorems».«frame»
 
 namespace Abstract
 
-open ServerModel (PromiseObject TaskObject Object)
+open Protocol (PromiseObject TaskObject Object)
 namespace Trans
 
-open AbstractModel
+open Abstract
 open Abstract.Induction
 open Abstract.Stepwise
 
@@ -13,50 +13,50 @@ structure HRel (R : PromiseObject → PromiseObject → Bool)
     (Rf : PromiseObject → Bool) : Prop where
   refl         : ∀ p, R p p = true
   project      : ∀ p₀ p (n : Nat), R p₀ p = true → R p₀ (p.project n) = true
-  addCallback  : ∀ p₀ p (c : ServerModel.Ident), R p₀ p = true → R p₀ (p.addCallback c) = true
+  addCallback  : ∀ p₀ p (c : Protocol.Ident), R p₀ p = true → R p₀ (p.addCallback c) = true
   addListener  : ∀ p₀ p (c : String), R p₀ p = true → R p₀ (p.addListener c) = true
-  settle       : ∀ p₀ p (st : ServerModel.PromiseState) (v : ServerModel.Value) (t : Nat),
+  settle       : ∀ p₀ p (st : Protocol.PromiseState) (v : Protocol.Value) (t : Nat),
                    st.settable = true → p.state = .pending → t < p.timeoutAt →
                    R p₀ p = true →
                    R p₀ { p with state := st, value := v, settledAt := some t } = true
   dropListener : ∀ p₀ p (c : String), p.state ≠ .pending → R p₀ p = true →
                    R p₀ { p with listeners := p.listeners.filter (· != c) } = true
-  dropCallback : ∀ p₀ p (c : ServerModel.Ident), p.state ≠ .pending → R p₀ p = true →
+  dropCallback : ∀ p₀ p (c : Protocol.Ident), p.state ≠ .pending → R p₀ p = true →
                    R p₀ { p with callbacks := p.callbacks.filter (· != c) } = true
-  freshLive    : ∀ (param : ServerModel.Value) (type : ServerModel.OType)
+  freshLive    : ∀ (param : Protocol.Value) (type : Protocol.OType)
                    (timeoutAt createdAt : Nat), createdAt < timeoutAt →
                    Rf { state := .pending, param := param, type := type,
                         timeoutAt := timeoutAt, createdAt := createdAt } = true
-  freshDead    : ∀ (st : ServerModel.PromiseState)
-                   (param : ServerModel.Value) (type : ServerModel.OType) (timeoutAt : Nat),
+  freshDead    : ∀ (st : Protocol.PromiseState)
+                   (param : Protocol.Value) (type : Protocol.OType) (timeoutAt : Nat),
                    st = (if type == .deadline then .resolved else .rejectedTimedout) →
                    Rf { state := st, param := param, type := type,
                         timeoutAt := timeoutAt, createdAt := timeoutAt,
                         settledAt := some timeoutAt } = true
 
-theorem promise?_none_of_find?_none {a : ServerState} {id : ServerModel.Ident}
+theorem promise?_none_of_find?_none {a : State} {id : Protocol.Ident}
     (h : a.objects.find? (·.id == id) = none) : a.promise? id = none := by
-  unfold ServerState.promise?; rw [h]; rfl
+  unfold State.promise?; rw [h]; rfl
 
-theorem find?_none_of_promise?_none {a : ServerState} {id : ServerModel.Ident}
+theorem find?_none_of_promise?_none {a : State} {id : Protocol.Ident}
     (h : a.promise? id = none) : a.objects.find? (·.id == id) = none := by
-  unfold ServerState.promise? at h
+  unfold State.promise? at h
   cases hfo : a.objects.find? (·.id == id) with
   | none   => rfl
   | some o => rw [hfo] at h; simp at h
 
 def relPred (R : PromiseObject → PromiseObject → Bool) (Rf : PromiseObject → Bool)
-    (a : ServerState) (id : ServerModel.Ident) (x : PromiseObject) : Bool :=
+    (a : State) (id : Protocol.Ident) (x : PromiseObject) : Bool :=
   match a.promise? id with
   | none   => Rf x
   | some p => R p x
 
 def relQ (R : PromiseObject → PromiseObject → Bool) (Rf : PromiseObject → Bool)
-    (a : ServerState) : Q :=
+    (a : State) : Q :=
   { promise := relPred R Rf a, task := fun _ => true, schedule := fun _ => true }
 
 theorem hereditary_rel {R : PromiseObject → PromiseObject → Bool}
-    {Rf : PromiseObject → Bool} (h : HRel R Rf) (a : ServerState) :
+    {Rf : PromiseObject → Bool} (h : HRel R Rf) (a : State) :
     Hereditary (relQ R Rf a) a where
   project id p n hsto hp := by
     show relPred R Rf a id (p.project n) = true
@@ -123,14 +123,14 @@ theorem hereditary_rel {R : PromiseObject → PromiseObject → Bool}
   cBorn _ _ _ _ _ _ _ := rfl
   cAdvance _ _ _ := rfl
 
-theorem promise?_self_of_nodup {s : ServerState} (hnd : (s.objects.map (·.id)).Nodup)
+theorem promise?_self_of_nodup {s : State} (hnd : (s.objects.map (·.id)).Nodup)
     (o : Object) (ho : o ∈ s.objects) : s.promise? o.id = some o.promise := by
-  unfold ServerState.promise?
+  unfold State.promise?
   rw [find?_self_of_nodup (·.id) s.objects hnd o ho]; rfl
 
 theorem trans_promise {R : PromiseObject → PromiseObject → Bool}
     {Rf : PromiseObject → Bool} (h : HRel R Rf)
-    (mat : Bool) (st : Event) (now : Nat) (s : ServerState)
+    (mat : Bool) (st : Event) (now : Nat) (s : State)
     (hnd : (s.objects.map (·.id)).Nodup) :
     ∀ o ∈ s.objects,
       ∃ q, (step mat st now s).2.promise? o.id = some q ∧ R o.promise q = true := by
@@ -155,7 +155,7 @@ theorem trans_promise {R : PromiseObject → PromiseObject → Bool}
 
 theorem trans_promise_post {R : PromiseObject → PromiseObject → Bool}
     {Rf : PromiseObject → Bool} (h : HRel R Rf)
-    (mat : Bool) (st : Event) (now : Nat) (s : ServerState) (hnd : StoreNodup s) :
+    (mat : Bool) (st : Event) (now : Nat) (s : State) (hnd : StoreNodup s) :
     ∀ q ∈ (step mat st now s).2.objects, relPred R Rf s q.id q.promise = true := by
   intro q hq
   have hbnd : StoreNodup (step mat st now s).2 := storeNodup_step mat st now s hnd
@@ -205,7 +205,7 @@ theorem hrel_birthFields : HRel rBirthFields (fun _ => true) where
   freshDead _ _ _ _ _ := rfl
 
 theorem preserved_promise_birth_fields_immutable_step (mat : Bool) (st : Event) (now n' : Nat)
-    (s : ServerState) (hnd : (s.objects.map (·.id)).Nodup) :
+    (s : State) (hnd : (s.objects.map (·.id)).Nodup) :
     preserved_promise_birth_fields_immutable n' s (step mat st now s).2 = true := by
   refine List.all_eq_true.mpr (fun o ho => ?_)
   obtain ⟨q, hfind, hR⟩ := trans_promise hrel_birthFields mat st now s hnd o ho
@@ -222,14 +222,14 @@ def rSettledRecord (p q : PromiseObject) : Bool :=
 theorem hrel_settledRecord : HRel rSettledRecord (fun _ => true) where
   refl p := by simp [rSettledRecord]
   project p₀ p n h := by
-    by_cases hp : p₀.state = ServerModel.PromiseState.pending
+    by_cases hp : p₀.state = Protocol.PromiseState.pending
     · simp [rSettledRecord, hp]
     · have hq : (p.state == p₀.state) = true := by
         simp only [rSettledRecord, Bool.or_eq_true, Bool.and_eq_true] at h
         rcases h with h | ⟨⟨⟨h1, _⟩, _⟩, _⟩
         · exact absurd (by simpa using h) hp
         · exact h1
-      have hnp : p.state ≠ ServerModel.PromiseState.pending := by
+      have hnp : p.state ≠ Protocol.PromiseState.pending := by
         intro hc; exact hp (by rw [← eq_of_beq hq, hc])
       rw [Lookup.project_not_pending p n (by simp [hnp])]
       exact h
@@ -240,7 +240,7 @@ theorem hrel_settledRecord : HRel rSettledRecord (fun _ => true) where
     unfold PromiseObject.addListener
     split <;> simpa [rSettledRecord] using h
   settle p₀ p st v t _ hpend _ h := by
-    by_cases hp : p₀.state = ServerModel.PromiseState.pending
+    by_cases hp : p₀.state = Protocol.PromiseState.pending
     · simp [rSettledRecord, hp]
     · exfalso
       have hq : (p.state == p₀.state) = true := by
@@ -255,22 +255,22 @@ theorem hrel_settledRecord : HRel rSettledRecord (fun _ => true) where
   freshDead _ _ _ _ _ := rfl
 
 theorem preserved_settled_promise_record_step (mat : Bool) (st : Event) (now n' : Nat)
-    (s : ServerState) (hnd : (s.objects.map (·.id)).Nodup) :
+    (s : State) (hnd : (s.objects.map (·.id)).Nodup) :
     preserved_settled_promise_record n' s (step mat st now s).2 = true := by
   refine List.all_eq_true.mpr (fun o ho => ?_)
   obtain ⟨q, hfind, hR⟩ := trans_promise hrel_settledRecord mat st now s hnd o ho
-  show (o.promise.state == ServerModel.PromiseState.pending ||
+  show (o.promise.state == Protocol.PromiseState.pending ||
         (match (step mat st now s).2.promise? o.id with
          | none => false | some q => _)) = true
   rw [hfind]
   simpa [rSettledRecord] using hR
 
 theorem preserved_promise_state_frozen_once_settled_step (mat : Bool) (st : Event)
-    (now n' : Nat) (s : ServerState) (hnd : (s.objects.map (·.id)).Nodup) :
+    (now n' : Nat) (s : State) (hnd : (s.objects.map (·.id)).Nodup) :
     preserved_promise_state_frozen_once_settled n' s (step mat st now s).2 = true := by
   refine List.all_eq_true.mpr (fun o ho => ?_)
   obtain ⟨q, hfind, hR⟩ := trans_promise hrel_settledRecord mat st now s hnd o ho
-  show (o.promise.state == ServerModel.PromiseState.pending ||
+  show (o.promise.state == Protocol.PromiseState.pending ||
         match (step mat st now s).2.promise? o.id with
         | none => false | some q => q.state == o.promise.state) = true
   rw [hfind]
@@ -297,14 +297,14 @@ theorem hrel_valueUntilSettled : HRel rValueUntilSettled (fun _ => true) where
     unfold PromiseObject.addListener
     split <;> simpa [rValueUntilSettled] using h
   settle p₀ p st v t hst _ _ _ := by
-    cases st <;> simp_all [rValueUntilSettled, ServerModel.PromiseState.settable]
+    cases st <;> simp_all [rValueUntilSettled, Protocol.PromiseState.settable]
   dropListener p₀ p c _ h := by simpa [rValueUntilSettled] using h
   dropCallback p₀ p c _ h := by simpa [rValueUntilSettled] using h
   freshLive _ _ _ _ _ := rfl
   freshDead _ _ _ _ _ := rfl
 
 theorem preserved_promise_value_until_settlement_step (mat : Bool) (st : Event)
-    (now n' : Nat) (s : ServerState) (hnd : (s.objects.map (·.id)).Nodup) :
+    (now n' : Nat) (s : State) (hnd : (s.objects.map (·.id)).Nodup) :
     preserved_promise_value_until_settlement n' s (step mat st now s).2 = true := by
   refine List.all_eq_true.mpr (fun o ho => ?_)
   obtain ⟨q, hfind, hR⟩ := trans_promise hrel_valueUntilSettled mat st now s hnd o ho
@@ -314,7 +314,7 @@ theorem preserved_promise_value_until_settlement_step (mat : Bool) (st : Event)
   exact hR
 
 theorem preserved_promise_no_duplicate_ids_step (mat : Bool) (st : Event) (now n' : Nat)
-    (s : ServerState) (h : StoreNodup s) :
+    (s : State) (h : StoreNodup s) :
     preserved_promise_no_duplicate_ids n' s (step mat st now s).2 = true :=
   object_ids_unique_of_nodup n' _ (storeNodup_step mat st now s h)
 
@@ -324,8 +324,8 @@ def rOneWay (p q : PromiseObject) : Bool :=
 theorem hrel_oneWay : HRel rOneWay (fun _ => true) where
   refl p := by cases hp : p.state <;> simp [rOneWay, hp]
   project p₀ p n h := by
-    by_cases hq : p.state = ServerModel.PromiseState.pending
-    · by_cases hp : p₀.state = ServerModel.PromiseState.pending
+    by_cases hq : p.state = Protocol.PromiseState.pending
+    · by_cases hp : p₀.state = Protocol.PromiseState.pending
       · unfold PromiseObject.project
         split
         · split <;> simp [rOneWay, hp]
@@ -340,20 +340,20 @@ theorem hrel_oneWay : HRel rOneWay (fun _ => true) where
     unfold PromiseObject.addListener
     split <;> simpa [rOneWay] using h
   settle p₀ p st v t hst _ _ _ := by
-    cases st <;> simp_all [rOneWay, ServerModel.PromiseState.settable]
+    cases st <;> simp_all [rOneWay, Protocol.PromiseState.settable]
   dropListener p₀ p c _ h := by simpa [rOneWay] using h
   dropCallback p₀ p c _ h := by simpa [rOneWay] using h
   freshLive _ _ _ _ _ := rfl
   freshDead _ _ _ _ _ := rfl
 
 theorem preserved_promise_settlement_is_one_way_step (mat : Bool) (st : Event) (now n' : Nat)
-    (s : ServerState) (hnd : StoreNodup s) :
+    (s : State) (hnd : StoreNodup s) :
     preserved_promise_settlement_is_one_way n' s (step mat st now s).2 = true := by
   refine List.all_eq_true.mpr (fun q hq => ?_)
   have hR := trans_promise_post hrel_oneWay mat st now s hnd q hq
-  show (q.promise.state != ServerModel.PromiseState.pending ||
+  show (q.promise.state != Protocol.PromiseState.pending ||
         match s.promise? q.id with
-        | some p => p.state == ServerModel.PromiseState.pending
+        | some p => p.state == Protocol.PromiseState.pending
         | none => true) = true
   cases hf : s.promise? q.id with
   | none => simp
@@ -387,7 +387,7 @@ theorem hrel_callbacksGrow :
     unfold PromiseObject.addCallback
     split
     · exact h
-    · by_cases hq : p.state = ServerModel.PromiseState.pending
+    · by_cases hq : p.state = Protocol.PromiseState.pending
       · have := (by simpa [rCallbacksGrow, hq] using h : Properties.subsetOf p₀.callbacks p.callbacks = true)
         simp [rCallbacksGrow, hq, subsetOf_append _ _ c this]
       · simp [rCallbacksGrow, hq]
@@ -395,18 +395,18 @@ theorem hrel_callbacksGrow :
     unfold PromiseObject.addListener
     split <;> simpa [rCallbacksGrow] using h
   settle p₀ p st v t hst _ _ _ := by
-    cases st <;> simp_all [rCallbacksGrow, ServerModel.PromiseState.settable]
+    cases st <;> simp_all [rCallbacksGrow, Protocol.PromiseState.settable]
   dropListener p₀ p c _ h := by simpa [rCallbacksGrow] using h
   dropCallback p₀ p c hns _ := by simp [rCallbacksGrow, hns]
   freshLive _ _ _ _ _ := rfl
   freshDead st param type tAt hst := by subst hst; split <;> simp
 
 theorem monotone_promise_callbacks_grow_while_pending_step (mat : Bool) (st : Event)
-    (now n' : Nat) (s : ServerState) (hnd : StoreNodup s) :
+    (now n' : Nat) (s : State) (hnd : StoreNodup s) :
     monotone_promise_callbacks_grow_while_pending n' s (step mat st now s).2 = true := by
   refine List.all_eq_true.mpr (fun q hq => ?_)
   have hR := trans_promise_post hrel_callbacksGrow mat st now s hnd q hq
-  show (q.promise.state != ServerModel.PromiseState.pending ||
+  show (q.promise.state != Protocol.PromiseState.pending ||
         match s.promise? q.id with
         | none => q.promise.callbacks.isEmpty
         | some p => Properties.subsetOf p.callbacks q.promise.callbacks) = true
@@ -432,23 +432,23 @@ theorem hrel_listenersGrow :
     unfold PromiseObject.addListener
     split
     · exact h
-    · by_cases hq : p.state = ServerModel.PromiseState.pending
+    · by_cases hq : p.state = Protocol.PromiseState.pending
       · have := (by simpa [rListenersGrow, hq] using h : Properties.subsetOf p₀.listeners p.listeners = true)
         simp [rListenersGrow, hq, subsetOf_append _ _ c this]
       · simp [rListenersGrow, hq]
   settle p₀ p st v t hst _ _ _ := by
-    cases st <;> simp_all [rListenersGrow, ServerModel.PromiseState.settable]
+    cases st <;> simp_all [rListenersGrow, Protocol.PromiseState.settable]
   dropListener p₀ p c hns _ := by simp [rListenersGrow, hns]
   dropCallback p₀ p c _ h := by simpa [rListenersGrow] using h
   freshLive _ _ _ _ _ := rfl
   freshDead st param type tAt hst := by subst hst; split <;> simp
 
 theorem monotone_promise_listeners_grow_while_pending_step (mat : Bool) (st : Event)
-    (now n' : Nat) (s : ServerState) (hnd : StoreNodup s) :
+    (now n' : Nat) (s : State) (hnd : StoreNodup s) :
     monotone_promise_listeners_grow_while_pending n' s (step mat st now s).2 = true := by
   refine List.all_eq_true.mpr (fun q hq => ?_)
   have hR := trans_promise_post hrel_listenersGrow mat st now s hnd q hq
-  show (q.promise.state != ServerModel.PromiseState.pending ||
+  show (q.promise.state != Protocol.PromiseState.pending ||
         match s.promise? q.id with
         | none => q.promise.listeners.isEmpty
         | some p => Properties.subsetOf p.listeners q.promise.listeners) = true

@@ -2,13 +2,13 @@ import «03-theorems».«handlers»
 
 namespace Abstract
 
-open ServerModel (PromiseObject TaskObject Object)
+open Protocol (PromiseObject TaskObject Object)
 namespace Induction
 
-open AbstractModel
+open Abstract
 
-theorem ts_beq (a b : ServerModel.TaskState) : (a == b) = decide (a = b) := rfl
-theorem ps_beq (a b : ServerModel.PromiseState) : (a == b) = decide (a = b) := rfl
+theorem ts_beq (a b : Protocol.TaskState) : (a == b) = decide (a = b) := rfl
+theorem ps_beq (a b : Protocol.PromiseState) : (a == b) = decide (a = b) := rfl
 
 theorem all_const {α} : ∀ (l : List α), l.all (fun _ => true) = true
   | [] => rfl
@@ -20,49 +20,49 @@ def onlyPromise (f : PromiseObject → Bool) : Q :=
 def onlyTask (f : TaskObject → Bool) : Q :=
   { promise := fun _ _ => true, task := f, schedule := fun _ => true }
 
-def onlySchedule (f : ServerModel.Schedule → Bool) : Q :=
+def onlySchedule (f : Protocol.Schedule → Bool) : Q :=
   { promise := fun _ _ => true, task := fun _ => true, schedule := f }
 
-theorem perStore_onlyPromise {f : PromiseObject → Bool} {s : ServerState} :
+theorem perStore_onlyPromise {f : PromiseObject → Bool} {s : State} :
     PerStore (onlyPromise f) s = s.promises.all f := by
   rw [PerStore, allObj_split]
-  simp [onlyPromise, all_const, ServerState.promises, List.all_map, Function.comp_def]
+  simp [onlyPromise, all_const, State.promises, List.all_map, Function.comp_def]
 
-theorem perStore_onlyTask {f : TaskObject → Bool} {s : ServerState} :
+theorem perStore_onlyTask {f : TaskObject → Bool} {s : State} :
     PerStore (onlyTask f) s = s.tasks.all f := by
   rw [PerStore, allObj_split]
   simp [onlyTask, all_const]
 
-theorem perStore_onlySchedule {f : ServerModel.Schedule → Bool} {s : ServerState} :
+theorem perStore_onlySchedule {f : Protocol.Schedule → Bool} {s : State} :
     PerStore (onlySchedule f) s = s.schedules.all f := by
   rw [PerStore, allObj_split]
   simp [onlySchedule, all_const]
 
 structure HPromise (f : PromiseObject → Bool) : Prop where
   project      : ∀ (p : PromiseObject) (n : Nat), f p = true → f (p.project n) = true
-  addCallback  : ∀ (p : PromiseObject) (a : ServerModel.Ident), f p = true → f (p.addCallback a) = true
+  addCallback  : ∀ (p : PromiseObject) (a : Protocol.Ident), f p = true → f (p.addCallback a) = true
   addListener  : ∀ (p : PromiseObject) (a : String), f p = true → f (p.addListener a) = true
-  settle       : ∀ (p : PromiseObject) (st : ServerModel.PromiseState)
-                   (v : ServerModel.Value) (t : Nat),
+  settle       : ∀ (p : PromiseObject) (st : Protocol.PromiseState)
+                   (v : Protocol.Value) (t : Nat),
                    st.settable = true → p.state = .pending → t < p.timeoutAt → f p = true →
                    f { p with state := st, value := v, settledAt := some t } = true
   dropListener : ∀ (p : PromiseObject) (a : String), f p = true →
                    f { p with listeners := p.listeners.filter (· != a) } = true
-  dropCallback : ∀ (p : PromiseObject) (a : ServerModel.Ident), f p = true →
+  dropCallback : ∀ (p : PromiseObject) (a : Protocol.Ident), f p = true →
                    f { p with callbacks := p.callbacks.filter (· != a) } = true
-  live         : ∀ (id : ServerModel.Ident) (param : ServerModel.Value) (type : ServerModel.OType)
+  live         : ∀ (id : Protocol.Ident) (param : Protocol.Value) (type : Protocol.OType)
                    (timeoutAt createdAt : Nat), createdAt < timeoutAt →
                    f { state := .pending, param := param, type := type,
                        timeoutAt := timeoutAt, createdAt := createdAt } = true
-  dead         : ∀ (id : ServerModel.Ident) (st : ServerModel.PromiseState)
-                   (param : ServerModel.Value) (type : ServerModel.OType) (timeoutAt : Nat),
+  dead         : ∀ (id : Protocol.Ident) (st : Protocol.PromiseState)
+                   (param : Protocol.Value) (type : Protocol.OType) (timeoutAt : Nat),
                    st = (if type == .deadline then .resolved else .rejectedTimedout) →
                    f { state := st, param := param, type := type,
                        timeoutAt := timeoutAt, createdAt := timeoutAt,
                        settledAt := some timeoutAt } = true
 
 theorem hereditary_onlyPromise {f : PromiseObject → Bool} (h : HPromise f)
-    (a : ServerState) : Hereditary (onlyPromise f) a where
+    (a : State) : Hereditary (onlyPromise f) a where
   project _ p n _ := h.project p n
   addCallback _ p c _ := h.addCallback p c
   addListener _ p c _ := h.addListener p c
@@ -89,7 +89,7 @@ theorem hereditary_onlyPromise {f : PromiseObject → Bool} (h : HPromise f)
   cAdvance _ _ _ := rfl
 
 theorem promise_step {f : PromiseObject → Bool} (h : HPromise f)
-    (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+    (mat : Bool) (st : Event) (now : Nat) (s : State) :
     s.promises.all f = true → (step mat st now s).2.promises.all f = true := by
   intro hf
   have := perStore_step mat st now s (hereditary_onlyPromise h s)
@@ -116,16 +116,16 @@ structure HTask (f : TaskObject → Bool) : Prop where
                  f { t with state := .halted, pid := none, ttl := none, leaseTimeoutAt := none, retryTimeoutAt := none } = true
   cont       : ∀ (t : TaskObject) (n : Nat), (t.state == .halted) = true → f t = true →
                  f { t with state := .pending, retryTimeoutAt := some n } = true
-  resume     : ∀ (t : TaskObject) (a : ServerModel.Ident) (n : Nat), t.state = .suspended → f t = true →
+  resume     : ∀ (t : TaskObject) (a : Protocol.Ident) (n : Nat), t.state = .suspended → f t = true →
                  f { t with state := .pending, resumes := [a], retryTimeoutAt := some n } = true
-  addResume  : ∀ (t : TaskObject) (a : ServerModel.Ident), t.state ≠ .suspended → t.state ≠ .fulfilled →
+  addResume  : ∀ (t : TaskObject) (a : Protocol.Ident), t.state ≠ .suspended → t.state ≠ .fulfilled →
                  (t.resumes.contains a) = false → f t = true →
                  f { t with resumes := t.resumes ++ [a] } = true
   rearm      : ∀ (t : TaskObject) (n : Nat), (t.state == .pending) = true → f t = true →
                  f { t with retryTimeoutAt := some n } = true
 
 theorem hereditary_onlyTask {f : TaskObject → Bool} (h : HTask f)
-    (a : ServerState) : Hereditary (onlyTask f) a where
+    (a : State) : Hereditary (onlyTask f) a where
   project _ _ _ _ _ := rfl
   addCallback _ _ _ _ _ := rfl
   addListener _ _ _ _ _ := rfl
@@ -152,26 +152,26 @@ theorem hereditary_onlyTask {f : TaskObject → Bool} (h : HTask f)
   cAdvance _ _ _ := rfl
 
 theorem task_step {f : TaskObject → Bool} (h : HTask f)
-    (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+    (mat : Bool) (st : Event) (now : Nat) (s : State) :
     s.tasks.all f = true → (step mat st now s).2.tasks.all f = true := by
   intro hf
   have := perStore_step mat st now s (hereditary_onlyTask h s)
     (by rw [perStore_onlyTask]; exact hf)
   rwa [perStore_onlyTask] at this
 
-structure HSchedule (f : ServerModel.Schedule → Bool) : Prop where
-  born    : ∀ (id : ServerModel.Ident) (cron : String) (promiseId : ServerModel.Ident) (promiseTimeout : Nat)
-              (promiseParam : ServerModel.Value) (promiseType : ServerModel.OType)
+structure HSchedule (f : Protocol.Schedule → Bool) : Prop where
+  born    : ∀ (id : Protocol.Ident) (cron : String) (promiseId : Protocol.Ident) (promiseTimeout : Nat)
+              (promiseParam : Protocol.Value) (promiseType : Protocol.OType)
               (now : Nat),
               f { id := id, cron := cron, promiseId := promiseId,
                   promiseTimeout := promiseTimeout, promiseParam := promiseParam,
                   promiseType := promiseType, createdAt := now,
-                  nextRunAt := ServerModel.nextCron cron now, lastRunAt := none } = true
-  advance : ∀ (c : ServerModel.Schedule) (last : Nat), f c = true →
-              f { c with lastRunAt := some last, nextRunAt := ServerModel.nextCron c.cron last } = true
+                  nextRunAt := Protocol.nextCron cron now, lastRunAt := none } = true
+  advance : ∀ (c : Protocol.Schedule) (last : Nat), f c = true →
+              f { c with lastRunAt := some last, nextRunAt := Protocol.nextCron c.cron last } = true
 
-theorem hereditary_onlySchedule {f : ServerModel.Schedule → Bool} (h : HSchedule f)
-    (a : ServerState) : Hereditary (onlySchedule f) a where
+theorem hereditary_onlySchedule {f : Protocol.Schedule → Bool} (h : HSchedule f)
+    (a : State) : Hereditary (onlySchedule f) a where
   project _ _ _ _ _ := rfl
   addCallback _ _ _ _ _ := rfl
   addListener _ _ _ _ _ := rfl
@@ -197,8 +197,8 @@ theorem hereditary_onlySchedule {f : ServerModel.Schedule → Bool} (h : HSchedu
   cBorn := h.born
   cAdvance := h.advance
 
-theorem schedule_step {f : ServerModel.Schedule → Bool} (h : HSchedule f)
-    (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+theorem schedule_step {f : Protocol.Schedule → Bool} (h : HSchedule f)
+    (mat : Bool) (st : Event) (now : Nat) (s : State) :
     s.schedules.all f = true → (step mat st now s).2.schedules.all f = true := by
   intro hf
   have := perStore_step mat st now s (hereditary_onlySchedule h s)
@@ -241,7 +241,7 @@ theorem hp_pendingBeforeDeadline : HPromise qPendingBeforeDeadline where
     unfold PromiseObject.addListener
     split <;> simpa [qPendingBeforeDeadline] using h
   settle p st v t hst _ _ _ := by
-    cases st <;> simp_all [qPendingBeforeDeadline, ServerModel.PromiseState.settable]
+    cases st <;> simp_all [qPendingBeforeDeadline, Protocol.PromiseState.settable]
   dropListener p a h := by simpa [qPendingBeforeDeadline] using h
   dropCallback p a h := by simpa [qPendingBeforeDeadline] using h
   live id param type timeoutAt createdAt h := by simp [qPendingBeforeDeadline]; omega
@@ -263,7 +263,7 @@ theorem hp_settledIffStamped : HPromise qSettledIffStamped where
     unfold PromiseObject.addListener
     split <;> simpa [qSettledIffStamped] using h
   settle p st v t hst _ _ _ := by
-    cases st <;> simp_all [qSettledIffStamped, ServerModel.PromiseState.settable]
+    cases st <;> simp_all [qSettledIffStamped, Protocol.PromiseState.settable]
   dropListener p a h := by simpa [qSettledIffStamped] using h
   dropCallback p a h := by simpa [qSettledIffStamped] using h
   live id param type timeoutAt createdAt h := by simp [qSettledIffStamped]
@@ -285,7 +285,7 @@ theorem hp_timedoutIsServerOwned : HPromise qTimedoutIsServerOwned where
     unfold PromiseObject.addListener
     split <;> simpa [qTimedoutIsServerOwned] using h
   settle p st v t hst _ _ _ := by
-    cases st <;> simp_all [qTimedoutIsServerOwned, ServerModel.PromiseState.settable]
+    cases st <;> simp_all [qTimedoutIsServerOwned, Protocol.PromiseState.settable]
   dropListener p a h := by simpa [qTimedoutIsServerOwned] using h
   dropCallback p a h := by simpa [qTimedoutIsServerOwned] using h
   live id param type timeoutAt createdAt h := by simp [qTimedoutIsServerOwned]
@@ -360,7 +360,7 @@ theorem hp_noValueUnlessSettled : HPromise qNoValueUnlessSettled where
     split <;> simpa [qNoValueUnlessSettled] using h
   settle p st v t hst _ hdue _ := by
     cases st <;>
-      simp_all [qNoValueUnlessSettled, ServerModel.PromiseState.settable] <;> omega
+      simp_all [qNoValueUnlessSettled, Protocol.PromiseState.settable] <;> omega
   dropListener p a h := by simpa [qNoValueUnlessSettled] using h
   dropCallback p a h := by simpa [qNoValueUnlessSettled] using h
   live id param type timeoutAt createdAt h := by simp [qNoValueUnlessSettled]
@@ -402,124 +402,124 @@ section Entries
 open Properties
 
 theorem created_at_lte_timeout_at_init (now : Nat) :
-    well_formed_promise_created_at_lte_timeout_at now ServerState.init = true := rfl
+    well_formed_promise_created_at_lte_timeout_at now State.init = true := rfl
 
 theorem created_at_lte_timeout_at_step (mat : Bool) (st : Event) (now n' : Nat)
-    (s : ServerState) :
+    (s : State) :
     well_formed_promise_created_at_lte_timeout_at now s = true →
     well_formed_promise_created_at_lte_timeout_at n' (step mat st now s).2 = true :=
   promise_step hp_createdLeTimeout mat st now s
 
 theorem pending_created_before_deadline_init (now : Nat) :
-    well_formed_promise_pending_created_before_deadline now ServerState.init = true := rfl
+    well_formed_promise_pending_created_before_deadline now State.init = true := rfl
 
 theorem pending_created_before_deadline_step (mat : Bool) (st : Event) (now n' : Nat)
-    (s : ServerState) :
+    (s : State) :
     well_formed_promise_pending_created_before_deadline now s = true →
     well_formed_promise_pending_created_before_deadline n' (step mat st now s).2 = true :=
   promise_step hp_pendingBeforeDeadline mat st now s
 
 theorem settled_at_iff_not_pending_init (now : Nat) :
-    well_formed_promise_settled_at_iff_not_pending now ServerState.init = true := rfl
+    well_formed_promise_settled_at_iff_not_pending now State.init = true := rfl
 
 theorem settled_at_iff_not_pending_step (mat : Bool) (st : Event) (now n' : Nat)
-    (s : ServerState) :
+    (s : State) :
     well_formed_promise_settled_at_iff_not_pending now s = true →
     well_formed_promise_settled_at_iff_not_pending n' (step mat st now s).2 = true :=
   promise_step hp_settledIffStamped mat st now s
 
 theorem timedout_is_server_owned_init (now : Nat) :
-    well_formed_promise_timedout_is_server_owned now ServerState.init = true := rfl
+    well_formed_promise_timedout_is_server_owned now State.init = true := rfl
 
 theorem timedout_is_server_owned_step (mat : Bool) (st : Event) (now n' : Nat)
-    (s : ServerState) :
+    (s : State) :
     well_formed_promise_timedout_is_server_owned now s = true →
     well_formed_promise_timedout_is_server_owned n' (step mat st now s).2 = true :=
   promise_step hp_timedoutIsServerOwned mat st now s
 
 theorem settled_at_lte_timeout_at_init (now : Nat) :
-    well_formed_promise_settled_at_lte_timeout_at now ServerState.init = true := rfl
+    well_formed_promise_settled_at_lte_timeout_at now State.init = true := rfl
 
 theorem settled_at_lte_timeout_at_step (mat : Bool) (st : Event) (now n' : Nat)
-    (s : ServerState) :
+    (s : State) :
     well_formed_promise_settled_at_lte_timeout_at now s = true →
     well_formed_promise_settled_at_lte_timeout_at n' (step mat st now s).2 = true :=
   promise_step hp_settledAtLeTimeout mat st now s
 
 theorem deadline_verdict_matches_timer_tag_init (now : Nat) :
-    well_formed_promise_deadline_verdict_matches_timer_tag now ServerState.init = true := rfl
+    well_formed_promise_deadline_verdict_matches_timer_tag now State.init = true := rfl
 
 theorem deadline_verdict_matches_timer_tag_step (mat : Bool) (st : Event) (now n' : Nat)
-    (s : ServerState) :
+    (s : State) :
     well_formed_promise_deadline_verdict_matches_timer_tag now s = true →
     well_formed_promise_deadline_verdict_matches_timer_tag n' (step mat st now s).2 = true :=
   promise_step hp_deadlineVerdict mat st now s
 
 theorem no_value_unless_settled_init :
-    ServerState.init.promises.all qNoValueUnlessSettled = true := rfl
+    State.init.promises.all qNoValueUnlessSettled = true := rfl
 
-theorem no_value_unless_settled_step (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+theorem no_value_unless_settled_step (mat : Bool) (st : Event) (now : Nat) (s : State) :
     s.promises.all qNoValueUnlessSettled = true →
     (step mat st now s).2.promises.all qNoValueUnlessSettled = true :=
   promise_step hp_noValueUnlessSettled mat st now s
 
-theorem pending_has_no_value_of_strengthening (now : Nat) (s : ServerState) :
+theorem pending_has_no_value_of_strengthening (now : Nat) (s : State) :
     s.promises.all qNoValueUnlessSettled = true →
     well_formed_promise_pending_has_no_value now s = true :=
   all_mono (fun _ h => (Bool.and_eq_true _ _ |>.mp h).1) _
 
-theorem deadline_settlement_has_no_value_of_strengthening (now : Nat) (s : ServerState) :
+theorem deadline_settlement_has_no_value_of_strengthening (now : Nat) (s : State) :
     s.promises.all qNoValueUnlessSettled = true →
     well_formed_promise_deadline_settlement_has_no_value now s = true :=
   all_mono (fun _ h => (Bool.and_eq_true _ _ |>.mp h).2) _
 
-theorem task_shape_init : ServerState.init.tasks.all qTaskShape = true := rfl
+theorem task_shape_init : State.init.tasks.all qTaskShape = true := rfl
 
-theorem task_shape_step (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+theorem task_shape_step (mat : Bool) (st : Event) (now : Nat) (s : State) :
     s.tasks.all qTaskShape = true → (step mat st now s).2.tasks.all qTaskShape = true :=
   task_step ht_taskShape mat st now s
 
-theorem task_acquired_iff_has_pid_of_shape (now : Nat) (s : ServerState) :
+theorem task_acquired_iff_has_pid_of_shape (now : Nat) (s : State) :
     s.tasks.all qTaskShape = true → well_formed_task_acquired_iff_has_pid now s = true :=
   all_mono (fun _ h => by
     simp only [qTaskShape, Bool.and_eq_true] at h; exact h.1.1.1.1.1.1.1.1) _
 
-theorem task_acquired_iff_has_ttl_of_shape (now : Nat) (s : ServerState) :
+theorem task_acquired_iff_has_ttl_of_shape (now : Nat) (s : State) :
     s.tasks.all qTaskShape = true → well_formed_task_acquired_iff_has_ttl now s = true :=
   all_mono (fun _ h => by
     simp only [qTaskShape, Bool.and_eq_true] at h; exact h.1.1.1.1.1.1.1.2) _
 
-theorem task_acquired_iff_has_lease_timeout_at_of_shape (now : Nat) (s : ServerState) :
+theorem task_acquired_iff_has_lease_timeout_at_of_shape (now : Nat) (s : State) :
     s.tasks.all qTaskShape = true → well_formed_task_acquired_iff_has_lease_timeout_at now s = true :=
   all_mono (fun _ h => by
     simp only [qTaskShape, Bool.and_eq_true] at h; exact h.1.1.1.1.1.1.2) _
 
-theorem task_pending_iff_has_retry_timeout_at_of_shape (now : Nat) (s : ServerState) :
+theorem task_pending_iff_has_retry_timeout_at_of_shape (now : Nat) (s : State) :
     s.tasks.all qTaskShape = true → well_formed_task_pending_iff_has_retry_timeout_at now s = true :=
   all_mono (fun _ h => by
     simp only [qTaskShape, Bool.and_eq_true] at h; exact h.1.1.1.1.1.2) _
 
-theorem task_fulfilled_is_cleared_of_shape (now : Nat) (s : ServerState) :
+theorem task_fulfilled_is_cleared_of_shape (now : Nat) (s : State) :
     s.tasks.all qTaskShape = true → well_formed_task_fulfilled_is_cleared now s = true :=
   all_mono (fun _ h => by
     simp only [qTaskShape, Bool.and_eq_true] at h; exact h.1.1.1.1.2) _
 
-theorem task_suspended_is_cleared_of_shape (now : Nat) (s : ServerState) :
+theorem task_suspended_is_cleared_of_shape (now : Nat) (s : State) :
     s.tasks.all qTaskShape = true → well_formed_task_suspended_is_cleared now s = true :=
   all_mono (fun _ h => by
     simp only [qTaskShape, Bool.and_eq_true] at h; exact h.1.1.1.2) _
 
-theorem task_halted_is_cleared_of_shape (now : Nat) (s : ServerState) :
+theorem task_halted_is_cleared_of_shape (now : Nat) (s : State) :
     s.tasks.all qTaskShape = true → well_formed_task_halted_is_cleared now s = true :=
   all_mono (fun _ h => by
     simp only [qTaskShape, Bool.and_eq_true] at h; exact h.1.1.2) _
 
-theorem task_suspended_has_no_resumes_of_shape (now : Nat) (s : ServerState) :
+theorem task_suspended_has_no_resumes_of_shape (now : Nat) (s : State) :
     s.tasks.all qTaskShape = true → well_formed_task_suspended_has_no_resumes now s = true :=
   all_mono (fun _ h => by
     simp only [qTaskShape, Bool.and_eq_true] at h; exact h.1.2) _
 
-theorem task_acquired_version_positive_of_shape (now : Nat) (s : ServerState) :
+theorem task_acquired_version_positive_of_shape (now : Nat) (s : State) :
     s.tasks.all qTaskShape = true → well_formed_task_acquired_version_positive now s = true :=
   all_mono (fun _ h => by
     simp only [qTaskShape, Bool.and_eq_true] at h; exact h.2) _

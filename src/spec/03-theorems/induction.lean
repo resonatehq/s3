@@ -6,21 +6,21 @@ set_option maxHeartbeats 400000
 
 namespace Abstract
 
-open ServerModel (PromiseObject TaskObject Object)
+open Protocol (PromiseObject TaskObject Object)
 namespace Induction
 
-open AbstractModel
+open Abstract
 
-def EffectStable (P : ServerState → Bool) : Prop :=
-  ∀ (e : Effect) (s : ServerState), P s = true → P (e.apply s) = true
+def EffectStable (P : State → Bool) : Prop :=
+  ∀ (e : Effect) (s : State), P s = true → P (e.apply s) = true
 
-theorem applyAll_preserves {P : ServerState → Bool} (h : EffectStable P) :
-    ∀ (w : List Effect) (s : ServerState), P s = true → P (applyAll s w) = true
+theorem applyAll_preserves {P : State → Bool} (h : EffectStable P) :
+    ∀ (w : List Effect) (s : State), P s = true → P (applyAll s w) = true
   | [],      _, hs => hs
   | e :: es, s, hs => applyAll_preserves h es (e.apply s) (h e s hs)
 
-theorem step_preserves {P : ServerState → Bool} (h : EffectStable P)
-    (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+theorem step_preserves {P : State → Bool} (h : EffectStable P)
+    (mat : Bool) (st : Event) (now : Nat) (s : State) :
     P s = true → P (step mat st now s).2 = true := by
   intro hs
   show P (applyAll s ((handle st now) { state := s, mat := mat }).2) = true
@@ -28,9 +28,9 @@ theorem step_preserves {P : ServerState → Bool} (h : EffectStable P)
 
 structure Q where
 
-  promise  : ServerModel.Ident → PromiseObject → Bool
+  promise  : Protocol.Ident → PromiseObject → Bool
   task     : TaskObject → Bool
-  schedule : ServerModel.Schedule → Bool
+  schedule : Protocol.Schedule → Bool
 
 def QObj (g : Q) (o : Object) : Bool := g.promise o.id o.promise && o.task.all g.task
 
@@ -58,38 +58,38 @@ theorem all_and {α} (p q : α → Bool) :
       simp only [List.all_cons, all_and p q l]
       cases p a <;> cases q a <;> simp
 
-theorem allObj_split (g : Q) (s : ServerState) :
+theorem allObj_split (g : Q) (s : State) :
     s.objects.all (QObj g)
       = ((s.objects.all fun o => g.promise o.id o.promise) && s.tasks.all g.task) := by
-  simp only [ServerState.tasks, all_filterMap, ← all_and]
+  simp only [State.tasks, all_filterMap, ← all_and]
   rfl
 
-def PerStore (g : Q) (s : ServerState) : Bool :=
+def PerStore (g : Q) (s : State) : Bool :=
   s.objects.all (QObj g) && s.schedules.all g.schedule
 
-theorem perStore_promises {g : Q} {s : ServerState} (h : PerStore g s = true) :
+theorem perStore_promises {g : Q} {s : State} (h : PerStore g s = true) :
     (s.objects.all fun o => g.promise o.id o.promise) = true := by
   simp only [PerStore, allObj_split, Bool.and_eq_true] at h; exact h.1.1
 
-theorem perStore_tasks {g : Q} {s : ServerState} (h : PerStore g s = true) :
+theorem perStore_tasks {g : Q} {s : State} (h : PerStore g s = true) :
     s.tasks.all g.task = true := by
   simp only [PerStore, allObj_split, Bool.and_eq_true] at h; exact h.1.2
 
-theorem perStore_objects {g : Q} {s : ServerState} (h : PerStore g s = true) :
+theorem perStore_objects {g : Q} {s : State} (h : PerStore g s = true) :
     s.objects.all (QObj g) = true := by
   simp only [PerStore, Bool.and_eq_true] at h; exact h.1
 
-theorem perStore_schedules {g : Q} {s : ServerState} (h : PerStore g s = true) :
+theorem perStore_schedules {g : Q} {s : State} (h : PerStore g s = true) :
     s.schedules.all g.schedule = true := by
   simp only [PerStore, Bool.and_eq_true] at h; exact h.2
 
-theorem perStore_mk {g : Q} {s : ServerState}
+theorem perStore_mk {g : Q} {s : State}
     (h1 : (s.objects.all fun o => g.promise o.id o.promise) = true)
     (h2 : s.tasks.all g.task = true)
     (h3 : s.schedules.all g.schedule = true) : PerStore g s = true := by
   simp [PerStore, allObj_split, h1, h2, h3]
 
-theorem perStore_mkObj {g : Q} {s : ServerState}
+theorem perStore_mkObj {g : Q} {s : State}
     (h1 : s.objects.all (QObj g) = true) (h3 : s.schedules.all g.schedule = true) :
     PerStore g s = true := by
   simp [PerStore, h1, h3]
@@ -121,7 +121,7 @@ theorem all_map_of {α} (q : α → Bool) (m : α → α)
       simp only [List.all_cons, Bool.and_eq_true] at h
       simp [List.map_cons, List.all_cons, hm a h.1, all_map_of q m hm l h.2]
 
-theorem perStore_apply (g : Q) (f : Effect) (s : ServerState)
+theorem perStore_apply (g : Q) (f : Effect) (s : State)
     (hs : PerStore g s = true) (hf : GoodEffect g f) :
     PerStore g (f.apply s) = true := by
   have ho := perStore_objects hs
@@ -153,7 +153,7 @@ theorem perStore_apply (g : Q) (f : Effect) (s : ServerState)
       exact perStore_mkObj ho h3
 
 theorem perStore_applyAll (g : Q) :
-    ∀ (w : List Effect) (s : ServerState), PerStore g s = true →
+    ∀ (w : List Effect) (s : State), PerStore g s = true →
       (∀ f ∈ w, GoodEffect g f) → PerStore g (applyAll s w) = true
   | [],      _, hs, _  => hs
   | f :: fs, s, hs, hw =>
@@ -165,20 +165,20 @@ theorem all_mono {α} {q r : α → Bool} (h : ∀ x, q x = true → r x = true)
     (l : List α) : l.all q = true → l.all r = true := fun hs =>
   List.all_eq_true.mpr (fun x hx => h x (List.all_eq_true.mp hs x hx))
 
-theorem getObject_sound {g : Q} {s : ServerState} {id : ServerModel.Ident} {o : Object}
+theorem getObject_sound {g : Q} {s : State} {id : Protocol.Ident} {o : Object}
     (hs : PerStore g s = true)
     (h : s.objects.find? (·.id == id) = some o) : QObj g o = true :=
   List.all_eq_true.mp (perStore_objects hs) o (List.mem_of_find?_eq_some h)
 
-theorem getPromise_sound {g : Q} {s : ServerState} {id : ServerModel.Ident} {o : Object}
+theorem getPromise_sound {g : Q} {s : State} {id : Protocol.Ident} {o : Object}
     (hs : PerStore g s = true)
     (h : s.objects.find? (·.id == id) = some o) : g.promise o.id o.promise = true :=
   QObj_promise (getObject_sound hs h)
 
-theorem getTask_sound {g : Q} {s : ServerState} {id : ServerModel.Ident} {t : TaskObject}
+theorem getTask_sound {g : Q} {s : State} {id : Protocol.Ident} {t : TaskObject}
     (hs : PerStore g s = true)
     (h : s.task? id = some t) : g.task t = true := by
-  unfold ServerState.task? at h
+  unfold State.task? at h
   cases hfind : s.objects.find? (·.id == id) with
   | none => rw [hfind] at h; simp at h
   | some o =>
@@ -188,8 +188,8 @@ theorem getTask_sound {g : Q} {s : ServerState} {id : ServerModel.Ident} {t : Ta
       simp only [QObj, Bool.and_eq_true] at hq
       simpa [h] using hq.2
 
-theorem getSchedule_sound {g : Q} {s : ServerState} {id : ServerModel.Ident}
-    {c : ServerModel.Schedule} (hs : PerStore g s = true)
+theorem getSchedule_sound {g : Q} {s : State} {id : Protocol.Ident}
+    {c : Protocol.Schedule} (hs : PerStore g s = true)
     (h : s.schedules.find? (·.id == id) = some c) : g.schedule c = true :=
   List.all_eq_true.mp (perStore_schedules hs) c (List.mem_of_find?_eq_some h)
 
@@ -202,34 +202,34 @@ def ReturnsGood (g : Q) (e : Env) (act : H (Option Object)) : Prop :=
 theorem writesGood_pure {α} (g : Q) (e : Env) (a : α) : WritesGood g e (pure a) := by
   intro f hf; simp [pure] at hf
 
-theorem writesGood_setPromise (g : Q) (e : Env) (id : ServerModel.Ident) (p : PromiseObject)
+theorem writesGood_setPromise (g : Q) (e : Env) (id : Protocol.Ident) (p : PromiseObject)
     (h : g.promise id p = true) : WritesGood g e (setPromise id p) := by
   intro f hf; simp [setPromise, emit] at hf; subst hf; exact h
 
-theorem writesGood_setTask (g : Q) (e : Env) (id : ServerModel.Ident) (t : TaskObject)
+theorem writesGood_setTask (g : Q) (e : Env) (id : Protocol.Ident) (t : TaskObject)
     (h : g.task t = true) : WritesGood g e (setTask id t) := by
   intro f hf; simp [setTask, emit] at hf; subst hf; exact h
 
-theorem writesGood_setSchedule (g : Q) (e : Env) (c : ServerModel.Schedule)
+theorem writesGood_setSchedule (g : Q) (e : Env) (c : Protocol.Schedule)
     (h : g.schedule c = true) : WritesGood g e (setSchedule c) := by
   intro f hf; simp [setSchedule, emit] at hf; subst hf; exact h
 
-theorem writesGood_setMessage (g : Q) (e : Env) (a : String) (m : ServerModel.Message) :
+theorem writesGood_setMessage (g : Q) (e : Env) (a : String) (m : Protocol.Message) :
     WritesGood g e (setMessage a m) := by
   intro f hf; simp [setMessage, emit] at hf; subst hf; trivial
 
-theorem writesGood_delSchedule (g : Q) (e : Env) (id : ServerModel.Ident) :
+theorem writesGood_delSchedule (g : Q) (e : Env) (id : Protocol.Ident) :
     WritesGood g e (delSchedule id) := by
   intro f hf; simp [delSchedule, emit] at hf; subst hf; trivial
 
 theorem writesGood_ask (g : Q) (e : Env) : WritesGood g e ask := by
   intro f hf; simp [ask] at hf
 
-theorem writesGood_getObject (g : Q) (e : Env) (id : ServerModel.Ident) :
+theorem writesGood_getObject (g : Q) (e : Env) (id : Protocol.Ident) :
     WritesGood g e (getObject id) := by
   intro f hf; simp [getObject, bind, ask, pure] at hf
 
-theorem writesGood_getSchedule (g : Q) (e : Env) (id : ServerModel.Ident) :
+theorem writesGood_getSchedule (g : Q) (e : Env) (id : Protocol.Ident) :
     WritesGood g e (getSchedule id) := by
   intro f hf; simp [getSchedule, bind, ask, pure] at hf
 
@@ -237,39 +237,39 @@ theorem writesGood_withMat {α} (g : Q) (e : Env) (b : Bool)
     (act : H α) (h : WritesGood g { e with mat := b } act) :
     WritesGood g e (withMat b act) := h
 
-def Stored (a : ServerState) (id : ServerModel.Ident) : Prop :=
+def Stored (a : State) (id : Protocol.Ident) : Prop :=
   a.objects.find? (·.id == id) ≠ none
 
-theorem stored_of_find? {a : ServerState} {id : ServerModel.Ident} {o : Object}
+theorem stored_of_find? {a : State} {id : Protocol.Ident} {o : Object}
     (h : a.objects.find? (·.id == id) = some o) : Stored a id := by
   unfold Stored; rw [h]; simp
 
-structure Hereditary (g : Q) (a : ServerState) : Prop where
+structure Hereditary (g : Q) (a : State) : Prop where
 
-  project      : ∀ (id : ServerModel.Ident) (p : PromiseObject) (n : Nat), Stored a id →
+  project      : ∀ (id : Protocol.Ident) (p : PromiseObject) (n : Nat), Stored a id →
                    g.promise id p = true → g.promise id (p.project n) = true
-  addCallback  : ∀ (id : ServerModel.Ident) (p : PromiseObject) (c : ServerModel.Ident), Stored a id →
+  addCallback  : ∀ (id : Protocol.Ident) (p : PromiseObject) (c : Protocol.Ident), Stored a id →
                    g.promise id p = true → g.promise id (p.addCallback c) = true
-  addListener  : ∀ (id : ServerModel.Ident) (p : PromiseObject) (c : String), Stored a id →
+  addListener  : ∀ (id : Protocol.Ident) (p : PromiseObject) (c : String), Stored a id →
                    g.promise id p = true → g.promise id (p.addListener c) = true
-  settle       : ∀ (id : ServerModel.Ident) (p : PromiseObject) (st : ServerModel.PromiseState)
-                   (v : ServerModel.Value) (t : Nat), Stored a id →
+  settle       : ∀ (id : Protocol.Ident) (p : PromiseObject) (st : Protocol.PromiseState)
+                   (v : Protocol.Value) (t : Nat), Stored a id →
                    st.settable = true → p.state = .pending → t < p.timeoutAt →
                    g.promise id p = true →
                    g.promise id { p with state := st, value := v, settledAt := some t } = true
-  dropListener : ∀ (id : ServerModel.Ident) (p : PromiseObject) (c : String), Stored a id →
+  dropListener : ∀ (id : Protocol.Ident) (p : PromiseObject) (c : String), Stored a id →
                    p.state ≠ .pending → g.promise id p = true →
                    g.promise id { p with listeners := p.listeners.filter (· != c) } = true
-  dropCallback : ∀ (id : ServerModel.Ident) (p : PromiseObject) (c : ServerModel.Ident), Stored a id →
+  dropCallback : ∀ (id : Protocol.Ident) (p : PromiseObject) (c : Protocol.Ident), Stored a id →
                    p.state ≠ .pending → g.promise id p = true →
                    g.promise id { p with callbacks := p.callbacks.filter (· != c) } = true
-  live         : ∀ (id : ServerModel.Ident) (param : ServerModel.Value) (type : ServerModel.OType)
+  live         : ∀ (id : Protocol.Ident) (param : Protocol.Value) (type : Protocol.OType)
                    (timeoutAt createdAt : Nat), createdAt < timeoutAt →
                    a.objects.find? (·.id == id) = none →
                    g.promise id { state := .pending, param := param, type := type,
                                   timeoutAt := timeoutAt, createdAt := createdAt } = true
-  dead         : ∀ (id : ServerModel.Ident) (st : ServerModel.PromiseState)
-                   (param : ServerModel.Value) (type : ServerModel.OType) (timeoutAt : Nat),
+  dead         : ∀ (id : Protocol.Ident) (st : Protocol.PromiseState)
+                   (param : Protocol.Value) (type : Protocol.OType) (timeoutAt : Nat),
                    st = (if type == .deadline then .resolved else .rejectedTimedout) →
                    a.objects.find? (·.id == id) = none →
                    g.promise id { state := st, param := param, type := type,
@@ -299,28 +299,28 @@ structure Hereditary (g : Q) (a : ServerState) : Prop where
   tContinue    : ∀ (t : TaskObject) (n : Nat), (t.state == .halted) = true →
                    g.task t = true →
                    g.task { t with state := .pending, retryTimeoutAt := some n } = true
-  tResume      : ∀ (t : TaskObject) (a : ServerModel.Ident) (n : Nat), t.state = .suspended →
+  tResume      : ∀ (t : TaskObject) (a : Protocol.Ident) (n : Nat), t.state = .suspended →
                    g.task t = true →
                    g.task { t with state := .pending, resumes := [a], retryTimeoutAt := some n } = true
-  tAddResume   : ∀ (t : TaskObject) (a : ServerModel.Ident), t.state ≠ .suspended →
+  tAddResume   : ∀ (t : TaskObject) (a : Protocol.Ident), t.state ≠ .suspended →
                    t.state ≠ .fulfilled → (t.resumes.contains a) = false → g.task t = true →
                    g.task { t with resumes := t.resumes ++ [a] } = true
   tRearm       : ∀ (t : TaskObject) (n : Nat), (t.state == .pending) = true →
                    g.task t = true → g.task { t with retryTimeoutAt := some n } = true
 
-  cBorn        : ∀ (id : ServerModel.Ident) (cron : String) (promiseId : ServerModel.Ident) (promiseTimeout : Nat)
-                   (promiseParam : ServerModel.Value) (promiseType : ServerModel.OType)
+  cBorn        : ∀ (id : Protocol.Ident) (cron : String) (promiseId : Protocol.Ident) (promiseTimeout : Nat)
+                   (promiseParam : Protocol.Value) (promiseType : Protocol.OType)
                    (now : Nat),
                    g.schedule { id := id, cron := cron, promiseId := promiseId,
                                 promiseTimeout := promiseTimeout,
                                 promiseParam := promiseParam, promiseType := promiseType,
                                 createdAt := now,
-                                nextRunAt := ServerModel.nextCron cron now,
+                                nextRunAt := Protocol.nextCron cron now,
                                 lastRunAt := none } = true
-  cAdvance     : ∀ (c : ServerModel.Schedule) (last : Nat), g.schedule c = true →
-                   g.schedule { c with lastRunAt := some last, nextRunAt := ServerModel.nextCron c.cron last } = true
+  cAdvance     : ∀ (c : Protocol.Schedule) (last : Nat), g.schedule c = true →
+                   g.schedule { c with lastRunAt := some last, nextRunAt := Protocol.nextCron c.cron last } = true
 
-theorem Hereditary.tView {g : Q} {a : ServerState} (h : Hereditary g a) (t : TaskObject) (p : PromiseObject) :
+theorem Hereditary.tView {g : Q} {a : State} (h : Hereditary g a) (t : TaskObject) (p : PromiseObject) :
     g.task t = true → g.task (t.view p) = true := by
   intro ht
   unfold TaskObject.view
@@ -373,10 +373,10 @@ theorem writesGood_iteH {α} (g : Q) (e : Env) (c : Prop) [Decidable c] (x y : H
   · simpa only [if_pos h] using hx h
   · simpa only [if_neg h] using hy h
 
-theorem getObject_fst (id : ServerModel.Ident) (e : Env) :
+theorem getObject_fst (id : Protocol.Ident) (e : Env) :
     (getObject id e).1 = e.state.objects.find? (·.id == id) := rfl
 
-theorem getSchedule_fst (id : ServerModel.Ident) (e : Env) :
+theorem getSchedule_fst (id : Protocol.Ident) (e : Env) :
     (getSchedule id e).1 = e.state.schedules.find? (·.id == id) := rfl
 
 theorem ask_fst (e : Env) : (ask e).1 = e := rfl
@@ -385,7 +385,7 @@ section Derived
 
 variable {g : Q}
 
-theorem QObj_project {a : ServerState} (hq : Hereditary g a) {o : Object}
+theorem QObj_project {a : State} (hq : Hereditary g a) {o : Object}
     (hst : Stored a o.id) (h : QObj g o = true) (n : Nat) :
     QObj g (o.project n) = true := by
   have h1 : g.promise o.id o.promise = true := QObj_promise h
@@ -409,7 +409,7 @@ theorem writesGood_setSettled {e : Env} (hq : Hereditary g e.state)
   · exact writesGood_pure _ _ _
 
 theorem writesGood_materialise {e : Env} {o' : Object} (h : QObj g o' = true)
-    (id : ServerModel.Ident) (hid : o'.id = id) (o : Object) :
+    (id : Protocol.Ident) (hid : o'.id = id) (o : Object) :
     WritesGood g e (materialise id o o') := by
   unfold materialise
   refine writesGood_bind' _ _ _ _ ?_ ?_
@@ -421,7 +421,7 @@ theorem writesGood_materialise {e : Env} {o' : Object} (h : QObj g o' = true)
         (writesGood_setTask _ _ _ _ (QObj_task h hu)) (writesGood_pure _ _ _)
     · exact writesGood_pure _ _ _
 
-theorem readObject_fst (id : ServerModel.Ident) (now : Nat) (e : Env) :
+theorem readObject_fst (id : Protocol.Ident) (now : Nat) (e : Env) :
     (readObject id now e).1 =
       (e.state.objects.find? (·.id == id)).map (·.project now) := by
   unfold readObject
@@ -433,7 +433,7 @@ theorem readObject_fst (id : ServerModel.Ident) (now : Nat) (e : Env) :
       split <;> rw [bind_fst] <;> rfl
 
 theorem writesGood_readObject {e : Env} (hq : Hereditary g e.state)
-    (hs : PerStore g e.state = true) (id : ServerModel.Ident) (now : Nat) :
+    (hs : PerStore g e.state = true) (id : Protocol.Ident) (now : Nat) :
     WritesGood g e (readObject id now) := by
   unfold readObject
   refine writesGood_bind' _ _ _ _ (writesGood_getObject _ _ _) ?_
@@ -455,7 +455,7 @@ theorem writesGood_readObject {e : Env} (hq : Hereditary g e.state)
     · exact writesGood_bind' _ _ _ _ (writesGood_pure _ _ _) (writesGood_pure _ _ _)
 
 theorem returnsGood_readObject {e : Env} (hq : Hereditary g e.state)
-    (hs : PerStore g e.state = true) (id : ServerModel.Ident) (now : Nat) (o : Object)
+    (hs : PerStore g e.state = true) (id : Protocol.Ident) (now : Nat) (o : Object)
     (h : (readObject id now e).1 = some o) : QObj g o = true := by
   rw [readObject_fst] at h
   cases hf : e.state.objects.find? (fun x => x.id == id) with
@@ -469,9 +469,9 @@ theorem returnsGood_readObject {e : Env} (hq : Hereditary g e.state)
         (getObject_sound hs hf) now
 
 def NotDue (now : Nat) (p : PromiseObject) : Prop :=
-  (p.state == ServerModel.PromiseState.pending) = true → now < p.timeoutAt
+  (p.state == Protocol.PromiseState.pending) = true → now < p.timeoutAt
 
-theorem readObject_notDue (id : ServerModel.Ident) (now : Nat) (e : Env) (o : Object)
+theorem readObject_notDue (id : Protocol.Ident) (now : Nat) (e : Env) (o : Object)
     (h : (readObject id now e).1 = some o) : NotDue now o.promise := by
   intro hst
   rw [readObject_fst] at h
@@ -483,7 +483,7 @@ theorem readObject_notDue (id : ServerModel.Ident) (now : Nat) (e : Env) (o : Ob
       obtain rfl := Option.some.inj h
       exact Lookup.project_pending_not_due hst
 
-theorem readObject_id (id : ServerModel.Ident) (now : Nat) (e : Env) (o : Object)
+theorem readObject_id (id : Protocol.Ident) (now : Nat) (e : Env) (o : Object)
     (h : (readObject id now e).1 = some o) : o.id = id := by
   rw [readObject_fst] at h
   cases hf : e.state.objects.find? (fun x => x.id == id) with
@@ -495,7 +495,7 @@ theorem readObject_id (id : ServerModel.Ident) (now : Nat) (e : Env) (o : Object
       exact (Lookup.project_id o₀ now).trans
         (eq_of_beq (by simpa using List.find?_some hf))
 
-theorem readObject_stored (id : ServerModel.Ident) (now : Nat) (e : Env) (o : Object)
+theorem readObject_stored (id : Protocol.Ident) (now : Nat) (e : Env) (o : Object)
     (h : (readObject id now e).1 = some o) : Stored e.state o.id := by
   rw [readObject_id id now e o h]
   rw [readObject_fst] at h
@@ -504,7 +504,7 @@ theorem readObject_stored (id : ServerModel.Ident) (now : Nat) (e : Env) (o : Ob
   | some o₀ => exact stored_of_find? hf
 
 theorem writesGood_afterReadObject {α} {e : Env} (hq : Hereditary g e.state)
-    (hs : PerStore g e.state = true) (id : ServerModel.Ident) (now : Nat)
+    (hs : PerStore g e.state = true) (id : Protocol.Ident) (now : Nat)
     (f : Option Object → H α)
     (hnone : e.state.objects.find? (·.id == id) = none → WritesGood g e (f none))
     (hsome : ∀ o, QObj g o = true → NotDue now o.promise → Stored e.state o.id →
@@ -523,7 +523,7 @@ theorem writesGood_afterReadObject {α} {e : Env} (hq : Hereditary g e.state)
         (readObject_notDue id now e o h) (readObject_stored id now e o h)
 
 theorem writesGood_afterReadObjectP {α} {e : Env} (hq : Hereditary g e.state)
-    (hs : PerStore g e.state = true) (id : ServerModel.Ident) (now : Nat)
+    (hs : PerStore g e.state = true) (id : Protocol.Ident) (now : Nat)
     (f : Option Object → H α)
     (hnone : e.state.objects.find? (·.id == id) = none → WritesGood g e (f none))
     (hsome : ∀ o, g.promise o.id o.promise = true → NotDue now o.promise →
@@ -532,7 +532,7 @@ theorem writesGood_afterReadObjectP {α} {e : Env} (hq : Hereditary g e.state)
   writesGood_afterReadObject hq hs id now f hnone
     (fun o ho => hsome o (QObj_promise ho))
 
-theorem readTaskObject_fst_some {id : ServerModel.Ident} {now : Nat} {e : Env} {u : Object}
+theorem readTaskObject_fst_some {id : Protocol.Ident} {now : Nat} {e : Env} {u : Object}
     (h : (readTaskObject id now e).1 = some u) : (readObject id now e).1 = some u := by
   revert h
   unfold readTaskObject
@@ -546,7 +546,7 @@ theorem readTaskObject_fst_some {id : ServerModel.Ident} {now : Nat} {e : Env} {
       · rw [if_neg hto]; intro hh; simp [pure] at hh
 
 theorem writesGood_readTaskObject {e : Env} (hq : Hereditary g e.state)
-    (hs : PerStore g e.state = true) (id : ServerModel.Ident) (now : Nat) :
+    (hs : PerStore g e.state = true) (id : Protocol.Ident) (now : Nat) :
     WritesGood g e (readTaskObject id now) := by
   unfold readTaskObject
   refine writesGood_bind' _ _ _ _ (writesGood_getObject _ _ _) ?_
@@ -557,7 +557,7 @@ theorem writesGood_readTaskObject {e : Env} (hq : Hereditary g e.state)
       (writesGood_pure _ _ _)
 
 theorem writesGood_afterReadTaskObject {α} {e : Env} (hq : Hereditary g e.state)
-    (hs : PerStore g e.state = true) (id : ServerModel.Ident) (now : Nat)
+    (hs : PerStore g e.state = true) (id : Protocol.Ident) (now : Nat)
     (f : Option Object → H α)
     (hnone : WritesGood g e (f none))
     (hsome : ∀ o, QObj g o = true → NotDue now o.promise → Stored e.state o.id →
@@ -572,7 +572,7 @@ theorem writesGood_afterReadTaskObject {α} {e : Env} (hq : Hereditary g e.state
         (readObject_notDue id now e u h') (readObject_stored id now e u h')
 
 theorem writesGood_afterMatReadTaskObject {α} {e : Env} (hq : Hereditary g e.state)
-    (b : Bool) (hs : PerStore g e.state = true) (id : ServerModel.Ident) (now : Nat)
+    (b : Bool) (hs : PerStore g e.state = true) (id : Protocol.Ident) (now : Nat)
     (f : Option Object → H α)
     (hnone : WritesGood g e (f none))
     (hsome : ∀ o, QObj g o = true → NotDue now o.promise → Stored e.state o.id →
@@ -590,7 +590,7 @@ theorem writesGood_afterMatReadTaskObject {α} {e : Env} (hq : Hereditary g e.st
         (readObject_stored id now { e with mat := b } u h')
 
 theorem writesGood_afterMatReadObject {α} {e : Env} (hq : Hereditary g e.state) (b : Bool)
-    (hs : PerStore g e.state = true) (id : ServerModel.Ident) (now : Nat)
+    (hs : PerStore g e.state = true) (id : Protocol.Ident) (now : Nat)
     (f : Option Object → H α)
     (hnone : e.state.objects.find? (·.id == id) = none → WritesGood g e (f none))
     (hsome : ∀ o, QObj g o = true → NotDue now o.promise → Stored e.state o.id →
@@ -613,7 +613,7 @@ theorem writesGood_afterMatReadObject {α} {e : Env} (hq : Hereditary g e.state)
         (readObject_stored id now { e with mat := b } o h)
 
 theorem writesGood_afterMatReadObjectP {α} {e : Env} (hq : Hereditary g e.state) (b : Bool)
-    (hs : PerStore g e.state = true) (id : ServerModel.Ident) (now : Nat)
+    (hs : PerStore g e.state = true) (id : Protocol.Ident) (now : Nat)
     (f : Option Object → H α)
     (hnone : e.state.objects.find? (·.id == id) = none → WritesGood g e (f none))
     (hsome : ∀ o, g.promise o.id o.promise = true → NotDue now o.promise →
@@ -625,21 +625,21 @@ theorem writesGood_afterMatReadObjectP {α} {e : Env} (hq : Hereditary g e.state
 end Derived
 
 theorem stateHolds_init (now : Nat) :
-    Properties.stateHolds now ServerState.init = true := rfl
+    Properties.stateHolds now State.init = true := rfl
 
-theorem stateHolds_step (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+theorem stateHolds_step (mat : Bool) (st : Event) (now : Nat) (s : State) :
     Properties.stateHolds now s = true →
     Properties.stateHolds now (step mat st now s).2 = true := sorry
 
-theorem stateHolds_clock (n n' : Nat) (s : ServerState) :
+theorem stateHolds_clock (n n' : Nat) (s : State) :
     Properties.stateHolds n s = true → n ≤ n' →
     Properties.stateHolds n' s = true := sorry
 
-theorem legalAt_step (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+theorem legalAt_step (mat : Bool) (st : Event) (now : Nat) (s : State) :
     Properties.stateHolds now s = true →
     Properties.legalAt now s (step mat st now s).2 = true := sorry
 
-theorem internal_well_formed (mat : Bool) (st : Event) (now : Nat) (s : ServerState) :
+theorem internal_well_formed (mat : Bool) (st : Event) (now : Nat) (s : State) :
     st.isInternal = true → Properties.stateHolds now s = true →
     Properties.internalWellFormed now s (step mat st now s).2 = true := sorry
 

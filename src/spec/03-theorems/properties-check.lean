@@ -3,39 +3,39 @@ import «02-abstract».«properties»
 
 namespace Abstract
 
-open ServerModel (PromiseObject TaskObject Object)
+open Protocol (PromiseObject TaskObject Object)
 
-open AbstractModel.Properties
+open Abstract.Properties
 
 def statesOfA (mat : Bool) :
-    List (Event × Nat) → AbstractModel.ServerState → List (Nat × AbstractModel.ServerState)
+    List (Event × Nat) → Abstract.State → List (Nat × Abstract.State)
   | [], _ => []
   | (st, n) :: w, s =>
       let (_, s') := step mat st n s
       (n, s') :: statesOfA mat w s'
 
-def trace (w : List (Event × Nat)) : List (Nat × AbstractModel.ServerState) :=
-  statesOfA true w AbstractModel.ServerState.init
-    ++ statesOfA false w AbstractModel.ServerState.init
+def trace (w : List (Event × Nat)) : List (Nat × Abstract.State) :=
+  statesOfA true w Abstract.State.init
+    ++ statesOfA false w Abstract.State.init
 
 def pairs (mat : Bool) :
-    List (Event × Nat) → AbstractModel.ServerState →
-    List (Nat × AbstractModel.ServerState × AbstractModel.ServerState)
+    List (Event × Nat) → Abstract.State →
+    List (Nat × Abstract.State × Abstract.State)
   | [], _ => []
   | (st, n) :: w, s =>
       let (_, s') := step mat st n s
       (n, s, s') :: pairs mat w s'
 
 def allPairs (w : List (Event × Nat)) :=
-  pairs true w AbstractModel.ServerState.init
-    ++ pairs false w AbstractModel.ServerState.init
+  pairs true w Abstract.State.init
+    ++ pairs false w Abstract.State.init
 
 def legalRun (w : List (Event × Nat)) : Bool :=
   (allPairs w).all (fun (n, a, b) => legalAt n a b)
     && (allPairs w).all (fun (n, _, b) => stateHolds n b)
 
-def failingNames (now : Nat) (a b : AbstractModel.ServerState) : List String :=
-  AbstractModel.Properties.catalogue.filterMap fun l =>
+def failingNames (now : Nat) (a b : Abstract.State) : List String :=
+  Abstract.Properties.catalogue.filterMap fun l =>
     match l.property with
     | .state f => if f now a && f now b then none else some l.name
     | .trans f => if f now a b          then none else some l.name
@@ -43,7 +43,7 @@ def failingNames (now : Nat) (a b : AbstractModel.ServerState) : List String :=
 def report (ws : List (List (Event × Nat))) : List String :=
   (ws.flatMap fun w => (allPairs w).flatMap (fun (n, a, b) => failingNames n a b)).eraseDups
 
-def witnesses (ws : List (List (Event × Nat))) (p : AbstractModel.ServerState → Bool) : Bool :=
+def witnesses (ws : List (List (Event × Nat))) (p : Abstract.State → Bool) : Bool :=
   ws.any fun w => (trace w).any (fun (_, s) => p s)
 
 def covInternal : List (Event × Nat) :=
@@ -84,27 +84,27 @@ theorem stage1_battery : battery.all legalRun = true := by decide
 theorem stage1_sweep :
     ((seqsUpToA kernelsResp 3).map instantiateA).all legalRun = true := by decide
 
-def carrier : ServerModel.PromiseObject :=
+def carrier : Protocol.PromiseObject :=
   { state := .pending, param := {}, type := .runnable "w",
     timeoutAt := 100, createdAt := 10 }
 
-def onePromise (p : ServerModel.PromiseObject) : AbstractModel.ServerState :=
+def onePromise (p : Protocol.PromiseObject) : Abstract.State :=
   { objects := [{ id := oid "a", promise := p }] }
 
-def oneTask (t : ServerModel.TaskObject) : AbstractModel.ServerState :=
+def oneTask (t : Protocol.TaskObject) : Abstract.State :=
   { objects := [{ id := oid "a", promise := carrier, task := some t }] }
 
-def oneSchedule (c : ServerModel.Schedule) : AbstractModel.ServerState :=
+def oneSchedule (c : Protocol.Schedule) : Abstract.State :=
   { schedules := [c] }
 
-open ServerModel AbstractModel.Properties in
+open Protocol Abstract.Properties in
 def mutants : List (String × Bool) :=
-  let P : ServerModel.PromiseObject :=
+  let P : Protocol.PromiseObject :=
     { state := .pending, param := {}, type := .external,
       timeoutAt := 100, createdAt := 10 }
-  let T : ServerModel.TaskObject := { state := .pending, version := 1, retryTimeoutAt := some 0 }
-  let obj : ServerModel.PromiseObject → Option ServerModel.TaskObject →
-              AbstractModel.ServerState :=
+  let T : Protocol.TaskObject := { state := .pending, version := 1, retryTimeoutAt := some 0 }
+  let obj : Protocol.PromiseObject → Option Protocol.TaskObject →
+              Abstract.State :=
     fun p t => { objects := [{ id := oid "a", promise := p, task := t }] }
   let C : Schedule := { id := oid "c", cron := "*", promiseId := oid "p", promiseTimeout := 1,
                         promiseParam := {}, promiseType := .internal, nextRunAt := 50, createdAt := 10 }
@@ -272,7 +272,7 @@ theorem reaches_outbox_unblock :
 theorem schedules_unreached :
     witnesses battery (fun s => !s.schedules.isEmpty) = false := by decide
 
-open AbstractModel.Properties (well_formed_task_ttl_positive
+open Abstract.Properties (well_formed_task_ttl_positive
   well_formed_promise_target_is_nonempty
   well_formed_promise_delay_before_deadline)
 

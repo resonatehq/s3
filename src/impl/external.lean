@@ -2,8 +2,8 @@ import types
 
 namespace Concrete
 
-open ServerModel (Ident Message PromiseState TaskState Object PromiseObject TaskObject)
-open ServerModel (PromiseGetReq PromiseGetRes
+open Protocol (Ident Message PromiseState TaskState Object PromiseObject TaskObject)
+open Protocol (PromiseGetReq PromiseGetRes
                   PromiseCreateReq PromiseCreateRes
                   PromiseSettleReq PromiseSettleRes
                   PromiseRegisterCallbackReq PromiseRegisterCallbackRes
@@ -54,7 +54,7 @@ def Origin.get (org : Origin) (id : Ident) (now : Nat) : Option Object :=
 def Origin.write (org : Origin) (o : Object) : Origin :=
   ⟨o :: org.objects.filter (·.id != o.id)⟩
 
-def _root_.ServerModel.TaskObject.timers (t : TaskObject) (id : Ident) : List Timer :=
+def _root_.Protocol.TaskObject.timers (t : TaskObject) (id : Ident) : List Timer :=
   match t.state, t.leaseTimeoutAt, t.retryTimeoutAt with
   | .acquired, some dl, _ =>
       [⟨dl, id, .lease⟩]
@@ -63,7 +63,7 @@ def _root_.ServerModel.TaskObject.timers (t : TaskObject) (id : Ident) : List Ti
   | _, _, _ =>
       []
 
-def _root_.ServerModel.Object.timers (o : Object) : List Timer :=
+def _root_.Protocol.Object.timers (o : Object) : List Timer :=
   (if o.promise.state == .pending then [⟨o.promise.timeoutAt, o.id, .promise⟩] else [])
   ++ (o.task.map (·.timers o.id)).getD []
 

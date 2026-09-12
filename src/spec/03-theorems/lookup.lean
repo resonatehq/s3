@@ -3,8 +3,8 @@ import «03-theorems».«system»
 namespace Abstract
 namespace Lookup
 
-open AbstractModel
-open ServerModel (PromiseObject TaskObject Object
+open Abstract
+open Protocol (PromiseObject TaskObject Object
                   PromiseState TaskState)
 
 theorem toFalse {b : Bool} (h : ¬(b = true)) : b = false := by
@@ -94,7 +94,7 @@ theorem project_pending_not_due {p : PromiseObject} {n : Nat}
 
 theorem settable_ne_pending {st : PromiseState} (h : st.settable = true) :
     (st != PromiseState.pending) = true := by
-  cases st <;> simp_all [ServerModel.PromiseState.settable]
+  cases st <;> simp_all [Protocol.PromiseState.settable]
 
 theorem fulfill_state (t : TaskObject) : (t.fulfill).state = TaskState.fulfilled := rfl
 
@@ -171,43 +171,43 @@ theorem find?_upsert {α κ} [BEq κ] [LawfulBEq κ] (idOf : α → κ) (x : α)
       rw [hstep]
       exact find?_filter_ne idOf (idOf x) b l hxb
 
-def pLook (n : Nat) (s : ServerState) (id : ServerModel.Ident) : Option PromiseObject :=
+def pLook (n : Nat) (s : State) (id : Protocol.Ident) : Option PromiseObject :=
   (s.promise? id).map (·.project n)
 
 def applyView (t : TaskObject) : Option PromiseObject → TaskObject
   | some pv => t.view pv
   | none => t
 
-def tLook (n : Nat) (s : ServerState) (id : ServerModel.Ident) : Option TaskObject :=
+def tLook (n : Nat) (s : State) (id : Protocol.Ident) : Option TaskObject :=
   (s.task? id).map fun t => applyView t (pLook n s id)
 
-def sLook (s : ServerState) (id : ServerModel.Ident) : Option ServerModel.Schedule :=
+def sLook (s : State) (id : Protocol.Ident) : Option Protocol.Schedule :=
   s.schedules.find? (·.id == id)
 
-def REq (n : Nat) (sP sM : ServerState) : Prop :=
+def REq (n : Nat) (sP sM : State) : Prop :=
   (∀ id, pLook n sP id = pLook n sM id)
     ∧ (∀ id, tLook n sP id = tLook n sM id)
     ∧ (∀ id, sLook sP id = sLook sM id)
 
-theorem REq.refl (n : Nat) (s : ServerState) : REq n s s :=
+theorem REq.refl (n : Nat) (s : State) : REq n s s :=
   ⟨fun _ => rfl, fun _ => rfl, fun _ => rfl⟩
 
-theorem REq.symm {n : Nat} {sP sM : ServerState} (h : REq n sP sM) : REq n sM sP :=
+theorem REq.symm {n : Nat} {sP sM : State} (h : REq n sP sM) : REq n sM sP :=
   ⟨fun id => (h.1 id).symm, fun id => (h.2.1 id).symm, fun id => (h.2.2 id).symm⟩
 
-theorem REq.trans {n : Nat} {a b c : ServerState}
+theorem REq.trans {n : Nat} {a b c : State}
     (h1 : REq n a b) (h2 : REq n b c) : REq n a c :=
   ⟨fun id => (h1.1 id).trans (h2.1 id), fun id => (h1.2.1 id).trans (h2.2.1 id),
    fun id => (h1.2.2 id).trans (h2.2.2 id)⟩
 
-theorem pLook_mono {n n' : Nat} (h : n ≤ n') (s : ServerState) (id : ServerModel.Ident) :
+theorem pLook_mono {n n' : Nat} (h : n ≤ n') (s : State) (id : Protocol.Ident) :
     pLook n' s id = (pLook n s id).map (·.project n') := by
   unfold pLook
   cases s.promise? id with
   | none => rfl
   | some p => simp [Option.map, project_absorb p h]
 
-theorem tLook_mono {n n' : Nat} (h : n ≤ n') (s : ServerState) (id : ServerModel.Ident) :
+theorem tLook_mono {n n' : Nat} (h : n ≤ n') (s : State) (id : Protocol.Ident) :
     tLook n' s id = (tLook n s id).map fun tv => applyView tv (pLook n' s id) := by
   unfold tLook
   cases hf : s.task? id with
@@ -229,7 +229,7 @@ theorem tLook_mono {n n' : Nat} (h : n ≤ n') (s : ServerState) (id : ServerMod
           simp only [applyView]
           rw [view_absorb t p h]
 
-theorem REq.mono {n n' : Nat} (h : n ≤ n') {sP sM : ServerState}
+theorem REq.mono {n n' : Nat} (h : n ≤ n') {sP sM : State}
     (r : REq n sP sM) : REq n' sP sM := by
   obtain ⟨hp, ht, hs⟩ := r
   have hp' : ∀ id, pLook n' sP id = pLook n' sM id := fun id => by

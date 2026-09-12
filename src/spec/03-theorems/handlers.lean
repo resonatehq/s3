@@ -5,7 +5,7 @@ set_option maxHeartbeats 1000000
 namespace Abstract
 namespace Induction
 
-open AbstractModel
+open Abstract
 
 macro "wg_trivial" : tactic => `(tactic| repeat (first
   | exact writesGood_pure _ _ _
@@ -32,7 +32,7 @@ include hq hs
 
 set_option linter.unusedSectionVars false
 
-theorem writesGood_createPromise (req : ServerModel.PromiseCreateReq) (now : Nat)
+theorem writesGood_createPromise (req : Protocol.PromiseCreateReq) (now : Nat)
     (hfresh : e.state.objects.find? (·.id == req.id) = none) :
     WritesGood g e (createPromise req now) := by
   unfold createPromise
@@ -54,7 +54,7 @@ theorem writesGood_createPromise (req : ServerModel.PromiseCreateReq) (now : Nat
       | dsimp only
       | split
 
-theorem writesGood_createIfAbsent (req : ServerModel.PromiseCreateReq) (now : Nat) :
+theorem writesGood_createIfAbsent (req : Protocol.PromiseCreateReq) (now : Nat) :
     WritesGood g e (createIfAbsent req now) := by
   unfold createIfAbsent
   refine writesGood_afterReadObjectP hq hs _ _ _ (fun hfresh => ?_) ?_
@@ -62,14 +62,14 @@ theorem writesGood_createIfAbsent (req : ServerModel.PromiseCreateReq) (now : Na
       (writesGood_pure _ _ _)
   · intro p hp _ _; exact writesGood_pure _ _ _
 
-theorem writesGood_promiseGet (req : ServerModel.PromiseGetReq) (now : Nat) :
+theorem writesGood_promiseGet (req : Protocol.PromiseGetReq) (now : Nat) :
     WritesGood g e (promiseGet req now) := by
   unfold promiseGet
   refine writesGood_afterReadObjectP hq hs _ _ _ (fun _ => ?_) ?_
   · exact writesGood_pure _ _ _
   · intro p hp _ _; exact writesGood_pure _ _ _
 
-theorem writesGood_promiseCreate (req : ServerModel.PromiseCreateReq) (now : Nat) :
+theorem writesGood_promiseCreate (req : Protocol.PromiseCreateReq) (now : Nat) :
     WritesGood g e (promiseCreate req now) := by
   unfold promiseCreate
   refine writesGood_afterReadObjectP hq hs _ _ _ (fun hfresh => ?_) ?_
@@ -77,7 +77,7 @@ theorem writesGood_promiseCreate (req : ServerModel.PromiseCreateReq) (now : Nat
       (writesGood_pure _ _ _)
   · intro p hp _ _; exact writesGood_pure _ _ _
 
-theorem writesGood_promiseSettle (req : ServerModel.PromiseSettleReq) (now : Nat) :
+theorem writesGood_promiseSettle (req : Protocol.PromiseSettleReq) (now : Nat) :
     WritesGood g e (promiseSettle req now) := by
   unfold promiseSettle
   refine writesGood_iteH _ _ _ _ _ (fun _ => writesGood_pure _ _ _) (fun hset => ?_)
@@ -93,7 +93,7 @@ theorem writesGood_promiseSettle (req : ServerModel.PromiseSettleReq) (now : Nat
       (writesGood_pure _ _ _)
 
 theorem writesGood_promiseRegisterCallback
-    (req : ServerModel.PromiseRegisterCallbackReq) (now : Nat) :
+    (req : Protocol.PromiseRegisterCallbackReq) (now : Nat) :
     WritesGood g e (promiseRegisterCallback req now) := by
   unfold promiseRegisterCallback
   wg_guard
@@ -115,7 +115,7 @@ theorem writesGood_promiseRegisterCallback
       · exact writesGood_bind' _ _ _ _ (writesGood_pure _ _ _) (writesGood_pure _ _ _)
 
 theorem writesGood_promiseRegisterListener
-    (req : ServerModel.PromiseRegisterListenerReq) (now : Nat) :
+    (req : Protocol.PromiseRegisterListenerReq) (now : Nat) :
     WritesGood g e (promiseRegisterListener req now) := by
   unfold promiseRegisterListener
   refine writesGood_afterReadObjectP hq hs _ _ _ (fun _ => ?_) ?_
@@ -127,10 +127,10 @@ theorem writesGood_promiseRegisterListener
     exact writesGood_bind' _ _ _ _
       (writesGood_setPromise _ _ _ _ (hq.addListener _ pa.promise _ hsto hpa)) (writesGood_pure _ _ _)
 
-theorem writesGood_promiseSearch (req : ServerModel.PromiseSearchReq) (now : Nat) :
+theorem writesGood_promiseSearch (req : Protocol.PromiseSearchReq) (now : Nat) :
     WritesGood g e (promiseSearch req now) := writesGood_pure _ _ _
 
-theorem writesGood_taskGet (req : ServerModel.TaskGetReq) (now : Nat) :
+theorem writesGood_taskGet (req : Protocol.TaskGetReq) (now : Nat) :
     WritesGood g e (taskGet req now) := by
   unfold taskGet
   refine writesGood_afterReadTaskObject hq hs _ _ _ (writesGood_pure _ _ _) ?_
@@ -138,14 +138,14 @@ theorem writesGood_taskGet (req : ServerModel.TaskGetReq) (now : Nat) :
   dsimp only
   split <;> exact writesGood_pure _ _ _
 
-theorem writesGood_taskCreate (req : ServerModel.TaskCreateReq) (now : Nat) :
+theorem writesGood_taskCreate (req : Protocol.TaskCreateReq) (now : Nat) :
     WritesGood g e (taskCreate req now) := by
   simp only [taskCreate]
   refine writesGood_iteH _ _ _ _ _ (fun _ => writesGood_pure _ _ _) (fun hgd => ?_)
   refine writesGood_pureBind _ _ _ _ ?_
 
   have hnotimer : (req.action.type == .deadline) = false := by
-    cases h : req.action.type <;> simp_all [ServerModel.OType.isRunnable]
+    cases h : req.action.type <;> simp_all [Protocol.OType.isRunnable]
   refine writesGood_afterReadObject hq hs _ _ _ (fun hfresh => ?_) ?_
   · dsimp only
     refine writesGood_iteH _ _ _ _ _ (fun h => ?_) (fun _ => ?_)
@@ -170,7 +170,7 @@ theorem writesGood_taskCreate (req : ServerModel.TaskCreateReq) (now : Nat) :
       exact writesGood_bind' _ _ _ _
         (writesGood_setTask _ _ _ _ (hq.tAcquire t _ _ _ ht)) (writesGood_pure _ _ _)
 
-theorem writesGood_taskAcquire (req : ServerModel.TaskAcquireReq) (now : Nat) :
+theorem writesGood_taskAcquire (req : Protocol.TaskAcquireReq) (now : Nat) :
     WritesGood g e (taskAcquire req now) := by
   unfold taskAcquire
   refine writesGood_afterReadTaskObject hq hs _ _ _ (writesGood_pure _ _ _) ?_
@@ -187,7 +187,7 @@ theorem writesGood_taskAcquire (req : ServerModel.TaskAcquireReq) (now : Nat) :
     exact writesGood_bind' _ _ _ _
       (writesGood_setTask _ _ _ _ (hq.tAcquire t _ _ _ ht)) (writesGood_pure _ _ _)
 
-theorem writesGood_taskFence (req : ServerModel.TaskFenceReq) (now : Nat) :
+theorem writesGood_taskFence (req : Protocol.TaskFenceReq) (now : Nat) :
     WritesGood g e (taskFence req now) := by
   unfold taskFence
   wg_guard
@@ -209,7 +209,7 @@ theorem writesGood_taskFence (req : ServerModel.TaskFenceReq) (now : Nat) :
     · exact writesGood_bind' _ _ _ _ (writesGood_promiseSettle hq hs _ _)
         (writesGood_pure _ _ _)
 
-theorem writesGood_heartbeatOne (pid : String) (ref : ServerModel.TaskRef) (now : Nat) :
+theorem writesGood_heartbeatOne (pid : String) (ref : Protocol.TaskRef) (now : Nat) :
     WritesGood g e (heartbeatOne pid ref now) := by
   unfold heartbeatOne
   refine writesGood_afterReadTaskObject hq hs _ _ _ (writesGood_pure _ _ _) ?_
@@ -231,7 +231,7 @@ theorem writesGood_heartbeatAll (pid : String) (now : Nat) :
       exact writesGood_bind' _ _ _ _ (writesGood_heartbeatOne hq hs pid r now)
         (writesGood_heartbeatAll pid now rs)
 
-theorem writesGood_taskHeartbeat (req : ServerModel.TaskHeartbeatReq) (now : Nat) :
+theorem writesGood_taskHeartbeat (req : Protocol.TaskHeartbeatReq) (now : Nat) :
     WritesGood g e (taskHeartbeat req now) := by
   unfold taskHeartbeat
   exact writesGood_bind' _ _ _ _ (writesGood_heartbeatAll hq hs _ _ _) (writesGood_pure _ _ _)
@@ -249,7 +249,7 @@ theorem writesGood_checkAwaited (now : Nat) :
         refine writesGood_bind' _ _ _ _ (writesGood_checkAwaited now rest) ?_
         wg_trivial
 
-theorem writesGood_registerAwaited (awaiter : ServerModel.Ident) (now : Nat) :
+theorem writesGood_registerAwaited (awaiter : Protocol.Ident) (now : Nat) :
     ∀ acts, WritesGood g e (registerAwaited awaiter now acts)
   | [] => by rw [registerAwaited]; exact writesGood_pure _ _ _
   | a :: rest => by
@@ -264,7 +264,7 @@ theorem writesGood_registerAwaited (awaiter : ServerModel.Ident) (now : Nat) :
           (writesGood_setPromise _ _ _ _ (hq.addCallback _ p.promise _ hsto hp))
           (writesGood_registerAwaited awaiter now rest)
 
-theorem writesGood_taskSuspend (req : ServerModel.TaskSuspendReq) (now : Nat) :
+theorem writesGood_taskSuspend (req : Protocol.TaskSuspendReq) (now : Nat) :
     WritesGood g e (taskSuspend req now) := by
   unfold taskSuspend
   wg_guard
@@ -291,7 +291,7 @@ theorem writesGood_taskSuspend (req : ServerModel.TaskSuspendReq) (now : Nat) :
         (writesGood_bind' _ _ _ _
           (writesGood_setTask _ _ _ _ (hq.tSuspend t ht)) (writesGood_pure _ _ _))
 
-theorem writesGood_taskFulfill (req : ServerModel.TaskFulfillReq) (now : Nat) :
+theorem writesGood_taskFulfill (req : Protocol.TaskFulfillReq) (now : Nat) :
     WritesGood g e (taskFulfill req now) := by
   unfold taskFulfill
   refine writesGood_iteH _ _ _ _ _ (fun _ => writesGood_pure _ _ _) (fun hset => ?_)
@@ -314,7 +314,7 @@ theorem writesGood_taskFulfill (req : ServerModel.TaskFulfillReq) (now : Nat) :
           (hdue (by simpa using hpend)) hp'))
       (writesGood_pure _ _ _)
 
-theorem writesGood_taskRelease (req : ServerModel.TaskReleaseReq) (now : Nat) :
+theorem writesGood_taskRelease (req : Protocol.TaskReleaseReq) (now : Nat) :
     WritesGood g e (taskRelease req now) := by
   unfold taskRelease
   refine writesGood_afterReadTaskObject hq hs _ _ _ (writesGood_pure _ _ _) ?_
@@ -331,7 +331,7 @@ theorem writesGood_taskRelease (req : ServerModel.TaskReleaseReq) (now : Nat) :
     exact writesGood_bind' _ _ _ _
       (writesGood_setTask _ _ _ _ (hq.tRepend t _ ht)) (writesGood_pure _ _ _)
 
-theorem writesGood_taskHalt (req : ServerModel.TaskHaltReq) (now : Nat) :
+theorem writesGood_taskHalt (req : Protocol.TaskHaltReq) (now : Nat) :
     WritesGood g e (taskHalt req now) := by
   unfold taskHalt
   refine writesGood_afterReadTaskObject hq hs _ _ _ (writesGood_pure _ _ _) ?_
@@ -347,7 +347,7 @@ theorem writesGood_taskHalt (req : ServerModel.TaskHaltReq) (now : Nat) :
     exact writesGood_bind' _ _ _ _
       (writesGood_setTask _ _ _ _ (hq.tHalt t ht)) (writesGood_pure _ _ _)
 
-theorem writesGood_taskContinue (req : ServerModel.TaskContinueReq) (now : Nat) :
+theorem writesGood_taskContinue (req : Protocol.TaskContinueReq) (now : Nat) :
     WritesGood g e (taskContinue req now) := by
   unfold taskContinue
   refine writesGood_afterReadTaskObject hq hs _ _ _ (writesGood_pure _ _ _) ?_
@@ -365,14 +365,14 @@ theorem writesGood_taskContinue (req : ServerModel.TaskContinueReq) (now : Nat) 
       (writesGood_setTask _ _ _ _ (hq.tContinue t _ (by simpa using hhalt) ht))
       (writesGood_pure _ _ _)
 
-theorem writesGood_taskSearch (req : ServerModel.TaskSearchReq) (now : Nat) :
+theorem writesGood_taskSearch (req : Protocol.TaskSearchReq) (now : Nat) :
     WritesGood g e (taskSearch req now) := writesGood_pure _ _ _
 
-theorem writesGood_scheduleGet (req : ServerModel.ScheduleGetReq) (now : Nat) :
+theorem writesGood_scheduleGet (req : Protocol.ScheduleGetReq) (now : Nat) :
     WritesGood g e (scheduleGet req now) := by
   unfold scheduleGet; wg_trivial
 
-theorem writesGood_scheduleCreate (req : ServerModel.ScheduleCreateReq) (now : Nat) :
+theorem writesGood_scheduleCreate (req : Protocol.ScheduleCreateReq) (now : Nat) :
     WritesGood g e (scheduleCreate req now) := by
   unfold scheduleCreate
   refine writesGood_bind' _ _ _ _ (writesGood_getSchedule _ _ _) ?_
@@ -382,21 +382,21 @@ theorem writesGood_scheduleCreate (req : ServerModel.ScheduleCreateReq) (now : N
       (writesGood_setSchedule _ _ _ (hq.cBorn _ _ _ _ _ _ _))
       (writesGood_pure _ _ _)
 
-theorem writesGood_scheduleDelete (req : ServerModel.ScheduleDeleteReq) (now : Nat) :
+theorem writesGood_scheduleDelete (req : Protocol.ScheduleDeleteReq) (now : Nat) :
     WritesGood g e (scheduleDelete req now) := by
   unfold scheduleDelete; wg_trivial
 
-theorem writesGood_scheduleSearch (req : ServerModel.ScheduleSearchReq) (now : Nat) :
+theorem writesGood_scheduleSearch (req : Protocol.ScheduleSearchReq) (now : Nat) :
     WritesGood g e (scheduleSearch req now) := writesGood_pure _ _ _
 
-theorem writesGood_processPromiseTimeout (req : ServerModel.PromiseTimeoutReq) (now : Nat) :
+theorem writesGood_processPromiseTimeout (req : Protocol.PromiseTimeoutReq) (now : Nat) :
     WritesGood g e (Internal.processPromiseTimeout req now) := by
   unfold Internal.processPromiseTimeout touchObject
   refine writesGood_afterMatReadObjectP hq true hs _ _ _ (fun _ => ?_) ?_
   · exact writesGood_pure _ _ _
   · intro p hp _ _; exact writesGood_pure _ _ _
 
-theorem writesGood_resumeOne (awaited awaiter : ServerModel.Ident) (now : Nat) :
+theorem writesGood_resumeOne (awaited awaiter : Protocol.Ident) (now : Nat) :
     WritesGood g e (Internal.resumeOne awaited awaiter now) := by
   unfold Internal.resumeOne touchTaskObject
   refine writesGood_afterMatReadTaskObject hq true hs _ _ _
@@ -418,7 +418,7 @@ theorem writesGood_resumeOne (awaited awaiter : ServerModel.Ident) (now : Nat) :
            exact writesGood_setTask _ _ _ _
              (hq.tAddResume t _ (by simp [hst]) (by simp [hst]) (by simpa using hc) ht))
 
-theorem writesGood_processCallback (req : ServerModel.PromiseRegisterCallbackReq) (now : Nat) :
+theorem writesGood_processCallback (req : Protocol.PromiseRegisterCallbackReq) (now : Nat) :
     WritesGood g e (Internal.processCallback req now) := by
   unfold Internal.processCallback touchObject
   refine writesGood_afterMatReadObjectP hq true hs _ _ _ (fun _ => ?_) ?_
@@ -431,7 +431,7 @@ theorem writesGood_processCallback (req : ServerModel.PromiseRegisterCallbackReq
       (writesGood_setPromise _ _ _ _ (hq.dropCallback _ p.promise _ hsto (by simpa using hns) hp))
       (writesGood_resumeOne hq hs _ _ _)
 
-theorem writesGood_processListener (req : ServerModel.PromiseRegisterListenerReq) (now : Nat) :
+theorem writesGood_processListener (req : Protocol.PromiseRegisterListenerReq) (now : Nat) :
     WritesGood g e (Internal.processListener req now) := by
   unfold Internal.processListener touchObject
   refine writesGood_afterMatReadObjectP hq true hs _ _ _ (fun _ => ?_) ?_
@@ -444,7 +444,7 @@ theorem writesGood_processListener (req : ServerModel.PromiseRegisterListenerReq
       (writesGood_setPromise _ _ _ _ (hq.dropListener _ p.promise _ hsto (by simpa using hns) hp))
       (writesGood_setMessage _ _ _ _)
 
-theorem writesGood_processLeaseTimeout (req : ServerModel.TaskLeaseTimeoutReq) (now : Nat) :
+theorem writesGood_processLeaseTimeout (req : Protocol.TaskLeaseTimeoutReq) (now : Nat) :
     WritesGood g e (Internal.processLeaseTimeout req now) := by
   unfold Internal.processLeaseTimeout viewTaskObject
   refine writesGood_afterMatReadTaskObject hq false hs _ _ _
@@ -461,7 +461,7 @@ theorem writesGood_processLeaseTimeout (req : ServerModel.TaskLeaseTimeoutReq) (
       refine writesGood_ite _ _ _ _ _ ?_ (writesGood_pure _ _ _)
       exact writesGood_setTask _ _ _ _ (hq.tRepend t _ hgt)
 
-theorem writesGood_processRetryTimeout (req : ServerModel.TaskRetryTimeoutReq) (now : Nat) :
+theorem writesGood_processRetryTimeout (req : Protocol.TaskRetryTimeoutReq) (now : Nat) :
     WritesGood g e (Internal.processRetryTimeout req now) := by
   unfold Internal.processRetryTimeout viewTaskObject
   refine writesGood_afterMatReadTaskObject hq false hs _ _ _
@@ -483,12 +483,12 @@ theorem writesGood_processRetryTimeout (req : ServerModel.TaskRetryTimeoutReq) (
           (writesGood_setMessage _ _ _ _)
       · exact writesGood_pure _ _ _
 
-theorem writesGood_fireOccurrence (c : ServerModel.Schedule) (t : Nat) :
+theorem writesGood_fireOccurrence (c : Protocol.Schedule) (t : Nat) :
     WritesGood g e (Internal.fireOccurrence c t) := by
   unfold Internal.fireOccurrence
   exact writesGood_createIfAbsent hq hs _ _
 
-theorem writesGood_fireAll (c : ServerModel.Schedule) :
+theorem writesGood_fireAll (c : Protocol.Schedule) :
     ∀ ts, WritesGood g e (Internal.fireAll c ts)
   | [] => by rw [Internal.fireAll]; exact writesGood_pure _ _ _
   | t :: ts => by
@@ -496,7 +496,7 @@ theorem writesGood_fireAll (c : ServerModel.Schedule) :
       exact writesGood_bind' _ _ _ _ (writesGood_fireOccurrence hq hs c t)
         (writesGood_fireAll c ts)
 
-theorem writesGood_processSchedule (req : ServerModel.ScheduleTimeoutReq) (now : Nat) :
+theorem writesGood_processSchedule (req : Protocol.ScheduleTimeoutReq) (now : Nat) :
     WritesGood g e (Internal.processSchedule req now) := by
   unfold Internal.processSchedule
   refine writesGood_bind' _ _ _ _ (writesGood_getSchedule _ _ _) ?_
@@ -509,7 +509,7 @@ theorem writesGood_processSchedule (req : ServerModel.ScheduleTimeoutReq) (now :
     · exact writesGood_setSchedule _ _ _ (hq.cAdvance c _ (getSchedule_sound hs hc))
     · exact writesGood_pure _ _ _
 
-theorem writesGood_handleExternal (rq : ServerModel.Request) (now : Nat) :
+theorem writesGood_handleExternal (rq : Protocol.Request) (now : Nat) :
     WritesGood g e (handleExternal rq now) := by
   cases rq with
   | promiseGet              req => exact writesGood_map _ _ _ _ (writesGood_promiseGet hq hs req now)
@@ -554,7 +554,7 @@ theorem writesGood_handle (st : Event) (now : Nat) : WritesGood g e (handle st n
 
 end Handlers
 
-theorem perStore_step {g : Q} (mat : Bool) (st : Event) (now : Nat) (s : ServerState)
+theorem perStore_step {g : Q} (mat : Bool) (st : Event) (now : Nat) (s : State)
     (hq : Hereditary g s) :
     PerStore g s = true → PerStore g (step mat st now s).2 = true := by
   intro hsq

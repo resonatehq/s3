@@ -3,7 +3,7 @@ import «02-abstract».«system»
 
 namespace Abstract
 
-open ServerModel (Request Response)
+open Protocol (Request Response)
 
 structure Observation where
   req : Request
@@ -48,7 +48,7 @@ theorem refines (H : Concrete.Hasher) (tr : Concrete.Trace)
     (valid : Concrete.Valid H tr) (init : (tr 0).state = Concrete.State.init) :
     ∃ tr' : Abstract.Trace,
       Abstract.Valid false tr' ∧
-      (tr' 0).state = AbstractModel.ServerState.init ∧
+      (tr' 0).state = Abstract.State.init ∧
       ∀ k o, Concrete.nth tr k o ↔ Abstract.nth tr' k o :=
   sorry
 

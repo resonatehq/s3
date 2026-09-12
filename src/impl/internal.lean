@@ -2,7 +2,7 @@ import impl.external
 
 namespace Concrete
 
-open ServerModel (Ident Message PromiseState TaskState Object PromiseObject TaskObject)
+open Protocol (Ident Message PromiseState TaskState Object PromiseObject TaskObject)
 
 def retryTimeout : Nat := 5000
 

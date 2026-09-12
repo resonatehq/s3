@@ -2,17 +2,17 @@ import «02-abstract».«internal»
 
 namespace Abstract
 
-open ServerModel
+open Protocol
 
-open ServerModel (Ident)
+open Protocol (Ident)
 
 inductive Trigger
-  | promiseTimeout   (req : ServerModel.PromiseTimeoutReq)
-  | callback         (req : ServerModel.PromiseRegisterCallbackReq)
-  | listener         (req : ServerModel.PromiseRegisterListenerReq)
-  | taskLeaseTimeout (req : ServerModel.TaskLeaseTimeoutReq)
-  | taskRetryTimeout (req : ServerModel.TaskRetryTimeoutReq)
-  | scheduleTimeout  (req : ServerModel.ScheduleTimeoutReq)
+  | promiseTimeout   (req : Protocol.PromiseTimeoutReq)
+  | callback         (req : Protocol.PromiseRegisterCallbackReq)
+  | listener         (req : Protocol.PromiseRegisterListenerReq)
+  | taskLeaseTimeout (req : Protocol.TaskLeaseTimeoutReq)
+  | taskRetryTimeout (req : Protocol.TaskRetryTimeoutReq)
+  | scheduleTimeout  (req : Protocol.ScheduleTimeoutReq)
   deriving Repr, DecidableEq
 
 inductive Event
@@ -35,58 +35,58 @@ def Event.isInternal : Event → Bool
   | .internal _ => true
   | _           => false
 
-deriving instance BEq for ServerModel.TaskObject
+deriving instance BEq for Protocol.TaskObject
 
-deriving instance BEq for ServerModel.PromiseObject
-deriving instance BEq for ServerModel.Object
-deriving instance BEq for AbstractModel.ServerState
+deriving instance BEq for Protocol.PromiseObject
+deriving instance BEq for Protocol.Object
+deriving instance BEq for Abstract.State
 
-def handleExternal (req : Request) (now : Nat) : AbstractModel.H Response :=
+def handleExternal (req : Request) (now : Nat) : Abstract.H Response :=
   match req with
-  | .promiseGet              req => Response.promiseGet <$> AbstractModel.promiseGet req now
-  | .promiseCreate           req => Response.promiseCreate <$> AbstractModel.promiseCreate req now
-  | .promiseSettle           req => Response.promiseSettle <$> AbstractModel.promiseSettle req now
-  | .promiseRegisterCallback req => Response.promiseRegisterCallback <$> AbstractModel.promiseRegisterCallback req now
-  | .promiseRegisterListener req => Response.promiseRegisterListener <$> AbstractModel.promiseRegisterListener req now
-  | .promiseSearch           req => Response.promiseSearch <$> AbstractModel.promiseSearch req now
-  | .scheduleGet             req => Response.scheduleGet <$> AbstractModel.scheduleGet req now
-  | .scheduleCreate          req => Response.scheduleCreate <$> AbstractModel.scheduleCreate req now
-  | .scheduleDelete          req => Response.scheduleDelete <$> AbstractModel.scheduleDelete req now
-  | .scheduleSearch          req => Response.scheduleSearch <$> AbstractModel.scheduleSearch req now
-  | .taskGet                 req => Response.taskGet <$> AbstractModel.taskGet req now
-  | .taskCreate              req => Response.taskCreate <$> AbstractModel.taskCreate req now
-  | .taskAcquire             req => Response.taskAcquire <$> AbstractModel.taskAcquire req now
-  | .taskFence               req => Response.taskFence <$> AbstractModel.taskFence req now
-  | .taskHeartbeat           req => Response.taskHeartbeat <$> AbstractModel.taskHeartbeat req now
-  | .taskSuspend             req => Response.taskSuspend <$> AbstractModel.taskSuspend req now
-  | .taskFulfill             req => Response.taskFulfill <$> AbstractModel.taskFulfill req now
-  | .taskRelease             req => Response.taskRelease <$> AbstractModel.taskRelease req now
-  | .taskHalt                req => Response.taskHalt <$> AbstractModel.taskHalt req now
-  | .taskContinue            req => Response.taskContinue <$> AbstractModel.taskContinue req now
-  | .taskSearch              req => Response.taskSearch <$> AbstractModel.taskSearch req now
+  | .promiseGet              req => Response.promiseGet <$> Abstract.promiseGet req now
+  | .promiseCreate           req => Response.promiseCreate <$> Abstract.promiseCreate req now
+  | .promiseSettle           req => Response.promiseSettle <$> Abstract.promiseSettle req now
+  | .promiseRegisterCallback req => Response.promiseRegisterCallback <$> Abstract.promiseRegisterCallback req now
+  | .promiseRegisterListener req => Response.promiseRegisterListener <$> Abstract.promiseRegisterListener req now
+  | .promiseSearch           req => Response.promiseSearch <$> Abstract.promiseSearch req now
+  | .scheduleGet             req => Response.scheduleGet <$> Abstract.scheduleGet req now
+  | .scheduleCreate          req => Response.scheduleCreate <$> Abstract.scheduleCreate req now
+  | .scheduleDelete          req => Response.scheduleDelete <$> Abstract.scheduleDelete req now
+  | .scheduleSearch          req => Response.scheduleSearch <$> Abstract.scheduleSearch req now
+  | .taskGet                 req => Response.taskGet <$> Abstract.taskGet req now
+  | .taskCreate              req => Response.taskCreate <$> Abstract.taskCreate req now
+  | .taskAcquire             req => Response.taskAcquire <$> Abstract.taskAcquire req now
+  | .taskFence               req => Response.taskFence <$> Abstract.taskFence req now
+  | .taskHeartbeat           req => Response.taskHeartbeat <$> Abstract.taskHeartbeat req now
+  | .taskSuspend             req => Response.taskSuspend <$> Abstract.taskSuspend req now
+  | .taskFulfill             req => Response.taskFulfill <$> Abstract.taskFulfill req now
+  | .taskRelease             req => Response.taskRelease <$> Abstract.taskRelease req now
+  | .taskHalt                req => Response.taskHalt <$> Abstract.taskHalt req now
+  | .taskContinue            req => Response.taskContinue <$> Abstract.taskContinue req now
+  | .taskSearch              req => Response.taskSearch <$> Abstract.taskSearch req now
 
-def handleInternal (trg : Trigger) (now : Nat) : AbstractModel.H Unit :=
+def handleInternal (trg : Trigger) (now : Nat) : Abstract.H Unit :=
   match trg with
-  | .promiseTimeout   req => AbstractModel.Internal.processPromiseTimeout req now
-  | .callback         req => AbstractModel.Internal.processCallback req now
-  | .listener         req => AbstractModel.Internal.processListener req now
-  | .taskLeaseTimeout req => AbstractModel.Internal.processLeaseTimeout req now
-  | .taskRetryTimeout req => AbstractModel.Internal.processRetryTimeout req now
-  | .scheduleTimeout  req => AbstractModel.Internal.processSchedule req now
+  | .promiseTimeout   req => Abstract.Internal.processPromiseTimeout req now
+  | .callback         req => Abstract.Internal.processCallback req now
+  | .listener         req => Abstract.Internal.processListener req now
+  | .taskLeaseTimeout req => Abstract.Internal.processLeaseTimeout req now
+  | .taskRetryTimeout req => Abstract.Internal.processRetryTimeout req now
+  | .scheduleTimeout  req => Abstract.Internal.processSchedule req now
 
-def handle (ev : Event) (now : Nat) : AbstractModel.H Reply :=
+def handle (ev : Event) (now : Nat) : Abstract.H Reply :=
   match ev with
   | .external req => Reply.external <$> handleExternal req now
   | .internal trg => do handleInternal trg now; return .internal
   | .stutter      => return .stutter
 
-def step (mat : Bool) (ev : Event) (now : Nat) (s : AbstractModel.ServerState) :
-    Reply × AbstractModel.ServerState :=
-  AbstractModel.run mat (handle ev now) s
+def step (mat : Bool) (ev : Event) (now : Nat) (s : Abstract.State) :
+    Reply × Abstract.State :=
+  Abstract.run mat (handle ev now) s
 
 def exec (mat : Bool) :
-    List (Event × Nat) → AbstractModel.ServerState →
-    List Reply × AbstractModel.ServerState
+    List (Event × Nat) → Abstract.State →
+    List Reply × Abstract.State
   | [],           s => ([], s)
   | (ev, n) :: w, s =>
       let (r, s')   := step mat ev n s
@@ -94,7 +94,7 @@ def exec (mat : Bool) :
       (r :: rs, s'')
 
 structure Frame where
-  state : AbstractModel.ServerState
+  state : Abstract.State
   event : Event
   reply : Reply
   now   : Nat

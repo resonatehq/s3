@@ -1,32 +1,32 @@
 import types
 
-namespace AbstractModel
+namespace Abstract
 
-open ServerModel (Ident Value PromiseState TaskState PromiseRecord
+open Protocol (Ident Value PromiseState TaskState PromiseRecord
                   TaskRecord Schedule Message OutboxEntry OutboxKey
                   PromiseCreateReq OType PromiseObject TaskObject Object)
 
-structure ServerState where
+structure State where
   objects   : List Object      := []
   schedules : List Schedule    := []
   outbox    : List OutboxEntry := []
   deriving Repr
 
-def ServerState.init : ServerState := {}
+def State.init : State := {}
 
-def ServerState.promises (s : ServerState) : List PromiseObject :=
+def State.promises (s : State) : List PromiseObject :=
   s.objects.map (·.promise)
 
-def ServerState.tasks (s : ServerState) : List TaskObject :=
+def State.tasks (s : State) : List TaskObject :=
   s.objects.filterMap (·.task)
 
-def ServerState.promise? (s : ServerState) (id : Ident) : Option PromiseObject :=
+def State.promise? (s : State) (id : Ident) : Option PromiseObject :=
   (s.objects.find? (·.id == id)).map (·.promise)
 
-def ServerState.task? (s : ServerState) (id : Ident) : Option TaskObject :=
+def State.task? (s : State) (id : Ident) : Option TaskObject :=
   (s.objects.find? (·.id == id)).bind (·.task)
 
-def ServerState.hasTask (s : ServerState) (id : Ident) : Bool :=
+def State.hasTask (s : State) (id : Ident) : Bool :=
   (s.task? id).isSome
 
 inductive Effect
@@ -41,7 +41,7 @@ def Object.withPromise (id : Ident) (p : PromiseObject) : Option Object → Obje
   | some o => { o with promise := p }
   | none   => { id := id, promise := p }
 
-def Effect.apply (s : ServerState) : Effect → ServerState
+def Effect.apply (s : State) : Effect → State
   | .setPromise id p =>
       { s with objects := Object.withPromise id p (s.objects.find? (·.id == id))
                             :: s.objects.filter (·.id != id) }
@@ -54,7 +54,7 @@ def Effect.apply (s : ServerState) : Effect → ServerState
       let entry := OutboxEntry.mk a m
       { s with outbox := entry :: s.outbox.filter (fun e => e.key != entry.key) }
 
-def applyAll (s : ServerState) : List Effect → ServerState
+def applyAll (s : State) : List Effect → State
   | []      => s
   | e :: es => applyAll (e.apply s) es
 
@@ -63,7 +63,7 @@ structure ServerConfig where
   deriving Repr
 
 structure Env where
-  state  : ServerState
+  state  : State
   mat    : Bool
   config : ServerConfig := {}
 
@@ -80,12 +80,12 @@ def ask : H Env := fun e => (e, [])
 
 def emit (f : Effect) : H Unit := fun _ => ((), [f])
 
-def runWith (mat : Bool) (config : ServerConfig) (act : H α) (s : ServerState) :
-    α × ServerState :=
+def runWith (mat : Bool) (config : ServerConfig) (act : H α) (s : State) :
+    α × State :=
   let (a, w) := act { state := s, mat := mat, config := config }
   (a, applyAll s w)
 
-def run (mat : Bool) (act : H α) (s : ServerState) : α × ServerState :=
+def run (mat : Bool) (act : H α) (s : State) : α × State :=
   runWith mat {} act s
 
 def getObject (id : Ident) : H (Option Object) :=
@@ -177,4 +177,4 @@ def touchTaskObject (id : Ident) (now : Nat) : H (Option Object) :=
 def viewTaskObject (id : Ident) (now : Nat) : H (Option Object) :=
   withMat false (readTaskObject id now)
 
-end AbstractModel
+end Abstract

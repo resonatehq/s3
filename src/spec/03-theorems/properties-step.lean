@@ -2,21 +2,20 @@ import «03-theorems».«properties-check»
 
 namespace Abstract
 
-open ServerModel (PromiseObject TaskObject Object)
+open Protocol (PromiseObject TaskObject Object)
 
-open AbstractModel.Properties
-open AbstractModel (ServerState)
+open Abstract.Properties
 
 def stepsOfA (mat : Bool) :
-    List (Event × Nat) → ServerState → List (Nat × ServerState × ServerState)
+    List (Event × Nat) → State → List (Nat × State × State)
   | [], _ => []
   | (st, n) :: w, s =>
       let (_, s') := step mat st n s
       (n, s, s') :: stepsOfA mat w s'
 
-def steps (w : List (Event × Nat)) : List (Nat × ServerState × ServerState) :=
-  stepsOfA true w AbstractModel.ServerState.init
-    ++ stepsOfA false w AbstractModel.ServerState.init
+def steps (w : List (Event × Nat)) : List (Nat × State × State) :=
+  stepsOfA true w Abstract.State.init
+    ++ stepsOfA false w Abstract.State.init
 
 def transHoldsRun (w : List (Event × Nat)) : Bool :=
   (steps w).all (fun (n, a, b) => legalAt n a b)
@@ -25,7 +24,7 @@ def transReport (ws : List (List (Event × Nat))) : List String :=
   (ws.flatMap fun w => (steps w).flatMap (fun (n, a, b) => failingNames n a b)).eraseDups
 
 def stepWitnesses (ws : List (List (Event × Nat)))
-    (p : ServerState → ServerState → Bool) : Bool :=
+    (p : State → State → Bool) : Bool :=
   ws.any fun w => (steps w).any (fun (_, a, b) => p a b)
 
 set_option maxRecDepth 100000
@@ -36,14 +35,14 @@ theorem stage3_battery : battery.all transHoldsRun = true := by decide
 theorem stage3_sweep :
     ((seqsUpToA kernelsResp 3).map instantiateA).all transHoldsRun = true := by decide
 
-def objOf (id : ServerModel.Ident) (p : ServerModel.PromiseObject) : ServerModel.Object :=
+def objOf (id : Protocol.Ident) (p : Protocol.PromiseObject) : Protocol.Object :=
   { id := id, promise := p }
 
-def objWith (id : ServerModel.Ident) (p : ServerModel.PromiseObject)
-    (t : ServerModel.TaskObject) : ServerModel.Object :=
+def objWith (id : Protocol.Ident) (p : Protocol.PromiseObject)
+    (t : Protocol.TaskObject) : Protocol.Object :=
   { id := id, promise := p, task := some t }
 
-open ServerModel in
+open Protocol in
 def stepMutants : List (String × Bool) :=
   let P : PromiseObject :=
     { state := .pending, param := {}, type := .external,
@@ -213,7 +212,7 @@ theorem reaches_settled_promise_step :
 theorem reaches_fulfilled_task_step :
     stepWitnesses battery (fun a _ => a.tasks.any (·.state == .fulfilled)) = true := by decide
 
-def sTaskless : AbstractModel.ServerState :=
+def sTaskless : Abstract.State :=
   { objects := [{ id := oid "a",
                   promise := { state := .pending, param := {},
                                type := .external,
@@ -237,15 +236,15 @@ theorem settled_promise_object_is_not_frozen :
       = true := by decide
 
 def stepsWithA (mat : Bool) :
-    List (Event × Nat) → ServerState → List (Event × Nat × ServerState × ServerState)
+    List (Event × Nat) → State → List (Event × Nat × State × State)
   | [], _ => []
   | (st, n) :: w, s =>
       let (_, s') := step mat st n s
       (st, n, s, s') :: stepsWithA mat w s'
 
-def allSteps (w : List (Event × Nat)) : List (Event × Nat × ServerState × ServerState) :=
-  stepsWithA true w AbstractModel.ServerState.init
-    ++ stepsWithA false w AbstractModel.ServerState.init
+def allSteps (w : List (Event × Nat)) : List (Event × Nat × State × State) :=
+  stepsWithA true w Abstract.State.init
+    ++ stepsWithA false w Abstract.State.init
 
 def internalWellFormedRun (w : List (Event × Nat)) : Bool :=
   (allSteps w).all (fun (st, n, a, b) => !Event.isInternal st || internalWellFormed n a b)

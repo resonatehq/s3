@@ -2,17 +2,16 @@ import «03-theorems».«properties-step»
 
 namespace Abstract
 
-open ServerModel (PromiseObject TaskObject Object)
+open Protocol (PromiseObject TaskObject Object)
 
-open AbstractModel (ServerState)
 
-def promiseAt (s : ServerState) (id : ServerModel.Ident) : Option PromiseObject :=
+def promiseAt (s : State) (id : Protocol.Ident) : Option PromiseObject :=
   s.promise? id
 
-def taskAt (s : ServerState) (id : ServerModel.Ident) : Option TaskObject :=
+def taskAt (s : State) (id : Protocol.Ident) : Option TaskObject :=
   s.task? id
 
-def enabledInternal (st : Event) (now : Nat) (s : ServerState) : Bool :=
+def enabledInternal (st : Event) (now : Nat) (s : State) : Bool :=
   match st with
   | .internal (.promiseTimeout { id := id }) =>
       match promiseAt s id with
@@ -64,7 +63,7 @@ def isListenerStep : Event → Bool
 
 def EventuallyEveryExternalPromiseSettles : Prop :=
   ∀ tr : Trace, Valid true tr → ClockAdvances tr → WeaklyFairOn tr isSettlementStep →
-    ∀ (t : Nat) (id : ServerModel.Ident),
+    ∀ (t : Nat) (id : Protocol.Ident),
       (∀ p, promiseAt (tr t).state id = some p → p.type.awaitable = true) →
       (promiseAt (tr t).state id).isSome →
       ∃ u : Nat, t ≤ u ∧
@@ -72,7 +71,7 @@ def EventuallyEveryExternalPromiseSettles : Prop :=
 
 def EventuallyEveryPromiseReadsSettled : Prop :=
   ∀ tr : Trace, Valid true tr → ClockAdvances tr →
-    ∀ (t : Nat) (id : ServerModel.Ident),
+    ∀ (t : Nat) (id : Protocol.Ident),
       (promiseAt (tr t).state id).isSome →
       ∃ u : Nat, t ≤ u ∧
         ∀ p, promiseAt (tr u).state id = some p →
@@ -80,7 +79,7 @@ def EventuallyEveryPromiseReadsSettled : Prop :=
 
 def EventuallyEveryTaskFulfils : Prop :=
   ∀ tr : Trace, Valid true tr → ClockAdvances tr → WeaklyFairOn tr isSettlementStep →
-    ∀ (t : Nat) (id : ServerModel.Ident),
+    ∀ (t : Nat) (id : Protocol.Ident),
       (taskAt (tr t).state id).isSome →
       ∃ u : Nat, t ≤ u ∧
         ∀ w, taskAt (tr u).state id = some w → w.state = .fulfilled
@@ -92,7 +91,7 @@ theorem taskFulfilment_follows_from_promiseSettlement :
 def EventuallyAwaiterResumed : Prop :=
   ∀ tr : Trace, Valid true tr → ClockAdvances tr →
     WeaklyFairOn tr isSettlementStep → WeaklyFairOn tr isCallbackStep →
-    ∀ (t : Nat) (a x : ServerModel.Ident),
+    ∀ (t : Nat) (a x : Protocol.Ident),
       (∃ p, promiseAt (tr t).state a = some p ∧
               p.state ≠ .pending ∧ p.callbacks.contains x = true) →
       ∃ u : Nat, t ≤ u ∧
@@ -103,7 +102,7 @@ def EventuallyAwaiterResumed : Prop :=
 def EventuallyListenerNotified : Prop :=
   ∀ tr : Trace, Valid true tr → ClockAdvances tr →
     WeaklyFairOn tr isSettlementStep → WeaklyFairOn tr isListenerStep →
-    ∀ (t : Nat) (a : ServerModel.Ident) (addr : String),
+    ∀ (t : Nat) (a : Protocol.Ident) (addr : String),
       (∃ p, promiseAt (tr t).state a = some p ∧
               p.state ≠ .pending ∧ p.listeners.contains addr = true) →
       ∃ u : Nat, t ≤ u ∧
@@ -113,7 +112,7 @@ def EventuallyListenerNotified : Prop :=
              | .unblock r => r.id == a && r.state != .pending
              | .execute _ _ => false)) = true
 
-def enabledSteps (now : Nat) (s : ServerState) : List Event :=
+def enabledSteps (now : Nat) (s : State) : List Event :=
   s.objects.flatMap fun o =>
     let p := o.promise
     (if enabledInternal (.internal (.promiseTimeout { id := o.id })) now s then [Event.internal (.promiseTimeout { id := o.id })] else [])
@@ -122,22 +121,22 @@ def enabledSteps (now : Nat) (s : ServerState) : List Event :=
       ++ (if o.task.isSome ∧ enabledInternal (.internal (.taskLeaseTimeout { id := o.id })) now s then [Event.internal (.taskLeaseTimeout { id := o.id })] else [])
       ++ (if o.task.isSome ∧ enabledInternal (.internal (.taskRetryTimeout { id := o.id })) now s then [Event.internal (.taskRetryTimeout { id := o.id })] else [])
 
-def fireAllEnabled (now : Nat) (s : ServerState) : ServerState :=
+def fireAllEnabled (now : Nat) (s : State) : State :=
   (enabledSteps now s).foldl
     (fun acc st => if enabledInternal st now acc then (step true st now acc).2 else acc) s
 
-def fairRounds : Nat → Nat → ServerState → ServerState
+def fairRounds : Nat → Nat → State → State
   | 0,     _,   s => s
   | k + 1, now, s => fairRounds k now (fireAllEnabled now s)
 
 def wakeMaterializes (w : List (Event × Nat)) (horizon : Nat) : Bool :=
-  let s := fairRounds 6 horizon (exec true w AbstractModel.ServerState.init).2
+  let s := fairRounds 6 horizon (exec true w Abstract.State.init).2
   s.promises.all fun p =>
     (p.project horizon).state == .pending ||
       (p.callbacks.isEmpty && p.listeners.isEmpty)
 
 def resumeRecorded (w : List (Event × Nat)) (horizon : Nat) : Bool :=
-  let s0 := (exec true w AbstractModel.ServerState.init).2
+  let s0 := (exec true w Abstract.State.init).2
   let s  := fairRounds 6 horizon s0
   s0.objects.all fun o =>
     o.promise.callbacks.all fun x =>
@@ -168,8 +167,8 @@ example : wakeMaterializes wWakeTimedOut 300 := by decide
 example : resumeRecorded wWakeTimedOut 300 := by decide
 
 theorem wake_requires_fairness :
-    ((exec true wWake AbstractModel.ServerState.init).2.promises.any (fun p => p.callbacks.contains (oid "x"))
-      && (exec true wWake AbstractModel.ServerState.init).2.tasks.any (fun t => t.state == .suspended)) = true := by
+    ((exec true wWake Abstract.State.init).2.promises.any (fun p => p.callbacks.contains (oid "x"))
+      && (exec true wWake Abstract.State.init).2.tasks.any (fun t => t.state == .suspended)) = true := by
   decide
 
 theorem boundedWakeSweep :

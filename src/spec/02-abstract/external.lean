@@ -1,8 +1,8 @@
 import «02-abstract».«state»
 
-namespace AbstractModel
+namespace Abstract
 
-open ServerModel (PromiseObject TaskObject Object
+open Protocol (PromiseObject TaskObject Object
                   Ident PromiseState
                   PromiseGetReq PromiseGetRes
                   PromiseCreateReq PromiseCreateRes
@@ -83,7 +83,7 @@ def promiseRegisterListener (req : PromiseRegisterListenerReq) (now : Nat) :
 def promiseSearch (_req : PromiseSearchReq) (_now : Nat) : H PromiseSearchRes := do
   return { status := 501 }
 
-open ServerModel (TaskGetReq TaskGetRes
+open Protocol (TaskGetReq TaskGetRes
                   TaskCreateReq TaskCreateRes
                   TaskAcquireReq TaskAcquireRes
                   TaskFenceAction TaskFenceReq TaskFenceRes
@@ -125,7 +125,7 @@ def taskCreate (req : TaskCreateReq) (now : Nat) : H TaskCreateRes := do
         return { status := 200, task := some (t.toRecord a.id),
                  promise := some (p.toRecord a.id) }
       else
-        let st := ServerModel.PromiseState.rejectedTimedout
+        let st := Protocol.PromiseState.rejectedTimedout
         let p : PromiseObject :=
           { state := st, param := a.param, type := a.type,
             timeoutAt := a.timeoutAt, createdAt := a.timeoutAt,
@@ -207,7 +207,7 @@ def taskFence (req : TaskFenceReq) (now : Nat) : H TaskFenceRes := do
           let res ← promiseSettle r now
           return { status := 200, action := some (.settle res) }
 
-def heartbeatOne (pid : String) (ref : ServerModel.TaskRef) (now : Nat) : H Unit := do
+def heartbeatOne (pid : String) (ref : Protocol.TaskRef) (now : Nat) : H Unit := do
   match ← readTaskObject ref.id now with
   | none =>
       pure ()
@@ -220,7 +220,7 @@ def heartbeatOne (pid : String) (ref : ServerModel.TaskRef) (now : Nat) : H Unit
           ∧ t.pid == some pid ∧ o.promise.state == .pending then
         setTask o.id { t with leaseTimeoutAt := some (now + t.ttl.getD 0) }
 
-def heartbeatAll (pid : String) (now : Nat) : List ServerModel.TaskRef → H Unit
+def heartbeatAll (pid : String) (now : Nat) : List Protocol.TaskRef → H Unit
   | [] => pure ()
   | ref :: refs => do
       heartbeatOne pid ref now
@@ -365,7 +365,7 @@ def taskContinue (req : TaskContinueReq) (now : Nat) : H TaskContinueRes := do
 def taskSearch (_req : TaskSearchReq) (_now : Nat) : H TaskSearchRes := do
   return { status := 501 }
 
-open ServerModel (Schedule nextCron
+open Protocol (Schedule nextCron
                   ScheduleGetReq ScheduleGetRes
                   ScheduleCreateReq ScheduleCreateRes
                   ScheduleDeleteReq ScheduleDeleteRes
@@ -407,4 +407,4 @@ def scheduleDelete (req : ScheduleDeleteReq) (_now : Nat) : H ScheduleDeleteRes 
 def scheduleSearch (_req : ScheduleSearchReq) (_now : Nat) : H ScheduleSearchRes := do
   return { status := 501 }
 
-end AbstractModel
+end Abstract

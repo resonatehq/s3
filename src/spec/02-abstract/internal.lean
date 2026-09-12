@@ -1,9 +1,9 @@
 import «02-abstract».«external»
 
-namespace AbstractModel
+namespace Abstract
 namespace Internal
 
-open ServerModel (Ident nextCron occurrences expand Schedule
+open Protocol (Ident nextCron occurrences expand Schedule
                   PromiseTimeoutReq PromiseRegisterCallbackReq PromiseRegisterListenerReq
                   TaskLeaseTimeoutReq TaskRetryTimeoutReq ScheduleTimeoutReq)
 
@@ -107,4 +107,4 @@ def processSchedule (req : ScheduleTimeoutReq) (now : Nat) : H Unit := do
       | none => pure ()
 
 end Internal
-end AbstractModel
+end Abstract

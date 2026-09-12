@@ -1,4 +1,4 @@
-namespace ServerModel
+namespace Protocol
 
 structure Ident where
   origin : String
@@ -541,4 +541,4 @@ inductive Response
   | taskSearch              (res : TaskSearchRes)
   deriving Repr, BEq
 
-end ServerModel
+end Protocol
