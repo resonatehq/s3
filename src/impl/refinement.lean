@@ -44,6 +44,18 @@ end Concrete
 
 namespace Refinement
 
+def origins (s : Concrete.State) : List Concrete.Origin :=
+  s.bucket.filterMap fun
+    | (.origin _, .origin org) =>
+        some org
+    | _ =>
+        none
+
+def abs (s : Concrete.State) : Abstract.State :=
+  { objects := (origins s).flatMap (·.objects), schedules := [], outbox := s.outbox }
+
+theorem abs_init : abs Concrete.State.init = Abstract.State.init := rfl
+
 theorem refines (H : Concrete.Hasher) (tr : Concrete.Trace)
     (valid : Concrete.Valid H tr) (init : (tr 0).state = Concrete.State.init) :
     ∃ tr' : Abstract.Trace,
