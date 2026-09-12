@@ -509,7 +509,7 @@ theorem writesGood_processSchedule (req : ServerModel.ScheduleTimeoutReq) (now :
     · exact writesGood_setSchedule _ _ _ (hq.cAdvance c _ (getSchedule_sound hs hc))
     · exact writesGood_pure _ _ _
 
-theorem writesGood_handleExternal (rq : Abstract.Request) (now : Nat) :
+theorem writesGood_handleExternal (rq : ServerModel.Request) (now : Nat) :
     WritesGood g e (handleExternal rq now) := by
   cases rq with
   | promiseGet              req => exact writesGood_map _ _ _ _ (writesGood_promiseGet hq hs req now)

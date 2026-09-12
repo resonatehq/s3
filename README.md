@@ -25,7 +25,7 @@ together with a catalogue of properties every run of it satisfies.
 
 | | |
 |---|---|
-| `src/types.lean` | the protocol layer: records, requests, responses, the object kind `OType` (internal, deadline, external, runnable with its target), the message vocabulary |
+| `src/types.lean` | the protocol layer: records, requests, responses, the object kind `OType` (internal, deadline, external, runnable with its target), the `Request` and `Response` alphabets, the message vocabulary |
 | `src/spec/02-abstract` | the machine: `state`, `external` (the 21 handlers), `internal` (the 6 triggers), `system` (the alphabet `Event`/`Reply`, `step`, `exec`, `Trace`, `Valid`), `properties` (the catalogue) |
 | `src/spec/03-theorems` | what is proved about it, and the harnesses that evaluate it |
 
@@ -43,7 +43,7 @@ a time.
 | file | what it defines |
 |---|---|
 | `src/impl/external.lean` | `Origin` (one document per origin), `Timer` (a deadline, an object, a kind: promise, lease, retry), `Commands` (timers to arm, the document to put, timers to delete, messages to send), and the pure transition for every external request: `now → Origin → Request → Response × Commands`. Each handler names the timers it arms and deletes. |
-| `src/impl/system.lean` | The machine, in the abstract machine's own shape. `State` is a versioned bucket of `Path × Blob × Version` (one blob per origin, one per armed timer) plus the outbox. `Effect` is a conditional put (`any`, `absent`, or `version v`, the S3 `If-Match`), a delete, or a send; `perform` folds effects and stops at a refused put. `step` reads the origin and its version, runs the handler, and performs the commands with the document put conditioned on the version read. A timer fires only if its path is stored and its deadline has passed. `effects_accepted` proves the atomic step is never refused; the CAS is the same primitive the interleaved machine will fail on. `exec`, `Frame`, `Trace`, `Valid` as in the spec. |
+| `src/impl/system.lean` | The machine, in the abstract machine's own shape. `State` is a bucket of `Path × Blob` (one blob per origin, one per armed timer) plus the outbox. The machine is parametric in a `Hasher`: an opaque `Hash` type, a function `Blob → Hash`, and the one assumption that distinct blobs have distinct hashes. A put carries a condition, `any`, `absent`, or `hash h` (the S3 `If-Match`), and is refused when the stored blob does not hash to `h`; `perform` folds effects and stops at a refused put. `step` reads the origin, runs the handler, and performs the commands with the document put conditioned on the hash of the blob read. A timer fires only if its path is stored and its deadline has passed. `effects_accepted` proves the atomic step is never refused. `exec`, `Frame`, `Trace`, `Valid` as in the spec. |
 | `src/impl/refinement.lean` | The theorem, stated. An `Observation` is a request, its response and the instant; `observed tr n` is what the first `n` frames of a trace show, and `nth tr k o` says `o` is the k-th thing shown. `refines`: every valid concrete trace from the empty bucket has a valid abstract trace from the empty state with the same k-th observation for every k. Proof pending. |
 
 ## Build

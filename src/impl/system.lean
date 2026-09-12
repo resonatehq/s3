@@ -1,10 +1,8 @@
 import impl.external
-import «02-abstract».«system»
 
 namespace Concrete
 
-open ServerModel (Message OutboxEntry)
-open Abstract (Request Response)
+open ServerModel (Message OutboxEntry Request Response)
 
 inductive Path
   | origin (name : String)
@@ -16,59 +14,59 @@ inductive Blob
   | timer
   deriving Repr
 
-abbrev Version := Nat
+structure Hasher where
+  Hash : Type
+  hash : Blob → Hash
+  inj  : ∀ a b, hash a = hash b → a = b
+  deq  : DecidableEq Hash
 
-inductive Cond
+attribute [instance] Hasher.deq
+
+inductive Cond (H : Hasher)
   | any
   | absent
-  | version (v : Version)
-  deriving Repr, DecidableEq
+  | hash (h : H.Hash)
 
-def Cond.holds : Cond → Option Version → Bool
+def Cond.holds {H : Hasher} : Cond H → Option Blob → Bool
   | .any, _ =>
       true
   | .absent, cur =>
       cur.isNone
-  | .version v, cur =>
-      cur == some v
+  | .hash h, cur =>
+      cur.map H.hash == some h
 
-def Cond.of : Option Version → Cond
-  | some v =>
-      .version v
+def Cond.of (H : Hasher) : Option Blob → Cond H
+  | some b =>
+      .hash (H.hash b)
   | none =>
       .absent
 
 structure State where
-  bucket : List (Path × Blob × Version) := []
+  bucket : List (Path × Blob) := []
   outbox : List OutboxEntry := []
-  next   : Version := 1
   deriving Repr
 
 def State.init : State := {}
 
-def State.get (s : State) (p : Path) : Option (Blob × Version) :=
+def State.blob? (s : State) (p : Path) : Option Blob :=
   (s.bucket.find? (·.1 == p)).map (·.2)
 
-def State.version? (s : State) (p : Path) : Option Version :=
-  (s.get p).map (·.2)
-
 def State.origin (s : State) (name : String) : Origin :=
-  match s.get (.origin name) with
-  | some (.origin org, _) =>
+  match s.blob? (.origin name) with
+  | some (.origin org) =>
       org
   | _ =>
       {}
 
-inductive Effect
-  | put (path : Path) (blob : Blob) (cond : Cond)
+inductive Effect (H : Hasher)
+  | put (path : Path) (blob : Blob) (cond : Cond H)
   | del (path : Path)
   | send (address : String) (msg : Message)
-  deriving Repr
 
-def Effect.apply (s : State) : Effect → Option State
+def Effect.apply {H : Hasher} (s : State) : Effect H → Option State
   | .put p b c =>
-      if c.holds (s.version? p) then
-        some { s with bucket := (p, b, s.next) :: s.bucket.filter (·.1 != p), next := s.next + 1 }
+      if c.holds (s.blob? p) then
+        some { s with bucket := (p, b) :: s.bucket.filter (·.1 != p) }
       else
         none
   | .del p =>
@@ -77,7 +75,7 @@ def Effect.apply (s : State) : Effect → Option State
       let entry := OutboxEntry.mk a m
       some { s with outbox := entry :: s.outbox.filter (fun e => e.key != entry.key) }
 
-def perform : State → List Effect → State × Bool
+def perform {H : Hasher} : State → List (Effect H) → State × Bool
   | s, [] =>
       (s, true)
   | s, e :: es =>
@@ -87,13 +85,14 @@ def perform : State → List Effect → State × Bool
       | none =>
           (s, false)
 
-def Commands.effects (name : String) (cond : Cond) (c : Commands) : List Effect :=
+def Commands.effects {H : Hasher} (name : String) (cond : Cond H) (c : Commands) :
+    List (Effect H) :=
   c.arm.map (fun t => .put (.timer t) .timer .any)
   ++ [.put (.origin name) (.origin c.put) cond]
   ++ c.del.map (fun t => .del (.timer t))
   ++ c.send.map (fun (a, m) => .send a m)
 
-def _root_.Abstract.Request.origin? : Request → Option String
+def _root_.ServerModel.Request.origin? : Request → Option String
   | .promiseGet req =>
       some req.id.origin
   | .promiseCreate req =>
@@ -221,33 +220,33 @@ def handleExternal (now : Nat) (org : Origin) : Request → Response × Commands
 def handleInternal (_now : Nat) (org : Origin) (_t : Timer) : Commands :=
   { put := org }
 
-def step (ev : Event) (now : Nat) (s : State) : Reply × State :=
+def step (H : Hasher) (ev : Event) (now : Nat) (s : State) : Reply × State :=
   match ev with
   | .external req =>
       match req.origin? with
       | some name =>
           let (res, c) := handleExternal now (s.origin name) req
-          let (s', ok) := perform s (c.effects name (Cond.of (s.version? (.origin name))))
+          let (s', ok) := perform s (c.effects name (Cond.of H (s.blob? (.origin name))))
           (if ok then .external res else .stutter, s')
       | none =>
           (.external (handleExternal now {} req).1, s)
   | .internal t =>
-      if (s.version? (.timer t)).isSome ∧ t.deadline ≤ now then
+      if (s.blob? (.timer t)).isSome ∧ t.deadline ≤ now then
         let name := t.id.origin
         let c := handleInternal now (s.origin name) t
-        let (s', ok) := perform s (c.effects name (Cond.of (s.version? (.origin name))))
+        let (s', ok) := perform s (c.effects name (Cond.of H (s.blob? (.origin name))))
         (if ok then .internal else .stutter, s')
       else
         (.stutter, s)
   | .stutter =>
       (.stutter, s)
 
-def exec : List (Event × Nat) → State → List Reply × State
+def exec (H : Hasher) : List (Event × Nat) → State → List Reply × State
   | [], s =>
       ([], s)
   | (ev, n) :: w, s =>
-      let (r, s')   := step ev n s
-      let (rs, s'') := exec w s'
+      let (r, s')   := step H ev n s
+      let (rs, s'') := exec H w s'
       (r :: rs, s'')
 
 structure Frame where
@@ -258,26 +257,37 @@ structure Frame where
 
 abbrev Trace := Nat → Frame
 
-def Valid (tr : Trace) : Prop :=
+def Valid (H : Hasher) (tr : Trace) : Prop :=
   ∀ t : Nat,
-    step (tr t).event (tr t).now (tr t).state = ((tr t).reply, (tr (t + 1)).state) ∧
+    step H (tr t).event (tr t).now (tr t).state = ((tr t).reply, (tr (t + 1)).state) ∧
     (tr t).now ≤ (tr (t + 1)).now
 
-theorem Valid.reply {tr : Trace} (hv : Valid tr) (t : Nat) :
-    (tr t).reply = (step (tr t).event (tr t).now (tr t).state).1 := by
+theorem Valid.reply {H : Hasher} {tr : Trace} (hv : Valid H tr) (t : Nat) :
+    (tr t).reply = (step H (tr t).event (tr t).now (tr t).state).1 := by
   rw [(hv t).1]
 
-theorem Valid.state {tr : Trace} (hv : Valid tr) (t : Nat) :
-    (tr (t + 1)).state = (step (tr t).event (tr t).now (tr t).state).2 := by
+theorem Valid.state {H : Hasher} {tr : Trace} (hv : Valid H tr) (t : Nat) :
+    (tr (t + 1)).state = (step H (tr t).event (tr t).now (tr t).state).2 := by
   rw [(hv t).1]
 
-theorem Valid.now {tr : Trace} (hv : Valid tr) (t : Nat) :
+theorem Valid.now {H : Hasher} {tr : Trace} (hv : Valid H tr) (t : Nat) :
     (tr t).now ≤ (tr (t + 1)).now := (hv t).2
 
-theorem Cond.of_holds (v : Option Version) : (Cond.of v).holds v = true := by
-  cases v <;> simp [Cond.of, Cond.holds]
+variable {H : Hasher}
 
-def Effect.unconditional : Effect → Bool
+theorem Cond.of_holds (b : Option Blob) : (Cond.of H b).holds b = true := by
+  cases b <;> simp [Cond.of, Cond.holds]
+
+theorem Cond.of_holds_iff (a : Blob) (b : Option Blob) :
+    (Cond.of H (some a)).holds b = true ↔ b = some a := by
+  cases b with
+  | none =>
+      simp [Cond.of, Cond.holds]
+  | some b =>
+      simp only [Cond.of, Cond.holds, Option.map_some, beq_iff_eq, Option.some.injEq]
+      exact ⟨fun h => H.inj b a h, fun h => congrArg H.hash h⟩
+
+def Effect.unconditional : Effect H → Bool
   | .put _ _ .any =>
       true
   | .put _ _ _ =>
@@ -287,12 +297,12 @@ def Effect.unconditional : Effect → Bool
   | .send _ _ =>
       true
 
-theorem apply_unconditional {e : Effect} (h : e.unconditional = true) (s : State) :
+theorem apply_unconditional {e : Effect H} (h : e.unconditional = true) (s : State) :
     ∃ s', e.apply s = some s' := by
   cases e with
   | put p b c =>
       cases c <;> simp [Effect.unconditional] at h
-      exact ⟨{ s with bucket := (p, b, s.next) :: s.bucket.filter (·.1 != p), next := s.next + 1 },
+      exact ⟨{ s with bucket := (p, b) :: s.bucket.filter (·.1 != p) },
              by simp [Effect.apply, Cond.holds]⟩
   | del p =>
       exact ⟨_, rfl⟩
@@ -300,7 +310,7 @@ theorem apply_unconditional {e : Effect} (h : e.unconditional = true) (s : State
       exact ⟨_, rfl⟩
 
 theorem perform_unconditional :
-    ∀ (es : List Effect) (s : State), (∀ e ∈ es, e.unconditional = true) →
+    ∀ (es : List (Effect H)) (s : State), (∀ e ∈ es, e.unconditional = true) →
       (perform s es).2 = true
   | [], _, _ =>
       rfl
@@ -309,7 +319,7 @@ theorem perform_unconditional :
       simp only [perform, hs]
       exact perform_unconditional es s' (fun e he => h e (List.mem_cons_of_mem _ he))
 
-theorem perform_append (a b : List Effect) (s : State) :
+theorem perform_append (a b : List (Effect H)) (s : State) :
     perform s (a ++ b) =
       if (perform s a).2 then perform (perform s a).1 b else perform s a := by
   induction a generalizing s with
@@ -323,15 +333,15 @@ theorem perform_append (a b : List Effect) (s : State) :
       | none =>
           simp
 
-theorem version?_put_other {s : State} {p q : Path} {b : Blob} {c : Cond} {s' : State}
+theorem blob?_put_other {s : State} {p q : Path} {b : Blob} {c : Cond H} {s' : State}
     (h : (Effect.put p b c).apply s = some s') (hne : q ≠ p) :
-    s'.version? q = s.version? q := by
+    s'.blob? q = s.blob? q := by
   simp only [Effect.apply] at h
   split at h
   · cases h
-    have hq : ((p, b, s.next).1 == q) = false := by simpa using Ne.symm hne
-    simp only [State.version?, State.get, List.find?_cons, hq]
-    congr 2
+    have hq : ((p, b).1 == q) = false := by simpa using Ne.symm hne
+    simp only [State.blob?, List.find?_cons, hq]
+    congr 1
     induction s.bucket with
     | nil =>
         rfl
@@ -350,28 +360,28 @@ theorem version?_put_other {s : State} {p q : Path} {b : Blob} {c : Cond} {s' : 
 
 theorem perform_arm (name : String) :
     ∀ (ts : List Timer) (s : State),
-      (perform s (ts.map fun t => Effect.put (.timer t) .timer .any)).2 = true ∧
-      (perform s (ts.map fun t => Effect.put (.timer t) .timer .any)).1.version? (.origin name) =
-        s.version? (.origin name)
+      (perform s (ts.map fun t => Effect.put (H := H) (.timer t) .timer .any)).2 = true ∧
+      (perform s (ts.map fun t => Effect.put (H := H) (.timer t) .timer .any)).1.blob?
+        (.origin name) = s.blob? (.origin name)
   | [], _ =>
       ⟨rfl, rfl⟩
   | t :: ts, s => by
-      obtain ⟨s', hs⟩ := apply_unconditional (e := .put (.timer t) .timer .any) rfl s
+      obtain ⟨s', hs⟩ := apply_unconditional (e := Effect.put (H := H) (.timer t) .timer .any) rfl s
       simp only [List.map_cons, perform, hs]
       obtain ⟨h1, h2⟩ := perform_arm name ts s'
-      exact ⟨h1, by rw [h2, version?_put_other hs (by simp)]⟩
+      exact ⟨h1, by rw [h2, blob?_put_other hs (by simp)]⟩
 
 theorem effects_accepted (s : State) (name : String) (c : Commands) :
-    (perform s (c.effects name (Cond.of (s.version? (.origin name))))).2 = true := by
+    (perform s (c.effects name (Cond.of H (s.blob? (.origin name))))).2 = true := by
   unfold Commands.effects
-  obtain ⟨h1, h2⟩ := perform_arm name c.arm s
+  obtain ⟨h1, h2⟩ := perform_arm (H := H) name c.arm s
   simp only [List.append_assoc, List.singleton_append]
   rw [perform_append, if_pos h1]
   have key : ∀ s1 : State,
-      (Cond.of (s.version? (.origin name))).holds (s1.version? (.origin name)) = true →
-      (perform s1 (Effect.put (.origin name) (.origin c.put) (Cond.of (s.version? (.origin name))) ::
-        (c.del.map (fun t => Effect.del (.timer t)) ++
-         c.send.map (fun (a, m) => Effect.send a m)))).2 = true := by
+      (Cond.of H (s.blob? (.origin name))).holds (s1.blob? (.origin name)) = true →
+      (perform s1 (Effect.put (.origin name) (.origin c.put) (Cond.of H (s.blob? (.origin name))) ::
+        (c.del.map (fun t => Effect.del (H := H) (.timer t)) ++
+         c.send.map (fun (a, m) => Effect.send (H := H) a m)))).2 = true := by
     intro s1 hh
     simp only [perform, Effect.apply, hh, ↓reduceIte]
     apply perform_unconditional
@@ -382,13 +392,13 @@ theorem effects_accepted (s : State) (name : String) (c : Commands) :
 
 theorem step_external_accepted (now : Nat) (s : State) (req : Request) (name : String)
     (h : req.origin? = some name) :
-    (step (.external req) now s).1 =
+    (step H (.external req) now s).1 =
       .external (handleExternal now (s.origin name) req).1 := by
   simp only [step, h, effects_accepted, ↓reduceIte]
 
 theorem step_internal_accepted (now : Nat) (s : State) (t : Timer)
-    (h : (s.version? (.timer t)).isSome = true) (hd : t.deadline ≤ now) :
-    (step (.internal t) now s).1 = .internal := by
+    (h : (s.blob? (.timer t)).isSome = true) (hd : t.deadline ≤ now) :
+    (step H (.internal t) now s).1 = .internal := by
   simp only [step, h, hd, and_self, ↓reduceIte, effects_accepted]
 
 end Concrete

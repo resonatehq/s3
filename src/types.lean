@@ -393,4 +393,83 @@ opaque occurrences : (cron : String) → (since now : Nat) → List Nat
 
 opaque expand : (template id : Ident) → (timestamp : Nat) → Ident
 
+deriving instance BEq for Value
+deriving instance BEq for PromiseRecord
+deriving instance BEq for TaskRecord
+deriving instance BEq for Schedule
+deriving instance BEq for ResumeReq
+deriving instance BEq for Message
+deriving instance BEq for OutboxEntry
+deriving instance BEq for ResumeRes
+deriving instance BEq for PromiseGetRes
+deriving instance BEq for PromiseCreateRes
+deriving instance BEq for PromiseSettleRes
+deriving instance BEq for PromiseRegisterCallbackRes
+deriving instance BEq for PromiseRegisterListenerRes
+deriving instance BEq for PromiseSearchRes
+deriving instance BEq for ScheduleGetRes
+deriving instance BEq for ScheduleCreateRes
+deriving instance BEq for ScheduleDeleteRes
+deriving instance BEq for ScheduleSearchRes
+deriving instance BEq for TaskGetRes
+deriving instance BEq for TaskCreateRes
+deriving instance BEq for TaskAcquireRes
+deriving instance BEq for TaskFenceInnerRes
+deriving instance BEq for TaskFenceRes
+deriving instance BEq for TaskHeartbeatRes
+deriving instance BEq for TaskSuspendRes
+deriving instance BEq for TaskFulfillRes
+deriving instance BEq for TaskReleaseRes
+deriving instance BEq for TaskHaltRes
+deriving instance BEq for TaskContinueRes
+deriving instance BEq for TaskSearchRes
+
+inductive Request
+  | promiseGet              (req : PromiseGetReq)
+  | promiseCreate           (req : PromiseCreateReq)
+  | promiseSettle           (req : PromiseSettleReq)
+  | promiseRegisterCallback (req : PromiseRegisterCallbackReq)
+  | promiseRegisterListener (req : PromiseRegisterListenerReq)
+  | promiseSearch           (req : PromiseSearchReq)
+  | scheduleGet             (req : ScheduleGetReq)
+  | scheduleCreate          (req : ScheduleCreateReq)
+  | scheduleDelete          (req : ScheduleDeleteReq)
+  | scheduleSearch          (req : ScheduleSearchReq)
+  | taskGet                 (req : TaskGetReq)
+  | taskCreate              (req : TaskCreateReq)
+  | taskAcquire             (req : TaskAcquireReq)
+  | taskFence               (req : TaskFenceReq)
+  | taskHeartbeat           (req : TaskHeartbeatReq)
+  | taskSuspend             (req : TaskSuspendReq)
+  | taskFulfill             (req : TaskFulfillReq)
+  | taskRelease             (req : TaskReleaseReq)
+  | taskHalt                (req : TaskHaltReq)
+  | taskContinue            (req : TaskContinueReq)
+  | taskSearch              (req : TaskSearchReq)
+  deriving Repr
+
+inductive Response
+  | promiseGet              (res : PromiseGetRes)
+  | promiseCreate           (res : PromiseCreateRes)
+  | promiseSettle           (res : PromiseSettleRes)
+  | promiseRegisterCallback (res : PromiseRegisterCallbackRes)
+  | promiseRegisterListener (res : PromiseRegisterListenerRes)
+  | promiseSearch           (res : PromiseSearchRes)
+  | scheduleGet             (res : ScheduleGetRes)
+  | scheduleCreate          (res : ScheduleCreateRes)
+  | scheduleDelete          (res : ScheduleDeleteRes)
+  | scheduleSearch          (res : ScheduleSearchRes)
+  | taskGet                 (res : TaskGetRes)
+  | taskCreate              (res : TaskCreateRes)
+  | taskAcquire             (res : TaskAcquireRes)
+  | taskFence               (res : TaskFenceRes)
+  | taskHeartbeat           (res : TaskHeartbeatRes)
+  | taskSuspend             (res : TaskSuspendRes)
+  | taskFulfill             (res : TaskFulfillRes)
+  | taskRelease             (res : TaskReleaseRes)
+  | taskHalt                (res : TaskHaltRes)
+  | taskContinue            (res : TaskContinueRes)
+  | taskSearch              (res : TaskSearchRes)
+  deriving Repr, BEq
+
 end ServerModel

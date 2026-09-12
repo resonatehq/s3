@@ -1,6 +1,9 @@
 import impl.system
+import «02-abstract».«system»
 
 namespace Abstract
+
+open ServerModel (Request Response)
 
 structure Observation where
   req : Request
@@ -41,8 +44,8 @@ end Concrete
 
 namespace Refinement
 
-theorem refines (tr : Concrete.Trace)
-    (valid : Concrete.Valid tr) (init : (tr 0).state = Concrete.State.init) :
+theorem refines (H : Concrete.Hasher) (tr : Concrete.Trace)
+    (valid : Concrete.Valid H tr) (init : (tr 0).state = Concrete.State.init) :
     ∃ tr' : Abstract.Trace,
       Abstract.Valid false tr' ∧
       (tr' 0).state = AbstractModel.ServerState.init ∧
