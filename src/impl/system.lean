@@ -92,6 +92,15 @@ def Commands.effects {H : Hasher} (name : String) (cond : Cond H) (c : Commands)
   ++ c.del.map (fun t => .del (.timer t))
   ++ c.send.map (fun (a, m) => .send a m)
 
+def commit (H : Hasher) (name : String) (c : Commands) (s : State) : State × Bool :=
+  perform s (c.effects name (Cond.of H (s.blob? (.origin name))))
+
+def run (H : Hasher) (name : String) (f : Origin → α × Commands) (s : State) :
+    α × State × Bool :=
+  let (a, c) := f (s.origin name)
+  let (s', ok) := commit H name c s
+  (a, s', ok)
+
 def _root_.ServerModel.Request.origin? : Request → Option String
   | .promiseGet req =>
       some req.id.origin
@@ -225,16 +234,13 @@ def step (H : Hasher) (ev : Event) (now : Nat) (s : State) : Reply × State :=
   | .external req =>
       match req.origin? with
       | some name =>
-          let (res, c) := handleExternal now (s.origin name) req
-          let (s', ok) := perform s (c.effects name (Cond.of H (s.blob? (.origin name))))
+          let (res, s', ok) := run H name (fun org => handleExternal now org req) s
           (if ok then .external res else .stutter, s')
       | none =>
           (.external (handleExternal now {} req).1, s)
   | .internal t =>
       if (s.blob? (.timer t)).isSome ∧ t.deadline ≤ now then
-        let name := t.id.origin
-        let c := handleInternal now (s.origin name) t
-        let (s', ok) := perform s (c.effects name (Cond.of H (s.blob? (.origin name))))
+        let (_, s', ok) := run H t.id.origin (fun org => ((), handleInternal now org t)) s
         (if ok then .internal else .stutter, s')
       else
         (.stutter, s)
@@ -371,9 +377,9 @@ theorem perform_arm (name : String) :
       obtain ⟨h1, h2⟩ := perform_arm name ts s'
       exact ⟨h1, by rw [h2, blob?_put_other hs (by simp)]⟩
 
-theorem effects_accepted (s : State) (name : String) (c : Commands) :
-    (perform s (c.effects name (Cond.of H (s.blob? (.origin name))))).2 = true := by
-  unfold Commands.effects
+theorem commit_accepted (s : State) (name : String) (c : Commands) :
+    (commit H name c s).2 = true := by
+  unfold commit Commands.effects
   obtain ⟨h1, h2⟩ := perform_arm (H := H) name c.arm s
   simp only [List.append_assoc, List.singleton_append]
   rw [perform_append, if_pos h1]
@@ -390,15 +396,19 @@ theorem effects_accepted (s : State) (name : String) (c : Commands) :
     rcases he with ⟨_, _, rfl⟩ | ⟨⟨a, m⟩, _, rfl⟩ <;> rfl
   exact key _ (by rw [h2]; exact Cond.of_holds _)
 
+theorem run_accepted (name : String) (f : Origin → α × Commands) (s : State) :
+    (run H name f s).2.2 = true := by
+  simp only [run, commit_accepted]
+
 theorem step_external_accepted (now : Nat) (s : State) (req : Request) (name : String)
     (h : req.origin? = some name) :
     (step H (.external req) now s).1 =
       .external (handleExternal now (s.origin name) req).1 := by
-  simp only [step, h, effects_accepted, ↓reduceIte]
+  simp only [step, h, run, commit_accepted, ↓reduceIte]
 
 theorem step_internal_accepted (now : Nat) (s : State) (t : Timer)
     (h : (s.blob? (.timer t)).isSome = true) (hd : t.deadline ≤ now) :
     (step H (.internal t) now s).1 = .internal := by
-  simp only [step, h, hd, and_self, ↓reduceIte, effects_accepted]
+  simp only [step, h, hd, and_self, ↓reduceIte, run, commit_accepted]
 
 end Concrete
