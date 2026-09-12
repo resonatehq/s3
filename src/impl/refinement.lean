@@ -56,6 +56,34 @@ def abstract (s : Concrete.State) : Abstract.State :=
 
 theorem abstract_init : abstract Concrete.State.init = Abstract.State.init := rfl
 
+def Equiv (S T : Abstract.State) : Prop :=
+  (∀ id, S.objects.find? (·.id == id) = T.objects.find? (·.id == id)) ∧
+  S.schedules = T.schedules ∧
+  S.outbox = T.outbox
+
+def Inv (s : Concrete.State) : Prop :=
+  ∀ name org, s.blob? (.origin name) = some (.origin org) →
+    (∀ o ∈ org.objects, o.id.origin = name) ∧ (org.objects.map (·.id)).Nodup
+
+def observations (now : Nat) : List Abstract.Event → List Abstract.Reply → List Abstract.Observation
+  | .external req :: evs, .external res :: rs =>
+      ⟨req, res, now⟩ :: observations now evs rs
+  | _ :: evs, _ :: rs =>
+      observations now evs rs
+  | _, _ =>
+      []
+
+theorem step_sim (H : Concrete.Hasher) (ev : Concrete.Event) (now : Nat)
+    (s : Concrete.State) (S : Abstract.State)
+    (inv : Inv s) (rel : Equiv (abstract s) S) :
+    ∃ evs : List Abstract.Event,
+      Inv (Concrete.step H ev now s).2 ∧
+      Equiv (abstract (Concrete.step H ev now s).2)
+            (Abstract.exec false (evs.map (·, now)) S).2 ∧
+      observations now evs (Abstract.exec false (evs.map (·, now)) S).1 =
+        (Concrete.Frame.observe ⟨s, ev, (Concrete.step H ev now s).1, now⟩).toList :=
+  sorry
+
 theorem refines (H : Concrete.Hasher) (tr : Concrete.Trace)
     (valid : Concrete.Valid H tr) (init : (tr 0).state = Concrete.State.init) :
     ∃ tr' : Abstract.Trace,
