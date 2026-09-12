@@ -120,7 +120,9 @@ def promiseSettle (now : Nat) (org : Origin) (req : PromiseSettleReq) : PromiseS
         if o.promise.state == .pending then
           let p := { o.promise with state := req.state, value := req.value, settledAt := some now }
           ({ status := 200, promise := some (p.toRecord o.id) },
-           { put := org.write { o with promise := p, task := o.task.map (·.fulfill) },
+           { put := org.write { o with promise := p,
+                                       task := o.task.map fun t =>
+                                         if t.state == .fulfilled then t else t.fulfill },
              del := o.timers })
         else
           ({ status := 200, promise := some (o.promise.toRecord o.id) }, { put := org })
@@ -253,7 +255,7 @@ def taskFence (now : Nat) (org : Origin) (req : TaskFenceReq) : TaskFenceRes × 
 def taskHeartbeat (now : Nat) (org : Origin) (req : TaskHeartbeatReq) : TaskHeartbeatRes × Commands :=
   ({ status := 200 },
    req.tasks.foldl (init := { put := org }) fun c ref =>
-     match (c.put.get ref.id now).bind fun o => o.task.map (o, ·) with
+     match (org.get ref.id now).bind fun o => o.task.map (o, ·) with
      | none =>
          c
      | some (o, t) =>
@@ -314,7 +316,8 @@ def taskFulfill (now : Nat) (org : Origin) (req : TaskFulfillReq) : TaskFulfillR
           let p := { o.promise with state := req.action.state, value := req.action.value,
                                     settledAt := some now }
           ({ status := 200, promise := some (p.toRecord o.id) },
-           { put := org.write { o with promise := p, task := some t.fulfill },
+           { put := org.write { o with promise := p,
+                                       task := some (if t.state == .fulfilled then t else t.fulfill) },
              del := o.timers })
 
 def taskRelease (now : Nat) (org : Origin) (req : TaskReleaseReq) : TaskReleaseRes × Commands :=

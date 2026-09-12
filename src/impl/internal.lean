@@ -16,8 +16,9 @@ def promiseTimeouts (now : Nat) (org : Origin) : Commands :=
     else
       c
 
-def listeners (_now : Nat) (org : Origin) : Commands :=
+def listeners (now : Nat) (org : Origin) : Commands :=
   org.objects.foldl (init := { put := org }) fun c o =>
+    let o := o.project now
     if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
       { c with
         put := c.put.write { o with promise := { o.promise with listeners := [] } },
@@ -25,33 +26,44 @@ def listeners (_now : Nat) (org : Origin) : Commands :=
     else
       c
 
+def resume (now : Nat) (awaited : Ident) (c : Commands) (awaiter : Ident) : Commands :=
+  match (c.put.get awaiter now).bind fun w => w.task.map (w, ·) with
+  | none =>
+      c
+  | some (w, t) =>
+      match t.state with
+      | .suspended =>
+          { c with
+            arm := c.arm ++ [⟨now, w.id, .retry⟩],
+            put := c.put.write { w with task := some { t with state := .pending, resumes := [awaited],
+                                                              retryTimeoutAt := some now } } }
+      | .pending | .acquired | .halted =>
+          if t.resumes.contains awaited then
+            { c with put := c.put.write w }
+          else
+            { c with put := c.put.write { w with task := some { t with resumes := t.resumes ++ [awaited] } } }
+      | .fulfilled =>
+          { c with put := c.put.write w }
+
 def callbacks (now : Nat) (org : Origin) : Commands :=
   org.objects.foldl (init := { put := org }) fun c o =>
-    if o.promise.state != .pending ∧ !o.promise.callbacks.isEmpty then
-      let struck := { c with put := c.put.write { o with promise := { o.promise with callbacks := [] } } }
-      o.promise.callbacks.foldl (init := struck) fun c awaiter =>
-        match (c.put.get awaiter now).bind fun w => w.task.map (w, ·) with
+    let o := o.project now
+    if o.promise.state != .pending then
+      o.promise.callbacks.foldl (init := c) fun c awaiter =>
+        match c.put.get o.id now with
+        | some cur =>
+            resume now o.id
+              { c with put := c.put.write { cur with promise :=
+                  { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } } }
+              awaiter
         | none =>
             c
-        | some (w, t) =>
-            match t.state with
-            | .suspended =>
-                { c with
-                  arm := c.arm ++ [⟨now, w.id, .retry⟩],
-                  put := c.put.write { w with task := some { t with state := .pending, resumes := [o.id],
-                                                                    retryTimeoutAt := some now } } }
-            | .pending | .acquired | .halted =>
-                if t.resumes.contains o.id then
-                  c
-                else
-                  { c with put := c.put.write { w with task := some { t with resumes := t.resumes ++ [o.id] } } }
-            | .fulfilled =>
-                c
     else
       c
 
 def leaseTimeouts (now : Nat) (org : Origin) : Commands :=
   org.objects.foldl (init := { put := org }) fun c o =>
+    let o := o.project now
     match o.task with
     | some t =>
         if t.state == .acquired ∧ t.leaseTimeoutAt.any (· ≤ now)
@@ -69,6 +81,7 @@ def leaseTimeouts (now : Nat) (org : Origin) : Commands :=
 
 def retryTimeouts (now : Nat) (org : Origin) : Commands :=
   org.objects.foldl (init := { put := org }) fun c o =>
+    let o := o.project now
     match o.task, o.promise.type with
     | some t, .runnable target =>
         if t.state == .pending ∧ t.retryTimeoutAt.any (· ≤ now)

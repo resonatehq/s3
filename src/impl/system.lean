@@ -241,7 +241,7 @@ def step (H : Hasher) (ev : Event) (now : Nat) (s : State) : Reply × State :=
           let (r, s', ok) := run H name (fun org => handle now org ev) s
           (if ok then r else .stutter, s')
       | none =>
-          (.external (handleExternal now {} req).1, s)
+          (.stutter, s)
   | .internal t =>
       if (s.blob? (.timer t)).isSome ∧ t.deadline ≤ now then
         let (r, s', ok) := run H t.id.origin (fun org => handle now org ev) s
