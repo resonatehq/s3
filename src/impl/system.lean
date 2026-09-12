@@ -312,7 +312,7 @@ theorem apply_unconditional {e : Effect H} (h : e.unconditional = true) (s : Sta
   | send a m =>
       exact ⟨_, rfl⟩
 
-theorem perform_unconditional :
+theorem applyAll_unconditional :
     ∀ (es : List (Effect H)) (s : State), (∀ e ∈ es, e.unconditional = true) →
       (applyAll s es).2 = true
   | [], _, _ =>
@@ -320,9 +320,9 @@ theorem perform_unconditional :
   | e :: es, s, h => by
       obtain ⟨s', hs⟩ := apply_unconditional (h e (List.mem_cons_self ..)) s
       simp only [applyAll, hs]
-      exact perform_unconditional es s' (fun e he => h e (List.mem_cons_of_mem _ he))
+      exact applyAll_unconditional es s' (fun e he => h e (List.mem_cons_of_mem _ he))
 
-theorem perform_append (a b : List (Effect H)) (s : State) :
+theorem applyAll_append (a b : List (Effect H)) (s : State) :
     applyAll s (a ++ b) =
       if (applyAll s a).2 then applyAll (applyAll s a).1 b else applyAll s a := by
   induction a generalizing s with
@@ -361,7 +361,7 @@ theorem blob?_put_other {s : State} {p q : Path} {b : Blob} {c : Cond H} {s' : S
             simp [h1, h2, ih]
   · cases h
 
-theorem perform_arm (name : String) :
+theorem applyAll_arm (name : String) :
     ∀ (ts : List Timer) (s : State),
       (applyAll s (ts.map fun t => Effect.put (H := H) (.timer t) .timer .any)).2 = true ∧
       (applyAll s (ts.map fun t => Effect.put (H := H) (.timer t) .timer .any)).1.blob?
@@ -371,15 +371,15 @@ theorem perform_arm (name : String) :
   | t :: ts, s => by
       obtain ⟨s', hs⟩ := apply_unconditional (e := Effect.put (H := H) (.timer t) .timer .any) rfl s
       simp only [List.map_cons, applyAll, hs]
-      obtain ⟨h1, h2⟩ := perform_arm name ts s'
+      obtain ⟨h1, h2⟩ := applyAll_arm name ts s'
       exact ⟨h1, by rw [h2, blob?_put_other hs (by simp)]⟩
 
 theorem applyAll_accepted (s : State) (name : String) (c : Commands) :
     (applyAll s (c.effects name (Cond.of H (s.blob? (.origin name))))).2 = true := by
   unfold Commands.effects
-  obtain ⟨h1, h2⟩ := perform_arm (H := H) name c.arm s
+  obtain ⟨h1, h2⟩ := applyAll_arm (H := H) name c.arm s
   simp only [List.append_assoc, List.singleton_append]
-  rw [perform_append, if_pos h1]
+  rw [applyAll_append, if_pos h1]
   have key : ∀ s1 : State,
       (Cond.of H (s.blob? (.origin name))).holds (s1.blob? (.origin name)) = true →
       (applyAll s1 (Effect.put (.origin name) (.origin c.put) (Cond.of H (s.blob? (.origin name))) ::
@@ -387,7 +387,7 @@ theorem applyAll_accepted (s : State) (name : String) (c : Commands) :
          c.send.map (fun (a, m) => Effect.send (H := H) a m)))).2 = true := by
     intro s1 hh
     simp only [applyAll, Effect.apply, hh, ↓reduceIte]
-    apply perform_unconditional
+    apply applyAll_unconditional
     intro e he
     simp only [List.mem_append, List.mem_map] at he
     rcases he with ⟨_, _, rfl⟩ | ⟨⟨a, m⟩, _, rfl⟩ <;> rfl
