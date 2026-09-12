@@ -1,4 +1,4 @@
-import impl.external
+import impl.internal
 
 namespace Concrete
 
@@ -223,22 +223,29 @@ def handleExternal (now : Nat) (org : Origin) : Request → Response × Commands
       let (res, c) := taskSearch now org req
       (.taskSearch res, c)
 
-def handleInternal (_now : Nat) (org : Origin) (_t : Timer) : Commands :=
-  { put := org }
+def handle (now : Nat) (org : Origin) : Event → Reply × Commands
+  | .external req =>
+      let swept := sweep now org
+      let (res, c) := handleExternal now swept.put req
+      (.external res, swept.merge c)
+  | .internal _ =>
+      (.internal, sweep now org)
+  | .stutter =>
+      (.stutter, { put := org })
 
 def step (H : Hasher) (ev : Event) (now : Nat) (s : State) : Reply × State :=
   match ev with
   | .external req =>
       match req.origin? with
       | some name =>
-          let (res, s', ok) := run H name (fun org => handleExternal now org req) s
-          (if ok then .external res else .stutter, s')
+          let (r, s', ok) := run H name (fun org => handle now org ev) s
+          (if ok then r else .stutter, s')
       | none =>
           (.external (handleExternal now {} req).1, s)
   | .internal t =>
       if (s.blob? (.timer t)).isSome ∧ t.deadline ≤ now then
-        let (_, s', ok) := run H t.id.origin (fun org => ((), handleInternal now org t)) s
-        (if ok then .internal else .stutter, s')
+        let (r, s', ok) := run H t.id.origin (fun org => handle now org ev) s
+        (if ok then r else .stutter, s')
       else
         (.stutter, s)
   | .stutter =>
@@ -399,13 +406,12 @@ theorem run_accepted (name : String) (f : Origin → α × Commands) (s : State)
 
 theorem step_external_accepted (now : Nat) (s : State) (req : Request) (name : String)
     (h : req.origin? = some name) :
-    (step H (.external req) now s).1 =
-      .external (handleExternal now (s.origin name) req).1 := by
+    (step H (.external req) now s).1 = (handle now (s.origin name) (.external req)).1 := by
   simp only [step, h, run, applyAll_accepted, ↓reduceIte]
 
 theorem step_internal_accepted (now : Nat) (s : State) (t : Timer)
     (h : (s.blob? (.timer t)).isSome = true) (hd : t.deadline ≤ now) :
     (step H (.internal t) now s).1 = .internal := by
-  simp only [step, h, hd, and_self, ↓reduceIte, run, applyAll_accepted]
+  simp only [step, h, hd, and_self, ↓reduceIte, run, applyAll_accepted, handle]
 
 end Concrete
