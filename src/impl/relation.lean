@@ -135,9 +135,14 @@ def Equiv (S T : Abstract.State) : Prop :=
   S.schedules = T.schedules ∧
   S.outbox = T.outbox
 
+def WF (org : Concrete.Origin) : Prop :=
+  ∀ ob ∈ org.objects, ∀ w ∈ ob.promise.callbacks, w ≠ ob.id ∧ w.origin = ob.id.origin
+
 structure Inv (s : Concrete.State) : Prop where
   blobs : ∀ name b, (Concrete.Path.origin name, b) ∈ s.bucket →
-    ∃ org, b = .origin org ∧ (∀ o ∈ org.objects, o.id.origin = name) ∧ (org.objects.map (·.id)).Nodup
+    ∃ org, b = .origin org ∧ (∀ o ∈ org.objects, o.id.origin = name) ∧
+      (org.objects.map (·.id)).Nodup ∧ WF org
+  paths : (s.bucket.map (·.1)).Nodup
 
 def observations (now : Nat) : List Abstract.Event → List Abstract.Reply → List Abstract.Observation
   | .external req :: evs, .external res :: rs =>

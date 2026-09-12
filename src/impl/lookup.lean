@@ -116,7 +116,7 @@ theorem touchTaskObject_apply (id : Ident) (now : Nat) (S : Abstract.State) :
         unfold Abstract.readObject
         simp [bind_apply, getObject_apply_mat, h, ask_apply, materialise_apply, pure_apply]
       · simp only [ht, Bool.false_eq_true, ↓reduceIte, pure_apply]
-        simp [ht]
+        simp
 
 theorem viewTaskObject_apply (id : Ident) (now : Nat) (S : Abstract.State) :
     Abstract.viewTaskObject id now (env S) =

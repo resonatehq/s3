@@ -5,9 +5,6 @@ namespace Refinement
 open Protocol (Ident Message OutboxEntry Object PromiseObject TaskObject PromiseState TaskState)
 open Concrete (Origin Commands)
 
-def WF (org : Origin) : Prop :=
-  ∀ ob ∈ org.objects, ∀ w ∈ ob.promise.callbacks, w ≠ ob.id ∧ w.origin = ob.id.origin
-
 theorem WF_write {org : Origin} {x X : Object} (h : WF org) (hX : X ∈ org.objects)
     (hid : x.id = X.id) (hcb : ∀ a ∈ x.promise.callbacks, a ∈ X.promise.callbacks) :
     WF (org.write x) := by
@@ -230,11 +227,12 @@ structure SwInv (o : String) (S : Abstract.State) (c : Commands) (T : Abstract.S
   orig  : ∀ ob ∈ c.put.objects, ob.id.origin = o
   nodup : (c.put.objects.map (·.id)).Nodup
   wf    : WF c.put
+  other : ∀ id, id.origin ≠ o → find T id = find S id
 
 theorem SwInv.init {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.objects, ob.id.origin = o) (hnodup : (org.objects.map (·.id)).Nodup)
     (hwf : WF org) : SwInv o S { put := org } S :=
-  ⟨hL, rfl, rfl, horig, hnodup, hwf⟩
+  ⟨hL, rfl, rfl, horig, hnodup, hwf, fun _ _ => rfl⟩
 
 theorem SwInv.step {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
     (h : SwInv o S c T) (fx : List Abstract.Effect) (hfx : Fx o fx) {c' : Commands}
@@ -242,12 +240,14 @@ theorem SwInv.step {o : String} {S : Abstract.State} {c : Commands} {T : Abstrac
     (horig : ∀ ob ∈ c'.put.objects, ob.id.origin = o) (hnodup : (c'.put.objects.map (·.id)).Nodup)
     (hwf : WF c'.put) : SwInv o S c' (Abstract.applyAll T fx) :=
   ⟨hloc, by rw [applyAll_outbox, h.out, hsend, sendsFold_append],
-   by rw [applyAll_schedules T fx hfx, h.sch], horig, hnodup, hwf⟩
+   by rw [applyAll_schedules T fx hfx, h.sch], horig, hnodup, hwf,
+   fun id hid => by rw [applyAll_find_other T fx hfx id hid, h.other id hid]⟩
 
 theorem SwInv.merge {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
     {d : Commands} {U : Abstract.State} (h : SwInv o S c T) (hd : SwInv o T d U) :
     SwInv o S (c.merge d) U :=
-  ⟨hd.loc, by rw [hd.out, h.out, ← sendsFold_append]; rfl, hd.sch.trans h.sch, hd.orig, hd.nodup, hd.wf⟩
+  ⟨hd.loc, by rw [hd.out, h.out, ← sendsFold_append]; rfl, hd.sch.trans h.sch, hd.orig, hd.nodup, hd.wf,
+   fun id hid => (hd.other id hid).trans (h.other id hid)⟩
 
 theorem SwInv.sends {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
     (h : SwInv o S c T) (ms : List (String × Message)) {c' : Commands} (hput : c'.put = c.put)
