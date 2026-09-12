@@ -82,14 +82,14 @@ theorem stage1_battery : battery.all legalRun = true := by decide
 theorem stage1_sweep :
     ((seqsUpToA kernelsResp 3).map instantiateA).all legalRun = true := by decide
 
-def carrier : AbstractModel.PromiseObject :=
+def carrier : ServerModel.PromiseObject :=
   { state := .pending, param := {}, type := .runnable "w",
     timeoutAt := 100, createdAt := 10 }
 
-def onePromise (p : AbstractModel.PromiseObject) : AbstractModel.ServerState :=
+def onePromise (p : ServerModel.PromiseObject) : AbstractModel.ServerState :=
   { objects := [{ id := oid "a", promise := p }] }
 
-def oneTask (t : AbstractModel.TaskObject) : AbstractModel.ServerState :=
+def oneTask (t : ServerModel.TaskObject) : AbstractModel.ServerState :=
   { objects := [{ id := oid "a", promise := carrier, task := some t }] }
 
 def oneSchedule (c : ServerModel.Schedule) : AbstractModel.ServerState :=
@@ -97,11 +97,11 @@ def oneSchedule (c : ServerModel.Schedule) : AbstractModel.ServerState :=
 
 open ServerModel AbstractModel.Properties in
 def mutants : List (String × Bool) :=
-  let P : AbstractModel.PromiseObject :=
+  let P : ServerModel.PromiseObject :=
     { state := .pending, param := {}, type := .external,
       timeoutAt := 100, createdAt := 10 }
-  let T : AbstractModel.TaskObject := { state := .pending, version := 1, retryTimeoutAt := some 0 }
-  let obj : AbstractModel.PromiseObject → Option AbstractModel.TaskObject →
+  let T : ServerModel.TaskObject := { state := .pending, version := 1, retryTimeoutAt := some 0 }
+  let obj : ServerModel.PromiseObject → Option ServerModel.TaskObject →
               AbstractModel.ServerState :=
     fun p t => { objects := [{ id := oid "a", promise := p, task := t }] }
   let C : Schedule := { id := oid "c", cron := "*", promiseId := oid "p", promiseTimeout := 1,

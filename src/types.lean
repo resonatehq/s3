@@ -393,6 +393,75 @@ opaque occurrences : (cron : String) → (since now : Nat) → List Nat
 
 opaque expand : (template id : Ident) → (timestamp : Nat) → Ident
 
+structure PromiseObject where
+  state     : PromiseState
+  param     : Value
+  value     : Value       := {}
+  type      : OType
+  timeoutAt : Nat
+  createdAt : Nat
+  settledAt : Option Nat  := none
+  callbacks : List Ident     := []
+  listeners : List String := []
+  deriving Repr
+
+def PromiseObject.toRecord (p : PromiseObject) (id : Ident) : PromiseRecord :=
+  { id := id, state := p.state, param := p.param, value := p.value,
+    type := p.type, timeoutAt := p.timeoutAt, createdAt := p.createdAt,
+    settledAt := p.settledAt }
+
+def PromiseObject.addCallback (p : PromiseObject) (awaiterId : Ident) : PromiseObject :=
+  if p.callbacks.contains awaiterId then
+    p
+  else
+    { p with callbacks := p.callbacks ++ [awaiterId] }
+
+def PromiseObject.addListener (p : PromiseObject) (address : String) : PromiseObject :=
+  if p.listeners.contains address then
+    p
+  else
+    { p with listeners := p.listeners ++ [address] }
+
+def PromiseObject.project (p : PromiseObject) (now : Nat) : PromiseObject :=
+  if p.state == .pending ∧ p.timeoutAt ≤ now then
+    if p.type == .deadline then
+      { p with state := .resolved, settledAt := some p.timeoutAt }
+    else
+      { p with state := .rejectedTimedout, settledAt := some p.timeoutAt }
+  else
+    p
+
+structure TaskObject where
+  state          : TaskState
+  version        : Nat
+  ttl            : Option Nat    := none
+  pid            : Option String := none
+  leaseTimeoutAt : Option Nat    := none
+  retryTimeoutAt : Option Nat    := none
+  resumes        : List Ident    := []
+  deriving Repr
+
+def TaskObject.toRecord (t : TaskObject) (id : Ident) : TaskRecord :=
+  { id := id, state := t.state, version := t.version,
+    resumes := t.resumes.length, ttl := t.ttl, pid := t.pid }
+
+def TaskObject.fulfill (t : TaskObject) : TaskObject :=
+  { t with state := .fulfilled, pid := none, ttl := none,
+           leaseTimeoutAt := none, retryTimeoutAt := none, resumes := [] }
+
+def TaskObject.view (t : TaskObject) (p : PromiseObject) : TaskObject :=
+  if p.state != .pending ∧ t.state != .fulfilled then t.fulfill else t
+
+structure Object where
+  id      : Ident
+  promise : PromiseObject
+  task    : Option TaskObject := none
+  deriving Repr
+
+def Object.project (o : Object) (now : Nat) : Object :=
+  let p := o.promise.project now
+  { o with promise := p, task := o.task.map (·.view p) }
+
 deriving instance BEq for Value
 deriving instance BEq for PromiseRecord
 deriving instance BEq for TaskRecord

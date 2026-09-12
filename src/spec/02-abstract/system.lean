@@ -35,10 +35,10 @@ def Event.isInternal : Event → Bool
   | .internal _ => true
   | _           => false
 
-deriving instance BEq for AbstractModel.TaskObject
+deriving instance BEq for ServerModel.TaskObject
 
-deriving instance BEq for AbstractModel.PromiseObject
-deriving instance BEq for AbstractModel.Object
+deriving instance BEq for ServerModel.PromiseObject
+deriving instance BEq for ServerModel.Object
 deriving instance BEq for AbstractModel.ServerState
 
 def handleExternal (req : Request) (now : Nat) : AbstractModel.H Response :=

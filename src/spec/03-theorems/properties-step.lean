@@ -34,11 +34,11 @@ theorem stage3_battery : battery.all transHoldsRun = true := by decide
 theorem stage3_sweep :
     ((seqsUpToA kernelsResp 3).map instantiateA).all transHoldsRun = true := by decide
 
-def objOf (id : ServerModel.Ident) (p : AbstractModel.PromiseObject) : AbstractModel.Object :=
+def objOf (id : ServerModel.Ident) (p : ServerModel.PromiseObject) : ServerModel.Object :=
   { id := id, promise := p }
 
-def objWith (id : ServerModel.Ident) (p : AbstractModel.PromiseObject)
-    (t : AbstractModel.TaskObject) : AbstractModel.Object :=
+def objWith (id : ServerModel.Ident) (p : ServerModel.PromiseObject)
+    (t : ServerModel.TaskObject) : ServerModel.Object :=
   { id := id, promise := p, task := some t }
 
 open ServerModel in

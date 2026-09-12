@@ -25,7 +25,7 @@ together with a catalogue of properties every run of it satisfies.
 
 | | |
 |---|---|
-| `src/types.lean` | the protocol layer: records, requests, responses, the object kind `OType` (internal, deadline, external, runnable with its target), the `Request` and `Response` alphabets, the message vocabulary |
+| `src/types.lean` | the protocol layer: records, requests, responses, the object kind `OType` (internal, deadline, external, runnable with its target), the object model (`PromiseObject`, `TaskObject`, `Object`), the `Request` and `Response` alphabets, the message vocabulary |
 | `src/spec/02-abstract` | the machine: `state`, `external` (the 21 handlers), `internal` (the 6 triggers), `system` (the alphabet `Event`/`Reply`, `step`, `exec`, `Trace`, `Valid`), `properties` (the catalogue) |
 | `src/spec/03-theorems` | what is proved about it, and the harnesses that evaluate it |
 
