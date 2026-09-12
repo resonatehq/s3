@@ -4,7 +4,8 @@ namespace Abstract
 namespace Lookup
 
 open AbstractModel
-open ServerModel (PromiseState TaskState)
+open ServerModel (PromiseObject TaskObject Object
+                  PromiseState TaskState)
 
 theorem toFalse {b : Bool} (h : ¬(b = true)) : b = false := by
   cases b

@@ -3,6 +3,8 @@ import «02-abstract».«properties»
 
 namespace Abstract
 
+open ServerModel (PromiseObject TaskObject Object)
+
 open AbstractModel.Properties
 
 def statesOfA (mat : Bool) :

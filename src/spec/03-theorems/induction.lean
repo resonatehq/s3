@@ -5,6 +5,8 @@ import «02-abstract».«properties»
 set_option maxHeartbeats 400000
 
 namespace Abstract
+
+open ServerModel (PromiseObject TaskObject Object)
 namespace Induction
 
 open AbstractModel

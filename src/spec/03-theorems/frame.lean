@@ -1,6 +1,8 @@
 import «03-theorems».«entries»
 
 namespace Abstract
+
+open ServerModel (PromiseObject TaskObject Object)
 namespace Stepwise
 
 open AbstractModel

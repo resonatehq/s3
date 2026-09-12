@@ -1,6 +1,8 @@
 import «03-theorems».«handlers»
 
 namespace Abstract
+
+open ServerModel (PromiseObject TaskObject Object)
 namespace Induction
 
 open AbstractModel

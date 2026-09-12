@@ -2,7 +2,8 @@ import «02-abstract».«state»
 
 namespace AbstractModel
 
-open ServerModel (Ident PromiseState
+open ServerModel (PromiseObject TaskObject Object
+                  Ident PromiseState
                   PromiseGetReq PromiseGetRes
                   PromiseCreateReq PromiseCreateRes
                   PromiseSettleReq PromiseSettleRes

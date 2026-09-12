@@ -6,8 +6,6 @@ open ServerModel (Ident Value PromiseState TaskState PromiseRecord
                   TaskRecord Schedule Message OutboxEntry OutboxKey
                   PromiseCreateReq OType PromiseObject TaskObject Object)
 
-export ServerModel (PromiseObject TaskObject Object)
-
 structure ServerState where
   objects   : List Object      := []
   schedules : List Schedule    := []

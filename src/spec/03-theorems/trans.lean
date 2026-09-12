@@ -1,6 +1,8 @@
 import «03-theorems».«frame»
 
 namespace Abstract
+
+open ServerModel (PromiseObject TaskObject Object)
 namespace Trans
 
 open AbstractModel

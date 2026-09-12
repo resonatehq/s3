@@ -2,8 +2,10 @@ import «03-theorems».«properties-check»
 
 namespace Abstract
 
+open ServerModel (PromiseObject TaskObject Object)
+
 open AbstractModel.Properties
-open AbstractModel (ServerState PromiseObject TaskObject)
+open AbstractModel (ServerState)
 
 def stepsOfA (mat : Bool) :
     List (Event × Nat) → ServerState → List (Nat × ServerState × ServerState)

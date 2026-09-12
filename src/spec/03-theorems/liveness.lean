@@ -2,7 +2,9 @@ import «03-theorems».«properties-step»
 
 namespace Abstract
 
-open AbstractModel (ServerState PromiseObject TaskObject)
+open ServerModel (PromiseObject TaskObject Object)
+
+open AbstractModel (ServerState)
 
 def promiseAt (s : ServerState) (id : ServerModel.Ident) : Option PromiseObject :=
   s.promise? id
