@@ -54,7 +54,7 @@ def promiseTimeoutTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
 def listenerTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
   org.objects.flatMap fun o =>
     let o := o.project now
-    if o.promise.state != .pending then
+    if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
       o.promise.listeners.map fun a => .listener ⟨o.id, a⟩
     else
       []
@@ -136,7 +136,8 @@ def Equiv (S T : Abstract.State) : Prop :=
   S.outbox = T.outbox
 
 def WF (org : Concrete.Origin) : Prop :=
-  ∀ ob ∈ org.objects, ∀ w ∈ ob.promise.callbacks, w ≠ ob.id ∧ w.origin = ob.id.origin
+  ∀ ob ∈ org.objects, ob.promise.listeners.Nodup ∧ ob.promise.callbacks.Nodup ∧
+    ∀ w ∈ ob.promise.callbacks, w ≠ ob.id ∧ w.origin = ob.id.origin
 
 structure Inv (s : Concrete.State) : Prop where
   blobs : ∀ name b, (Concrete.Path.origin name, b) ∈ s.bucket →
