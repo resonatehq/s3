@@ -12,7 +12,8 @@ module types
 --
 -- Lists. The catalogue proves the object model's lists duplicate free
 -- (`callbacks`, `listeners`, `resumes`), and their order is unobservable, so
--- they are sets here. A header list is a relation from key to value.
+-- they are sets here. A header list is a relation from key to value. A
+-- list in a request is a `seq`: the handlers walk it in order.
 
 -- Strings
 
@@ -97,13 +98,15 @@ fact PromiseObjectValue {
 pred addCallback [p : PromiseObject, awaiterId : Ident, p2 : PromiseObject] {
   awaiterId in p.callbacks
     implies p2 = p
-    else samePromiseButCallbacks[p, p2] and p2.callbacks = p.callbacks + awaiterId
+    else sameBirth[p, p2] and sameSettlement[p, p2] and
+         p2.listeners = p.listeners and p2.callbacks = p.callbacks + awaiterId
 }
 
 pred addListener [p : PromiseObject, address : Str, p2 : PromiseObject] {
   address in p.listeners
     implies p2 = p
-    else samePromiseButListeners[p, p2] and p2.listeners = p.listeners + address
+    else sameBirth[p, p2] and sameSettlement[p, p2] and
+         p2.callbacks = p.callbacks and p2.listeners = p.listeners + address
 }
 
 -- The state `p` shows at instant `now`: a pending promise past its timeout
@@ -117,26 +120,23 @@ fun projectedState [p : PromiseObject, now : Int] : one PromiseState {
 -- `p2` is `p` projected to instant `now`.
 pred projectPromise [p : PromiseObject, now : Int, p2 : PromiseObject] {
   (p.state = Pending and p.timeoutAt <= now)
-    implies (samePromiseButSettlement[p, p2] and
+    implies (sameBirth[p, p2] and sameObligations[p, p2] and p2.value = p.value and
              p2.state = projectedState[p, now] and p2.settledAt = p.timeoutAt)
     else p2 = p
 }
 
-pred samePromiseButCallbacks [p, p2 : PromiseObject] {
-  p2.state = p.state and p2.param = p.param and p2.value = p.value and
-  p2.type = p.type and p2.timeoutAt = p.timeoutAt and p2.createdAt = p.createdAt and
-  p2.settledAt = p.settledAt and p2.listeners = p.listeners
+-- The field groups of a promise: what it was born with, how it settled,
+-- what it owes.
+pred sameBirth [p, p2 : PromiseObject] {
+  p2.param = p.param and p2.type = p.type and
+  p2.timeoutAt = p.timeoutAt and p2.createdAt = p.createdAt
 }
 
-pred samePromiseButListeners [p, p2 : PromiseObject] {
-  p2.state = p.state and p2.param = p.param and p2.value = p.value and
-  p2.type = p.type and p2.timeoutAt = p.timeoutAt and p2.createdAt = p.createdAt and
-  p2.settledAt = p.settledAt and p2.callbacks = p.callbacks
+pred sameSettlement [p, p2 : PromiseObject] {
+  p2.state = p.state and p2.value = p.value and p2.settledAt = p.settledAt
 }
 
-pred samePromiseButSettlement [p, p2 : PromiseObject] {
-  p2.param = p.param and p2.value = p.value and p2.type = p.type and
-  p2.timeoutAt = p.timeoutAt and p2.createdAt = p.createdAt and
+pred sameObligations [p, p2 : PromiseObject] {
   p2.callbacks = p.callbacks and p2.listeners = p.listeners
 }
 
@@ -288,4 +288,256 @@ pred sameKey [a, b : OutboxEntry] {
   or
   (a.message in Unblock and b.message in Unblock and
      a.message.promise.id = b.message.promise.id and a.address = b.address)
+}
+
+-- Requests and responses. `Request` and `Response` are the sums; each
+-- constructor's payload is the subsignature. A status is one of the codes
+-- the handlers answer. The schedule requests are left out with the
+-- schedules.
+
+enum Status { s200, s300, s400, s404, s409, s422, s501 }
+
+abstract sig Request {}
+
+abstract sig Response {
+  status : one Status
+}
+
+sig PromiseGetReq extends Request {
+  id : one Ident
+}
+
+sig PromiseGetRes extends Response {
+  promise : lone PromiseRecord
+}
+
+sig PromiseCreateReq extends Request {
+  id        : one Ident,
+  timeoutAt : one Int,
+  param     : one Value,
+  type      : one OType,
+  delay     : lone Int
+} { timeoutAt >= 0 and all x : delay | x >= 0 }
+
+sig PromiseCreateRes extends Response {
+  promise : lone PromiseRecord
+}
+
+sig PromiseSettleReq extends Request {
+  id    : one Ident,
+  state : one PromiseState,
+  value : one Value
+}
+
+sig PromiseSettleRes extends Response {
+  promise : lone PromiseRecord
+}
+
+sig PromiseRegisterCallbackReq extends Request {
+  awaited : one Ident,
+  awaiter : one Ident
+}
+
+sig PromiseRegisterCallbackRes extends Response {
+  promise : lone PromiseRecord
+}
+
+sig PromiseRegisterListenerReq extends Request {
+  awaited : one Ident,
+  address : one Str
+}
+
+sig PromiseRegisterListenerRes extends Response {
+  promise : lone PromiseRecord
+}
+
+sig PromiseSearchReq extends Request {
+  state  : lone PromiseState,
+  limit  : lone Int,
+  cursor : lone Str
+} { all x : limit | x >= 0 }
+
+sig PromiseSearchRes extends Response {
+  promises : set PromiseRecord,
+  cursor   : lone Str
+}
+
+sig TaskGetReq extends Request {
+  id : one Ident
+}
+
+sig TaskGetRes extends Response {
+  task : lone TaskRecord
+}
+
+sig TaskCreateReq extends Request {
+  pid    : one Str,
+  ttl    : one Int,
+  action : one PromiseCreateReq
+} { ttl >= 0 }
+
+sig TaskCreateRes extends Response {
+  task    : lone TaskRecord,
+  promise : lone PromiseRecord,
+  preload : set PromiseRecord
+}
+
+sig TaskAcquireReq extends Request {
+  id      : one Ident,
+  version : one Int,
+  pid     : one Str,
+  ttl     : one Int
+} { version >= 0 and ttl >= 0 }
+
+sig TaskAcquireRes extends Response {
+  task    : lone TaskRecord,
+  promise : lone PromiseRecord,
+  preload : set PromiseRecord
+}
+
+abstract sig TaskFenceAction {}
+
+sig FenceCreate extends TaskFenceAction {
+  create : one PromiseCreateReq
+}
+
+sig FenceSettle extends TaskFenceAction {
+  settle : one PromiseSettleReq
+}
+
+-- `TaskFenceAction.targetId`
+fun targetId [a : TaskFenceAction] : one Ident { a.create.id + a.settle.id }
+
+abstract sig TaskFenceInnerRes {}
+
+sig FenceCreateRes extends TaskFenceInnerRes {
+  create : one PromiseCreateRes
+}
+
+sig FenceSettleRes extends TaskFenceInnerRes {
+  settle : one PromiseSettleRes
+}
+
+sig TaskFenceReq extends Request {
+  id      : one Ident,
+  version : one Int,
+  action  : one TaskFenceAction
+} { version >= 0 }
+
+sig TaskFenceRes extends Response {
+  action  : lone TaskFenceInnerRes,
+  preload : set PromiseRecord
+}
+
+sig TaskRef {
+  id      : one Ident,
+  version : one Int
+} { version >= 0 }
+
+sig TaskHeartbeatReq extends Request {
+  pid   : one Str,
+  tasks : seq TaskRef
+}
+
+sig TaskHeartbeatRes extends Response {}
+
+sig TaskSuspendReq extends Request {
+  id      : one Ident,
+  version : one Int,
+  actions : seq PromiseRegisterCallbackReq
+} { version >= 0 }
+
+sig TaskSuspendRes extends Response {
+  preload : set PromiseRecord
+}
+
+sig TaskFulfillReq extends Request {
+  id      : one Ident,
+  version : one Int,
+  action  : one PromiseSettleReq
+} { version >= 0 }
+
+sig TaskFulfillRes extends Response {
+  promise : lone PromiseRecord
+}
+
+sig TaskReleaseReq extends Request {
+  id      : one Ident,
+  version : one Int
+} { version >= 0 }
+
+sig TaskReleaseRes extends Response {}
+
+sig TaskHaltReq extends Request {
+  id : one Ident
+}
+
+sig TaskHaltRes extends Response {}
+
+sig TaskContinueReq extends Request {
+  id : one Ident
+}
+
+sig TaskContinueRes extends Response {}
+
+sig TaskSearchReq extends Request {
+  state  : lone TaskState,
+  limit  : lone Int,
+  cursor : lone Str
+} { all x : limit | x >= 0 }
+
+sig TaskSearchRes extends Response {
+  tasks  : set TaskRecord,
+  cursor : lone Str
+}
+
+fact RequestValue {
+  no disj a, b : PromiseGetReq | a.id = b.id
+  no disj a, b : PromiseCreateReq |
+    a.id = b.id and a.timeoutAt = b.timeoutAt and a.param = b.param and
+    a.type = b.type and a.delay = b.delay
+  no disj a, b : PromiseSettleReq | a.id = b.id and a.state = b.state and a.value = b.value
+  no disj a, b : PromiseRegisterCallbackReq | a.awaited = b.awaited and a.awaiter = b.awaiter
+  no disj a, b : PromiseRegisterListenerReq | a.awaited = b.awaited and a.address = b.address
+  no disj a, b : PromiseSearchReq | a.state = b.state and a.limit = b.limit and a.cursor = b.cursor
+  no disj a, b : TaskGetReq | a.id = b.id
+  no disj a, b : TaskCreateReq | a.pid = b.pid and a.ttl = b.ttl and a.action = b.action
+  no disj a, b : TaskAcquireReq |
+    a.id = b.id and a.version = b.version and a.pid = b.pid and a.ttl = b.ttl
+  no disj a, b : FenceCreate | a.create = b.create
+  no disj a, b : FenceSettle | a.settle = b.settle
+  no disj a, b : TaskFenceReq | a.id = b.id and a.version = b.version and a.action = b.action
+  no disj a, b : TaskRef | a.id = b.id and a.version = b.version
+  no disj a, b : TaskHeartbeatReq | a.pid = b.pid and a.tasks = b.tasks
+  no disj a, b : TaskSuspendReq | a.id = b.id and a.version = b.version and a.actions = b.actions
+  no disj a, b : TaskFulfillReq | a.id = b.id and a.version = b.version and a.action = b.action
+  no disj a, b : TaskReleaseReq | a.id = b.id and a.version = b.version
+  no disj a, b : TaskHaltReq | a.id = b.id
+  no disj a, b : TaskContinueReq | a.id = b.id
+  no disj a, b : TaskSearchReq | a.state = b.state and a.limit = b.limit and a.cursor = b.cursor
+}
+
+fact ResponseValue {
+  no disj a, b : PromiseGetRes | a.status = b.status and a.promise = b.promise
+  no disj a, b : PromiseCreateRes | a.status = b.status and a.promise = b.promise
+  no disj a, b : PromiseSettleRes | a.status = b.status and a.promise = b.promise
+  no disj a, b : PromiseRegisterCallbackRes | a.status = b.status and a.promise = b.promise
+  no disj a, b : PromiseRegisterListenerRes | a.status = b.status and a.promise = b.promise
+  no disj a, b : PromiseSearchRes |
+    a.status = b.status and a.promises = b.promises and a.cursor = b.cursor
+  no disj a, b : TaskGetRes | a.status = b.status and a.task = b.task
+  no disj a, b : TaskCreateRes |
+    a.status = b.status and a.task = b.task and a.promise = b.promise and a.preload = b.preload
+  no disj a, b : TaskAcquireRes |
+    a.status = b.status and a.task = b.task and a.promise = b.promise and a.preload = b.preload
+  no disj a, b : FenceCreateRes | a.create = b.create
+  no disj a, b : FenceSettleRes | a.settle = b.settle
+  no disj a, b : TaskFenceRes | a.status = b.status and a.action = b.action and a.preload = b.preload
+  no disj a, b : TaskHeartbeatRes | a.status = b.status
+  no disj a, b : TaskSuspendRes | a.status = b.status and a.preload = b.preload
+  no disj a, b : TaskFulfillRes | a.status = b.status and a.promise = b.promise
+  no disj a, b : TaskReleaseRes | a.status = b.status
+  no disj a, b : TaskHaltRes | a.status = b.status
+  no disj a, b : TaskContinueRes | a.status = b.status
+  no disj a, b : TaskSearchRes | a.status = b.status and a.tasks = b.tasks and a.cursor = b.cursor
 }

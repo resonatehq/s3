@@ -56,14 +56,17 @@ the refinement proof mirrors the machine: one file per layer.
 
 ## The Alloy model (`src/alloy/`)
 
-The abstract model once more, as an Alloy specification: the data model
-first, the transitions to follow. One module per Lean layer.
+The abstract model once more, as an Alloy specification: the data model,
+and the external handlers; the triggers and the trace to follow. One
+module per Lean layer.
 
 | file | what it defines |
 |---|---|
-| `src/alloy/types.als` | The object model of `types.lean`, one signature per structure: `Ident`, `Value`, `PromiseState`, `TaskState`, `OType` (with `Runnable` carrying its target), `PromiseObject`, `TaskObject`, `Object`, the records `PromiseRecord` and `TaskRecord`, `Message` (`Execute`, `Unblock`), `OutboxEntry`. The object model's functions are predicates relating input to output: `addCallback`, `addListener`, `projectPromise`, `fulfillTask`, `viewTask`, `projectObject`, `promiseToRecord`, `taskToRecord`; `projectedState` computes the state a promise shows at an instant; `sameKey` is `OutboxKey`. |
-| `src/alloy/state.als` | `State` (objects and outbox, no schedules yet), `init`, and the lookups `promises`, `tasks`, `object`, `promise`, `task`, `hasTask`. |
+| `src/alloy/types.als` | The protocol layer of `types.lean`, one signature per structure: `Ident`, `Value`, `PromiseState`, `TaskState`, `OType` (with `Runnable` carrying its target), `PromiseObject`, `TaskObject`, `Object`, the records `PromiseRecord` and `TaskRecord`, `Message` (`Execute`, `Unblock`), `OutboxEntry`, and the alphabet: `Request` and `Response` with one subsignature per constructor, `Status` the codes the handlers answer. The object model's functions are predicates relating input to output: `addCallback`, `addListener`, `projectPromise`, `fulfillTask`, `viewTask`, `projectObject`, `promiseToRecord`, `taskToRecord`; `projectedState` computes the state a promise shows at an instant; `sameKey` is `OutboxKey`. |
+| `src/alloy/state.als` | `State` (objects and outbox, no schedules yet), `init`, the lookups `promises`, `tasks`, `object`, `promise`, `task`, `hasTask`; the effects: `apply` is `applyAll` on a step's keyed writes, `readObject` and `readTaskObject` the reads with `matP` and `matT` what a read materialises, `createPromise`, `setSettled`. |
 | `src/alloy/properties.als` | The catalogue's state properties, one predicate per Lean property under the same name, `stateHolds` conjoining them, the `gaps`. Runs show the catalogue admits the states it describes; checks show the lookups are functional under it and the projections agree with its verdicts. |
+| `src/alloy/external.als` | The 17 non-schedule handlers, one predicate per Lean handler, `[mat, now, s, req, res, s2]`, with the Lean branches in the Lean order: `promiseGet`, `promiseCreate`, `promiseSettle`, `promiseRegisterCallback`, `promiseRegisterListener`, `promiseSearch`, `taskGet`, `taskCreate`, `taskAcquire`, `taskFence` (through `promiseCreateWith` and `promiseSettleWith`, the inner handlers run after the fence's own reads), `taskHeartbeat`, `taskSuspend` (with `firstBad` where `checkAwaited` stops), `taskFulfill`, `taskRelease`, `taskHalt`, `taskContinue`, `taskSearch`. For every handler a run shows it can succeed on a well formed state and a check shows it preserves the catalogue. |
+| `src/alloy/system.als` | `handleExternal`, the dispatch of a `Request` to its handler and `Response`. |
 
 The translation: a structure is a signature with value semantics (a fact
 identifies atoms with equal fields, so `=` is structural equality as in
@@ -72,13 +75,25 @@ constructor; `Option` is `lone`; `Nat` is a non-negative `Int`; `String`
 is an atom of `Str`, with `EmptyStr` the empty string. The lists the
 catalogue proves duplicate free (`objects` by id, `outbox` by key,
 `callbacks`, `listeners`, `resumes`) are sets, so the three uniqueness
-properties hold by construction; a header list is a relation.
+properties hold by construction; a header list is a relation; a list in
+a request is a `seq`.
+
+The monad: a step reads the state it started from throughout and its
+effects are folded onto it at the end. Every effect is keyed, so the
+fold is determined by the last effect on each key: a handler's writes
+are keyed maps, a read's materialisation first and the handler's own
+writes overriding it (`++`), and `apply` folds them once. A handler
+predicate therefore relates the state before to the state after with no
+intermediate states.
 
 ```
-java -jar org.alloytools.alloy.dist.jar exec src/alloy/properties.als
+java -jar org.alloytools.alloy.dist.jar exec -n src/alloy/properties.als
+java -jar org.alloytools.alloy.dist.jar exec -n src/alloy/external.als
 ```
 
-Alloy 6.2, no libraries beyond the distribution jar.
+Alloy 6.2, no libraries beyond the distribution jar; `-n` excludes
+instances with arithmetic overflow, as the machine's arithmetic is on
+naturals.
 
 ## Build
 
