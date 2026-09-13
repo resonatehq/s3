@@ -29,19 +29,6 @@ theorem WF_write_of {o : Object} (hg : Good o) {x : Object} (hid : x.id = o.id)
   WF_write_fresh hd ⟨hg.1.sublist hls, hg.2.1.sublist hcb, fun w hw => by
     rw [hid]; exact hg.2.2 w (hcb.subset hw)⟩
 
-theorem nodup_append_single {α : Type} [BEq α] [LawfulBEq α] {l : List α} {w : α} (h : l.Nodup) (hw : w ∉ l) :
-    (l ++ [w]).Nodup := by
-  induction l with
-  | nil => exact List.nodup_cons.2 ⟨List.not_mem_nil, List.nodup_nil⟩
-  | cons x xs ih =>
-      have h' := List.nodup_cons.1 h
-      simp only [List.mem_cons, not_or] at hw
-      refine List.nodup_cons.2 ⟨?_, ih h'.2 hw.2⟩
-      intro hm
-      rcases List.mem_append.1 hm with hm | hm
-      · exact h'.1 hm
-      · exact hw.1 (List.mem_singleton.1 hm).symm
-
 theorem addCallback_listeners (p : PromiseObject) (w : Ident) : (p.addCallback w).listeners = p.listeners := by
   unfold PromiseObject.addCallback; split <;> rfl
 

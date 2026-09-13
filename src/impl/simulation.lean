@@ -1,4 +1,5 @@
 import impl.wf
+import impl.equal
 
 namespace Refinement
 
@@ -551,8 +552,8 @@ theorem step_sim (H : Concrete.Hasher) (ev : Concrete.Event) (now : Nat)
           have hwf' := handleExternal_wf hsw.wf now req
           rw [hC] at hwf'
           have hfin : SwInv name S ((Concrete.sweep now (s.origin name)).merge c)
-              (Abstract.applyAll (execI (Concrete.sweepTriggers now (s.origin name)) now S)
-                (Abstract.handleExternal req now (env (execI (Concrete.sweepTriggers now (s.origin name)) now S))).2) :=
+              (Abstract.applyAll (execI (Chain.sweepTriggers now (s.origin name)) now S)
+                (Abstract.handleExternal req now (env (execI (Chain.sweepTriggers now (s.origin name)) now S))).2) :=
             hsw.step _ hsim.fx hsim.loc (by rw [hsim.send]; rfl) (hsim.orig hsw.orig) (hsim.nodup hsw.nodup) hwf'
           have hhandle : Concrete.handle now (s.origin name) (.external req) =
               (.external res, (Concrete.sweep now (s.origin name)).merge c) := by
@@ -594,7 +595,7 @@ theorem step_sim (H : Concrete.Hasher) (ev : Concrete.Event) (now : Nat)
         simp only
         have inv' : Inv s' := Inv.of_run inv hsw.orig hsw.nodup hsw.wf h4 h5
         refine ⟨inv', SwInv.equiv inv rel hsw inv' h1 h2 h3, ?_⟩
-        have := observations_internal now (Concrete.sweepTriggers now (s.origin t.id.origin)) [] []
+        have := observations_internal now (Chain.sweepTriggers now (s.origin t.id.origin)) [] []
         simp only [List.append_nil] at this
         rw [this]
         rfl

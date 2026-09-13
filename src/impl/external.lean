@@ -52,7 +52,10 @@ def Origin.get (org : Origin) (id : Ident) (now : Nat) : Option Object :=
   (org.objects.find? (·.id == id)).map (·.project now)
 
 def Origin.write (org : Origin) (o : Object) : Origin :=
-  ⟨o :: org.objects.filter (·.id != o.id)⟩
+  if org.objects.any (·.id == o.id) then
+    ⟨org.objects.map fun x => if x.id == o.id then o else x⟩
+  else
+    ⟨org.objects ++ [o]⟩
 
 def _root_.Protocol.TaskObject.timers (t : TaskObject) (id : Ident) : List Timer :=
   match t.state, t.leaseTimeoutAt, t.retryTimeoutAt with

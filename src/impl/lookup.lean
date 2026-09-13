@@ -194,15 +194,71 @@ theorem find_setTask (S : Abstract.State) (id id' : Ident) (t : TaskObject) :
 theorem find_setMessage (S : Abstract.State) (a : String) (m : Message) (id : Ident) :
     find ((Abstract.Effect.setMessage a m).apply S) id = find S id := rfl
 
+theorem write_present {org : Origin} {x : Object} (h : org.objects.any (·.id == x.id) = true) :
+    (org.write x).objects = org.objects.map fun o => if o.id == x.id then x else o := by
+  simp [Concrete.Origin.write, h]
+
+theorem write_absent {org : Origin} {x : Object} (h : org.objects.any (·.id == x.id) = false) :
+    (org.write x).objects = org.objects ++ [x] := by
+  simp [Concrete.Origin.write, h]
+
+theorem replace_id (x o : Object) : (if o.id == x.id then x else o).id = o.id := by
+  split
+  · rename_i e; exact (beq_iff_eq.1 e).symm
+  · rfl
+
 theorem find_write_same (org : Origin) (x : Object) :
     Origin.find (org.write x) x.id = some x := by
-  simp [Origin.find, Concrete.Origin.write]
+  unfold Origin.find
+  by_cases h : org.objects.any (·.id == x.id) = true
+  · rw [write_present h, find?_map_id _ (replace_id x)]
+    obtain ⟨y, hy, hyx⟩ := List.any_eq_true.1 h
+    cases hf : org.objects.find? (·.id == x.id) with
+    | none =>
+        rw [List.find?_eq_none] at hf
+        exact absurd hyx (hf y hy)
+    | some z =>
+        have hz : z.id = x.id := by simpa using List.find?_some hf
+        simp [hz]
+  · have h' := eq_false_of_ne_true h
+    rw [write_absent h', List.find?_append]
+    have : org.objects.find? (·.id == x.id) = none := by
+      rw [List.find?_eq_none]
+      intro a ha hp
+      exact List.any_eq_false.1 h' a ha hp
+    simp [this]
 
 theorem find_write_other (org : Origin) (x : Object) (id : Ident) (h : id ≠ x.id) :
     Origin.find (org.write x) id = Origin.find org id := by
-  have h1 : (x.id == id) = false := by simpa using Ne.symm h
-  simp only [Origin.find, Concrete.Origin.write, List.find?_cons, h1]
-  exact find?_filter_ne _ _ _ h
+  unfold Origin.find
+  by_cases hp : org.objects.any (·.id == x.id) = true
+  · rw [write_present hp, find?_map_id _ (replace_id x)]
+    cases hf : org.objects.find? (·.id == id) with
+    | none => rfl
+    | some y =>
+        have hy : y.id = id := by simpa using List.find?_some hf
+        have : y.id ≠ x.id := fun e => h (hy.symm.trans e)
+        simp [this]
+  · have hp' := eq_false_of_ne_true hp
+    rw [write_absent hp', List.find?_append]
+    have : ([x].find? (·.id == id)) = none := by
+      have : (x.id == id) = false := by simpa using Ne.symm h
+      simp [this]
+    rw [this, Option.or_none]
+
+theorem mem_write {org : Origin} {x ob : Object} (hob : ob ∈ (org.write x).objects) :
+    ob = x ∨ ob ∈ org.objects := by
+  unfold Concrete.Origin.write at hob
+  split at hob
+  · simp only [List.mem_map] at hob
+    obtain ⟨y, hy, rfl⟩ := hob
+    split
+    · exact Or.inl rfl
+    · exact Or.inr hy
+  · simp only [List.mem_append, List.mem_singleton] at hob
+    rcases hob with hob | rfl
+    · exact Or.inr hob
+    · exact Or.inl rfl
 
 theorem find_mem {org : Origin} {id : Ident} {o : Object} (h : Origin.find org id = some o) :
     o ∈ org.objects ∧ o.id = id := by
@@ -299,20 +355,41 @@ theorem write_derived {o : String} {org : Origin} {x : Object}
     (h : ∀ ob ∈ org.objects, ob.id.origin = o) (hx : x.id.origin = o) :
     ∀ ob ∈ (org.write x).objects, ob.id.origin = o := by
   intro ob hob
-  simp only [Concrete.Origin.write, List.mem_cons, List.mem_filter] at hob
-  rcases hob with rfl | ⟨hob, _⟩
+  rcases mem_write hob with rfl | hob
   · exact hx
   · exact h ob hob
 
+theorem nodup_append_single {α : Type} {l : List α} {w : α} (h : l.Nodup) (hw : w ∉ l) :
+    (l ++ [w]).Nodup := by
+  induction l with
+  | nil => exact List.nodup_cons.2 ⟨List.not_mem_nil, List.nodup_nil⟩
+  | cons x xs ih =>
+      have h' := List.nodup_cons.1 h
+      simp only [List.mem_cons, not_or] at hw
+      refine List.nodup_cons.2 ⟨?_, ih h'.2 hw.2⟩
+      intro hm
+      rcases List.mem_append.1 hm with hm | hm
+      · exact h'.1 hm
+      · exact hw.1 (List.mem_singleton.1 hm).symm
+
+theorem write_ids {org : Origin} {x : Object} (h : org.objects.any (·.id == x.id) = true) :
+    (org.write x).objects.map (·.id) = org.objects.map (·.id) := by
+  rw [write_present h, List.map_map]
+  congr 1
+  funext o
+  exact replace_id x o
+
 theorem write_nodup {org : Origin} {x : Object} (h : (org.objects.map (·.id)).Nodup) :
     ((org.write x).objects.map (·.id)).Nodup := by
-  simp only [Concrete.Origin.write, List.map_cons, List.nodup_cons]
-  refine ⟨?_, ?_⟩
-  · intro hmem
-    simp only [List.mem_map, List.mem_filter] at hmem
-    obtain ⟨ob, ⟨_, hne⟩, heq⟩ := hmem
-    simp [heq] at hne
-  · exact List.Nodup.sublist (List.Sublist.map (fun o : Object => o.id) List.filter_sublist) h
+  by_cases hp : org.objects.any (·.id == x.id) = true
+  · rw [write_ids hp]; exact h
+  · have hp' := eq_false_of_ne_true hp
+    rw [write_absent hp', List.map_append, List.map_singleton]
+    apply nodup_append_single h
+    intro hm
+    simp only [List.mem_map] at hm
+    obtain ⟨y, hy, hyx⟩ := hm
+    exact List.any_eq_false.1 hp' y hy (by simp [hyx])
 
 theorem project_id (o : Object) (n : Nat) : (o.project n).id = o.id := rfl
 
