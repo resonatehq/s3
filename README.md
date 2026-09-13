@@ -87,13 +87,16 @@ predicate therefore relates the state before to the state after with no
 intermediate states.
 
 ```
-java -jar org.alloytools.alloy.dist.jar exec -n src/alloy/properties.als
-java -jar org.alloytools.alloy.dist.jar exec -n src/alloy/external.als
+java -jar org.alloytools.alloy.dist.jar exec src/alloy/properties.als
+java -jar org.alloytools.alloy.dist.jar exec src/alloy/external.als
 ```
 
-Alloy 6.2, no libraries beyond the distribution jar; `-n` excludes
-instances with arithmetic overflow, as the machine's arithmetic is on
-naturals.
+Alloy 6.2, no libraries beyond the distribution jar. The machine's
+arithmetic is on naturals and Alloy's integers wrap; a sum that leaves
+the range wraps to a negative, which no field admits, so at the edge of
+the range a step does not exist rather than miscomputes. Do not pass
+`--nooverflow`: it treats an overflowing comparison as satisfied and
+invents steps.
 
 ## Build
 

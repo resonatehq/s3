@@ -483,7 +483,11 @@ pred taskSearch [mat : Bool, now : Int, s : State, req : TaskSearchReq,
 
 -- Commands. Each handler has a run showing it can succeed on a well formed
 -- state, and a check that it preserves the catalogue's state properties.
--- Run with `--nooverflow`: the machine's arithmetic is on naturals.
+-- The machine's arithmetic is on naturals and Alloy's integers wrap: a
+-- sum of two naturals that leaves the range wraps to a negative, which
+-- no field admits, so at the edge of the range the step does not exist
+-- rather than miscomputes. Do not run with `--nooverflow`: it treats an
+-- overflowing comparison as satisfied and invents steps.
 
 run promiseGet_ok {
   some mat : Bool, now : Int, s, s2 : State, req : PromiseGetReq, res : PromiseGetRes |
