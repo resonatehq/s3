@@ -54,6 +54,32 @@ the refinement proof mirrors the machine: one file per layer.
 | `src/impl/trace.lean` | Flattening a sequence of nonempty frame blocks into a trace, and the frames an abstract state runs through on a list of events. |
 | `src/impl/refinement.lean` | `refines`: every valid concrete trace from the empty bucket has a valid abstract trace from the empty state with the same k-th observation for every k. The abstract trace is the concatenation, frame by frame, of the linearisation of each concrete step followed by a stutter. |
 
+## The Alloy model (`src/alloy/`)
+
+The abstract model once more, as an Alloy specification: the data model
+first, the transitions to follow. One module per Lean layer.
+
+| file | what it defines |
+|---|---|
+| `src/alloy/types.als` | The object model of `types.lean`, one signature per structure: `Ident`, `Value`, `PromiseState`, `TaskState`, `OType` (with `Runnable` carrying its target), `PromiseObject`, `TaskObject`, `Object`, the records `PromiseRecord` and `TaskRecord`, `Message` (`Execute`, `Unblock`), `OutboxEntry`. The object model's functions are predicates relating input to output: `addCallback`, `addListener`, `projectPromise`, `fulfillTask`, `viewTask`, `projectObject`, `promiseToRecord`, `taskToRecord`; `projectedState` computes the state a promise shows at an instant; `sameKey` is `OutboxKey`. |
+| `src/alloy/state.als` | `State` (objects and outbox, no schedules yet), `init`, and the lookups `promises`, `tasks`, `object`, `promise`, `task`, `hasTask`. |
+| `src/alloy/properties.als` | The catalogue's state properties, one predicate per Lean property under the same name, `stateHolds` conjoining them, the `gaps`. Runs show the catalogue admits the states it describes; checks show the lookups are functional under it and the projections agree with its verdicts. |
+
+The translation: a structure is a signature with value semantics (a fact
+identifies atoms with equal fields, so `=` is structural equality as in
+Lean); a sum is an abstract signature with one subsignature per
+constructor; `Option` is `lone`; `Nat` is a non-negative `Int`; `String`
+is an atom of `Str`, with `EmptyStr` the empty string. The lists the
+catalogue proves duplicate free (`objects` by id, `outbox` by key,
+`callbacks`, `listeners`, `resumes`) are sets, so the three uniqueness
+properties hold by construction; a header list is a relation.
+
+```
+java -jar org.alloytools.alloy.dist.jar exec src/alloy/properties.als
+```
+
+Alloy 6.2, no libraries beyond the distribution jar.
+
 ## Build
 
 ```
