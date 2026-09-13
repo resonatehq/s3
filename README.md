@@ -55,6 +55,7 @@ the refinement proof mirrors the machine: one file per layer.
 | `src/impl/simulation.lean` | `step_sim`, the one-step simulation. `find_abstract` reads an object of `abstract s` from the blob of its origin; `run_state` describes the bucket and outbox after the atomic put; `handleExternal_sim` dispatches over the request alphabet. A concrete step is a list of abstract events at the same instant that preserves `Inv` and `Equiv` and shows the same observation. |
 | `src/impl/trace.lean` | Flattening a sequence of nonempty frame blocks into a trace, and the frames an abstract state runs through on a list of events. |
 | `src/impl/refinement.lean` | `refines`: every valid concrete trace from the empty bucket has a valid abstract trace from the empty state with the same k-th observation for every k. The abstract trace is the concatenation, frame by frame, of the linearisation of each concrete step followed by a stutter. |
+| `src/impl/cache.lean` | The machine with a read cache next to the bucket. `Cached` is a bucket and a list of documents by origin; `runCached` reads the origin from the cache when it is there, otherwise from the bucket, conditions the put on what it read, and remembers the document it put once the put is accepted. Handlers and `handle` are untouched. `Sound` says every cache entry is the blob stored at its path; it holds initially, every step preserves it, and under it the cached step equals the uncached step on the bucket. `refinesCached` is `refines` for the cached machine. |
 
 ## Build
 
