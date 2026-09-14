@@ -81,9 +81,9 @@ run lifecycle {
   valid
   eventually some storedTasks & state.Acquired
   eventually some storedTasks & state.Fulfilled
-} for 3 but 5 Int, 2 seq, 3 steps
+} for 3 but 5 Int, 2 seq, 3 steps, 6 Request, 6 Response, 2 Runnable
 
 -- Every valid trace satisfies the catalogue at every instant.
 check catalogueAlongTraces {
   valid implies always stateHolds[Machine.now]
-} for 3 but 5 Int, 2 seq, 3 steps
+} for 3 but 5 Int, 2 seq, 3 steps, 6 Request, 6 Response, 2 Runnable
