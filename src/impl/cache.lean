@@ -235,4 +235,191 @@ theorem refinesCached (H : Hasher) (tr : Cached.Trace H)
   obtain ⟨tr', h1, h2, h3⟩ := refines H (Cached.proj tr) (proj_valid valid init) hinit
   exact ⟨tr', h1, h2, fun k o => (nth_proj tr k o).trans (h3 k o)⟩
 
+def Tagged {H : Hasher} (cs : Cached H) : Prop :=
+  ∀ name org etag, (name, org, etag) ∈ cs.cache → H.hash (.origin org) = etag
+
+theorem Sound.tagged {H : Hasher} {cs : Cached H} (h : Sound cs) : Tagged cs :=
+  fun name org etag hm => (h name org etag hm).2
+
+theorem forget_not_mem {H : Hasher} {cs : Cached H} {name : String} {org : Origin} {etag : H.Hash} :
+    (name, org, etag) ∉ cs.forget name := by
+  intro hm
+  have := (List.mem_filter.1 hm).2
+  simp at this
+
+theorem runCached_cache {α : Type} (H : Hasher) (name : String) (f : Origin → α × Commands) (cs : Cached H) :
+    ∃ c : Commands, (runCached H name f cs).2.1.cache =
+      if (runCached H name f cs).2.2 then (name, c.put, H.hash (.origin c.put)) :: cs.forget name
+      else cs.forget name := by
+  unfold runCached
+  rcases hr : cs.read name with ⟨org, cond⟩
+  simp only
+  exact ⟨(f org).2, rfl⟩
+
+theorem runCached_tagged {α : Type} (H : Hasher) (name : String) (f : Origin → α × Commands) {cs : Cached H}
+    (h : Tagged cs) : Tagged (runCached H name f cs).2.1 := by
+  obtain ⟨c, hc⟩ := runCached_cache H name f cs
+  intro m org etag hm
+  rw [hc] at hm
+  split at hm
+  · simp only [List.mem_cons, Prod.mk.injEq] at hm
+    rcases hm with ⟨rfl, rfl, rfl⟩ | hm
+    · rfl
+    · exact h m org etag (List.mem_filter.1 hm).1
+  · exact h m org etag (List.mem_filter.1 hm).1
+
+theorem read_cases {H : Hasher} (cs : Cached H) (name : String) :
+    cs.read name = (cs.state.origin name, Concrete.Cond.of H (cs.state.blob? (.origin name))) ∨
+    ∃ org etag, (name, org, etag) ∈ cs.cache ∧ cs.read name = (org, .hash etag) := by
+  unfold Cached.read
+  cases hf : cs.cache.find? (·.1 == name) with
+  | none => exact Or.inl rfl
+  | some p =>
+      obtain ⟨n, org, etag⟩ := p
+      have hn : n = name := by simpa using List.find?_some hf
+      subst hn
+      exact Or.inr ⟨org, etag, List.mem_of_find?_eq_some hf, rfl⟩
+
+theorem runCached_of_read {α : Type} (H : Hasher) (name : String) (f : Origin → α × Commands) {cs : Cached H}
+    (hr : cs.read name = (cs.state.origin name, Concrete.Cond.of H (cs.state.blob? (.origin name)))) :
+    (runCached H name f cs).1 = (Concrete.run H name f cs.state).1 ∧
+    (runCached H name f cs).2.1.state = (Concrete.run H name f cs.state).2.1 ∧
+    (runCached H name f cs).2.2 = true := by
+  simp only [runCached, Concrete.run, hr]
+  rcases hf : f (cs.state.origin name) with ⟨a, c⟩
+  have hok := Concrete.applyAll_accepted (H := H) cs.state name c
+  rcases hA : Concrete.applyAll cs.state (c.effects name (Concrete.Cond.of H (cs.state.blob? (.origin name))))
+    with ⟨s', ok⟩
+  rw [hA] at hok
+  simp only at hok
+  subst hok
+  refine ⟨?_, ?_, ?_⟩ <;> first | trivial | rfl
+
+theorem read_of_hit {H : Hasher} {cs : Cached H} (ht : Tagged cs) {name : String} {org : Origin} {etag : H.Hash}
+    (hm : (name, org, etag) ∈ cs.cache) (hr : cs.read name = (org, .hash etag))
+    (hh : (Concrete.Cond.hash etag : Concrete.Cond H).holds (cs.state.blob? (.origin name)) = true) :
+    cs.read name = (cs.state.origin name, Concrete.Cond.of H (cs.state.blob? (.origin name))) := by
+  have he := ht name org etag hm
+  have hb : cs.state.blob? (.origin name) = some (.origin org) := by
+    rw [← he] at hh
+    exact (Concrete.Cond.of_holds_iff (.origin org) _).1 hh
+  rw [hr]
+  unfold Concrete.State.origin
+  simp only [hb, Concrete.Cond.of, he]
+
+theorem applyAll_cons_refused {H : Hasher} (s : Concrete.State) (p : Path) (b : Blob) (cond : Concrete.Cond H)
+    (rest : List (Concrete.Effect H)) (h : cond.holds (s.blob? p) = false) :
+    Concrete.applyAll s (Concrete.Effect.put p b cond :: rest) = (s, false) := by
+  have hP : (Concrete.Effect.put (H := H) p b cond).apply s = none := by
+    simp [Concrete.Effect.apply, h]
+  simp only [Concrete.applyAll, hP]
+
+theorem applyAll_refused (H : Hasher) (s : Concrete.State) (name : String) (c : Commands) (cond : Concrete.Cond H)
+    (h : cond.holds (s.blob? (.origin name)) = false) :
+    (Concrete.applyAll s (c.effects name cond)).2 = false ∧ Same s (Concrete.applyAll s (c.effects name cond)).1 := by
+  unfold Commands.effects
+  obtain ⟨hA, sameA⟩ := timers_phase (H := H) (c.arm.map fun t => .put (.timer t) .timer .any) s
+    (by intro e he; simp only [List.mem_map] at he; obtain ⟨t, _, rfl⟩ := he; trivial)
+  obtain ⟨s1, hs1⟩ : ∃ s1, Concrete.applyAll s (c.arm.map fun t => Concrete.Effect.put (H := H) (.timer t) .timer .any) = (s1, true) :=
+    ⟨_, Prod.ext rfl hA⟩
+  rw [hs1] at sameA
+  simp only at sameA
+  simp only [List.append_assoc, List.singleton_append]
+  rw [Concrete.applyAll_append, hs1, if_pos rfl]
+  have hh : cond.holds (s1.blob? (.origin name)) = false := by rw [sameA.blob, h]
+  show (Concrete.applyAll s1 _).2 = false ∧ Same s (Concrete.applyAll s1 _).1
+  rw [List.cons_append, applyAll_cons_refused s1 _ _ _ _ hh]
+  exact ⟨rfl, sameA⟩
+
+theorem runCached_miss {α : Type} (H : Hasher) (name : String) (f : Origin → α × Commands) {cs : Cached H}
+    {org : Origin} {etag : H.Hash} (hr : cs.read name = (org, .hash etag))
+    (hh : (Concrete.Cond.hash etag : Concrete.Cond H).holds (cs.state.blob? (.origin name)) = false) :
+    (runCached H name f cs).2.2 = false ∧
+    Same cs.state (runCached H name f cs).2.1.state ∧
+    ∀ org' etag', (name, org', etag') ∉ (runCached H name f cs).2.1.cache := by
+  simp only [runCached, hr]
+  rcases hf : f org with ⟨a, c⟩
+  obtain ⟨hA, same⟩ := applyAll_refused H cs.state name c (.hash etag) hh
+  rcases hAA : Concrete.applyAll cs.state (c.effects name (.hash etag)) with ⟨s', ok⟩
+  rw [hAA] at hA same
+  simp only at hA same
+  subst hA
+  refine ⟨rfl, same, fun org' etag' hm => ?_⟩
+  have hm' : (name, org', etag') ∈ cs.forget name := hm
+  exact forget_not_mem hm'
+
+theorem runCached_dichotomy {α : Type} (H : Hasher) (name : String) (f : Origin → α × Commands) {cs : Cached H}
+    (ht : Tagged cs) :
+    ((cs.read name).2.holds (cs.state.blob? (.origin name)) = true →
+      (runCached H name f cs).1 = (Concrete.run H name f cs.state).1 ∧
+      (runCached H name f cs).2.1.state = (Concrete.run H name f cs.state).2.1 ∧
+      (runCached H name f cs).2.2 = true) ∧
+    ((cs.read name).2.holds (cs.state.blob? (.origin name)) = false →
+      (runCached H name f cs).2.2 = false ∧
+      Same cs.state (runCached H name f cs).2.1.state ∧
+      ∀ org etag, (name, org, etag) ∉ (runCached H name f cs).2.1.cache) := by
+  rcases read_cases cs name with hr | ⟨org, etag, hm, hr⟩
+  · refine ⟨fun _ => runCached_of_read H name f hr, fun hh => ?_⟩
+    rw [hr] at hh
+    simp only at hh
+    rw [Concrete.Cond.of_holds] at hh
+    cases hh
+  · refine ⟨fun hh => ?_, fun hh => ?_⟩
+    · rw [hr] at hh
+      simp only at hh
+      exact runCached_of_read H name f (read_of_hit ht hm hr hh)
+    · rw [hr] at hh
+      simp only at hh
+      exact runCached_miss H name f hr hh
+
+theorem stepCached_dichotomy (H : Hasher) (now : Nat) (req : Protocol.Request) (name : String)
+    (ho : req.origin? = some name) {cs : Cached H} (ht : Tagged cs) :
+    ((cs.read name).2.holds (cs.state.blob? (.origin name)) = true →
+      (stepCached H (.external req) now cs).1 = (Concrete.step H (.external req) now cs.state).1 ∧
+      (stepCached H (.external req) now cs).2.state = (Concrete.step H (.external req) now cs.state).2) ∧
+    ((cs.read name).2.holds (cs.state.blob? (.origin name)) = false →
+      (stepCached H (.external req) now cs).1 = .stutter ∧
+      Same cs.state (stepCached H (.external req) now cs).2.state ∧
+      ∀ org etag, (name, org, etag) ∉ (stepCached H (.external req) now cs).2.cache) := by
+  simp only [stepCached, Concrete.step, ho]
+  have hd := runCached_dichotomy H name (fun org => Concrete.handle now org (.external req)) ht
+  have hok' := Concrete.run_accepted (H := H) name (fun org => Concrete.handle now org (.external req)) cs.state
+  rcases hR : runCached H name (fun org => Concrete.handle now org (.external req)) cs with ⟨r, cs', ok⟩
+  rcases hS : Concrete.run H name (fun org => Concrete.handle now org (.external req)) cs.state with ⟨r', s', ok'⟩
+  rw [hR, hS] at hd
+  rw [hS] at hok'
+  simp only at hd hok'
+  subst hok'
+  refine ⟨fun hh => ?_, fun hh => ?_⟩
+  · obtain ⟨rfl, h2, rfl⟩ := hd.1 hh
+    exact ⟨rfl, h2⟩
+  · obtain ⟨rfl, hsame, hnot⟩ := hd.2 hh
+    exact ⟨rfl, hsame, hnot⟩
+
+theorem stepCached_dichotomy_timer (H : Hasher) (now : Nat) (t : Concrete.Timer) {cs : Cached H}
+    (hl : (cs.state.blob? (.timer t)).isSome ∧ t.deadline ≤ now) (ht : Tagged cs) :
+    ((cs.read t.id.origin).2.holds (cs.state.blob? (.origin t.id.origin)) = true →
+      (stepCached H (.internal t) now cs).1 = (Concrete.step H (.internal t) now cs.state).1 ∧
+      (stepCached H (.internal t) now cs).2.state = (Concrete.step H (.internal t) now cs.state).2) ∧
+    ((cs.read t.id.origin).2.holds (cs.state.blob? (.origin t.id.origin)) = false →
+      (stepCached H (.internal t) now cs).1 = .stutter ∧
+      Same cs.state (stepCached H (.internal t) now cs).2.state ∧
+      ∀ org etag, (t.id.origin, org, etag) ∉ (stepCached H (.internal t) now cs).2.cache) := by
+  simp only [stepCached, Concrete.step]
+  rw [if_pos hl, if_pos hl]
+  have hd := runCached_dichotomy H t.id.origin (fun org => Concrete.handle now org (.internal t)) ht
+  have hok' := Concrete.run_accepted (H := H) t.id.origin (fun org => Concrete.handle now org (.internal t)) cs.state
+  rcases hR : runCached H t.id.origin (fun org => Concrete.handle now org (.internal t)) cs with ⟨r, cs', ok⟩
+  rcases hS : Concrete.run H t.id.origin (fun org => Concrete.handle now org (.internal t)) cs.state
+    with ⟨r', s', ok'⟩
+  rw [hR, hS] at hd
+  rw [hS] at hok'
+  simp only at hd hok'
+  subst hok'
+  refine ⟨fun hh => ?_, fun hh => ?_⟩
+  · obtain ⟨rfl, h2, rfl⟩ := hd.1 hh
+    exact ⟨rfl, h2⟩
+  · obtain ⟨rfl, hsame, hnot⟩ := hd.2 hh
+    exact ⟨rfl, hsame, hnot⟩
+
 end Refinement
