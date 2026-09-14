@@ -56,17 +56,21 @@ the refinement proof mirrors the machine: one file per layer.
 
 ## The Alloy model (`src/alloy/`)
 
-The abstract model once more, as an Alloy specification: the data model,
-and the external handlers; the triggers and the trace to follow. One
-module per Lean layer.
+The abstract model once more, as an Alloy 6 specification: the data
+model, the external handlers, and the machine that runs them along a
+trace; the triggers to follow. One module per Lean layer. The state is
+mutable in the Alloy 6 sense: `State` is a singleton whose `objects` and
+`outbox` are `var`, the lookups and the catalogue read the current
+instant, a handler constrains the next (`State.objects'`), and the
+machine's `Valid` is a temporal fact over the trace.
 
 | file | what it defines |
 |---|---|
 | `src/alloy/types.als` | The protocol layer of `types.lean`, one signature per structure: `Ident`, `Value`, `PromiseState`, `TaskState`, `OType` (with `Runnable` carrying its target), `PromiseObject`, `TaskObject`, `Object`, the records `PromiseRecord` and `TaskRecord`, `Message` (`Execute`, `Unblock`), `OutboxEntry`, and the alphabet: `Request` and `Response` with one subsignature per constructor, `Status` the codes the handlers answer. The object model's functions are predicates relating input to output: `addCallback`, `addListener`, `projectPromise`, `fulfillTask`, `viewTask`, `projectObject`, `promiseToRecord`, `taskToRecord`; `projectedState` computes the state a promise shows at an instant; `sameKey` is `OutboxKey`. |
-| `src/alloy/state.als` | `State` (objects and outbox, no schedules yet), `init`, the lookups `promises`, `tasks`, `object`, `promise`, `task`, `hasTask`; the effects: `apply` is `applyAll` on a step's keyed writes, `readObject` and `readTaskObject` the reads with `matP` and `matT` what a read materialises, `createPromise`, `setSettled`. |
-| `src/alloy/properties.als` | The catalogue's state properties, one predicate per Lean property under the same name, `stateHolds` conjoining them, the `gaps`. Runs show the catalogue admits the states it describes; checks show the lookups are functional under it and the projections agree with its verdicts. |
-| `src/alloy/external.als` | The 17 non-schedule handlers, one predicate per Lean handler, `[mat, now, s, req, res, s2]`, with the Lean branches in the Lean order: `promiseGet`, `promiseCreate`, `promiseSettle`, `promiseRegisterCallback`, `promiseRegisterListener`, `promiseSearch`, `taskGet`, `taskCreate`, `taskAcquire`, `taskFence` (through `promiseCreateWith` and `promiseSettleWith`, the inner handlers run after the fence's own reads), `taskHeartbeat`, `taskSuspend` (with `firstBad` where `checkAwaited` stops), `taskFulfill`, `taskRelease`, `taskHalt`, `taskContinue`, `taskSearch`. For every handler a run shows it can succeed on a well formed state and a check shows it preserves the catalogue. |
-| `src/alloy/system.als` | `handleExternal`, the dispatch of a `Request` to its handler and `Response`. |
+| `src/alloy/state.als` | `State` (`var objects`, `var outbox`, no schedules yet), `init`, the lookups on the current instant `storedPromises`, `storedTasks`, `object`, `promise`, `task`, `hasTask`; the effects: `apply` is `applyAll` from the current instant to the next on a step's keyed writes, `keep` is no effects, `readObject` and `readTaskObject` the reads with `matP` and `matT` what a read materialises, `createPromise`, `setSettled`. |
+| `src/alloy/properties.als` | The catalogue's state properties on the current instant, one predicate per Lean property under the same name, `stateHolds` conjoining them, the `gaps`. Runs show the catalogue admits the states it describes; checks show the lookups are functional under it and the projections agree with its verdicts. |
+| `src/alloy/external.als` | The 17 non-schedule handlers, one predicate per Lean handler, `[mat, now, req, res]`, with the Lean branches in the Lean order: `promiseGet`, `promiseCreate`, `promiseSettle`, `promiseRegisterCallback`, `promiseRegisterListener`, `promiseSearch`, `taskGet`, `taskCreate`, `taskAcquire`, `taskFence` (through `promiseCreateWith` and `promiseSettleWith`, the inner handlers run after the fence's own reads), `taskHeartbeat`, `taskSuspend` (with `firstBad` where `checkAwaited` stops), `taskFulfill`, `taskRelease`, `taskHalt`, `taskContinue`, `taskSearch`. For every handler a run shows it can succeed on a well formed state and a check shows it preserves the catalogue from any state to the next instant. |
+| `src/alloy/system.als` | `Machine`: `mat` fixed for the run, and at every instant `now`, the request and the response (a request is `Event.external`, none is `Event.stutter`; the triggers come later). `handleExternal` dispatches a `Request` to its handler, `step` is the Lean `step` from one instant to the next, `valid` the Lean `Valid`: `init` first, then always a step with the clock not going back. A run shows a trace creating, acquiring and fulfilling a task; a check shows every valid trace satisfies the catalogue at every instant, to a bounded length. |
 
 The translation: a structure is a signature with value semantics (a fact
 identifies atoms with equal fields, so `=` is structural equality as in
@@ -82,19 +86,20 @@ The monad: a step reads the state it started from throughout and its
 effects are folded onto it at the end. Every effect is keyed, so the
 fold is determined by the last effect on each key: a handler's writes
 are keyed maps, a read's materialisation first and the handler's own
-writes overriding it (`++`), and `apply` folds them once. A handler
-predicate therefore relates the state before to the state after with no
-intermediate states.
+writes overriding it (`++`), and `apply` folds them once, from the
+current instant to the next.
 
 ```
 java -jar org.alloytools.alloy.dist.jar exec src/alloy/properties.als
 java -jar org.alloytools.alloy.dist.jar exec src/alloy/external.als
+java -jar org.alloytools.alloy.dist.jar exec src/alloy/system.als
 ```
 
-Alloy 6.2, no libraries beyond the distribution jar. The machine's
-arithmetic is on naturals and Alloy's integers wrap; a sum that leaves
-the range wraps to a negative, which no field admits, so at the edge of
-the range a step does not exist rather than miscomputes. Do not pass
+Alloy 6.2, no libraries beyond the distribution jar; trace checks are
+bounded in length with the bundled SAT solver. The machine's arithmetic
+is on naturals and Alloy's integers wrap; a sum that leaves the range
+wraps to a negative, which no field admits, so at the edge of the range
+a step does not exist rather than miscomputes. Do not pass
 `--nooverflow`: it treats an overflowing comparison as satisfied and
 invents steps.
 
