@@ -90,13 +90,16 @@ writes overriding it (`++`), and `apply` folds them once, from the
 current instant to the next.
 
 ```
-java -jar org.alloytools.alloy.dist.jar exec src/alloy/properties.als
-java -jar org.alloytools.alloy.dist.jar exec src/alloy/external.als
-java -jar org.alloytools.alloy.dist.jar exec src/alloy/system.als
+java -jar org.alloytools.alloy.dist.jar exec -s glucose src/alloy/properties.als
+java -jar org.alloytools.alloy.dist.jar exec -s glucose src/alloy/external.als
+java -jar org.alloytools.alloy.dist.jar exec -s glucose src/alloy/system.als
 ```
 
 Alloy 6.2, no libraries beyond the distribution jar; trace checks are
-bounded in length with the bundled SAT solver. The machine's arithmetic
+bounded in length. The bundled native Glucose is much faster than the
+default SAT4J on the handler checks (`taskFence` takes half an hour
+against more than one); drop `-s glucose` where the native library does
+not load. The machine's arithmetic
 is on naturals and Alloy's integers wrap; a sum that leaves the range
 wraps to a negative, which no field admits, so at the edge of the range
 a step does not exist rather than miscomputes. Do not pass
