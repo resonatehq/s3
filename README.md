@@ -2,6 +2,16 @@
 
 Resonate, implemented on a compare-and-swap object store, in Lean 4. The proof that it does what the specification says.
 
+## What you need to review
+
+You do not need to review the proofs. You need to review the theorems.
+
+Every theorem in this repository is checked by Lean. When `lake build` succeeds, every statement marked `theorem` holds, with no step taken on trust, from the standard axioms of Lean alone. There is no `sorry` in `impl`; the main theorems below depend on nothing but `propext`, `Classical.choice` and `Quot.sound`.
+
+What remains for a human is to read the statements and the definitions they name, and to judge whether they say what you want said. Is `Concrete.step` the machine you intend to run? Is `Abstract.Valid` the specification you mean? Is "the same k-th observation" the equivalence you care about? Those questions are the whole review. Everything between the statement and the closing `:=` has already been checked, more thoroughly than any reader could.
+
+This is why the theorems below are printed in full and translated word for word. The translation is the review.
+
 ## Contents
 
 Resonate is a durable execution system. This repository is a Lean 4 formalisation of Resonate on a compare-and-swap object store such as Amazon S3, with machine-checked proofs that the implementation refines its specification. It contains definitions and theorems only, no runnable service.
