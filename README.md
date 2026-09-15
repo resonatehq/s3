@@ -2,6 +2,18 @@
 
 Resonate, implemented on a compare-and-swap object store, in Lean 4. The proof that it does what the specification says.
 
+## Contents
+
+Resonate is a durable execution system. This repository is a Lean 4 formalisation of Resonate on a compare-and-swap object store such as Amazon S3, with machine-checked proofs that the implementation refines its specification. It contains definitions and theorems only, no runnable service.
+
+Three layers under `src/`:
+
+- `types.lean` is the protocol: identifiers, promises, tasks, schedules, callbacks and listeners, outbox messages, and the request and response alphabets.
+- `spec/02-abstract` is the specification: an abstract state machine over objects, schedules and an outbox, driven by external requests and internal triggers such as timeouts. `spec/03-theorems` proves properties of the specification; a few `sorry`s remain there, none used by `impl`.
+- `impl/` is the implementation: state as blobs in a bucket keyed by path, written with conditional puts; every request and every timer first sweeps its origin document; a read cache is optional.
+
+The headline theorems follow.
+
 ## `refines`
 
 Every run of the implementation shows exactly the observations of some run of the specification.
