@@ -56,57 +56,63 @@ the refinement proof mirrors the machine: one file per layer.
 
 ## The Alloy model (`src/alloy/`)
 
-The abstract model once more, as an Alloy 6 specification: the data
-model, the external handlers, the internal triggers, and the machine
-that runs them along a trace. One module per Lean layer. The state is
-mutable in the Alloy 6 sense: `State` is a singleton whose `objects` and
-`outbox` are `var`, the lookups and the catalogue read the current
-instant, a handler constrains the next (`State.objects'`), and the
-machine's `Valid` is a temporal fact over the trace.
+The abstract model once more, as an Alloy 6 specification, complete:
+the data model, the handlers, the triggers, the schedules, the
+catalogue's state and transition properties, and the machine that runs
+them along a trace. One module per Lean layer, and a theorems module
+for what is checked. The state is mutable in the Alloy 6 sense: `State`
+is a singleton whose `objects`, `schedules` and `outbox` are `var`, the
+lookups and the catalogue read the current instant, a handler
+constrains the next (`State.objects'`), and the machine's `Valid` is a
+temporal fact over the trace.
 
 | file | what it defines |
 |---|---|
-| `src/alloy/types.als` | The protocol layer of `types.lean`, one signature per structure: `Ident`, `Value`, `PromiseState`, `TaskState`, `OType` (with `Runnable` carrying its target), `PromiseObject`, `TaskObject`, `Object`, the records `PromiseRecord` and `TaskRecord`, `Message` (`Execute`, `Unblock`), `OutboxEntry`, and the alphabet: `Request` and `Response` with one subsignature per constructor, `Status` the codes the handlers answer. The object model's functions are predicates relating input to output: `addCallback`, `addListener`, `projectPromise`, `fulfillTask`, `viewTask`, `projectObject`, `promiseToRecord`, `taskToRecord`; `projectedState` computes the state a promise shows at an instant; `sameKey` is `OutboxKey`. |
-| `src/alloy/state.als` | `State` (`var objects`, `var outbox`, no schedules yet), `init`, `ServerConfig` with its retry timeout, the lookups on the current instant `storedPromises`, `storedTasks`, `object`, `promise`, `task`, `hasTask`; the effects: `apply` is `applyAll` from the current instant to the next on a step's keyed writes, `keep` is no effects, `readObject` and `readTaskObject` the reads with `matP` and `matT` what a read materialises, `createPromise`, `setSettled`. |
-| `src/alloy/properties.als` | The catalogue's state properties on the current instant, one predicate per Lean property under the same name, `stateHolds` conjoining them, the `gaps` (with the config's). Runs show the catalogue admits the states it describes; checks show the lookups are functional under it and the projections agree with its verdicts. |
-| `src/alloy/external.als` | The 17 non-schedule handlers, one predicate per Lean handler, `[mat, now, req, res]`, with the Lean branches in the Lean order: `promiseGet`, `promiseCreate`, `promiseSettle`, `promiseRegisterCallback`, `promiseRegisterListener`, `promiseSearch`, `taskGet`, `taskCreate`, `taskAcquire`, `taskFence` (through `promiseCreateWith` and `promiseSettleWith`, the inner handlers run after the fence's own reads), `taskHeartbeat`, `taskSuspend` (with `firstBad` where `checkAwaited` stops), `taskFulfill`, `taskRelease`, `taskHalt`, `taskContinue`, `taskSearch`. For every handler a run shows it can succeed on a well formed state and a check shows it preserves the catalogue from any state to the next instant. |
-| `src/alloy/internal.als` | The five non-schedule triggers, one predicate per Lean trigger, `[now, req]`: `processPromiseTimeout`, `processCallback` and `processListener` touch what they read (materialising it whatever the machine's `mat`), `processLeaseTimeout` and `processRetryTimeout` view it; `resumeOne` wakes or tells the awaiter. The listener sends `unblock`, the retry sends `execute`: the first outbox writes. For every trigger a run shows it acts on a well formed state and a check shows it preserves the catalogue. |
-| `src/alloy/system.als` | `Trigger`, the sum of the five triggers over their requests. `Machine`: `mat` fixed for the run, and at every instant `now`, the request, the trigger and the response (a request is `Event.external`, a trigger `Event.internal`, neither `Event.stutter`). `handleExternal` and `handleInternal` dispatch to the handlers and triggers, `step` is the Lean `step` from one instant to the next, `valid` the Lean `Valid`: `init` first, then always a step with the clock not going back. Runs show traces that create, acquire and fulfil a task, dispatch `execute` on a retry, and tell a listener; a check shows every valid trace satisfies the catalogue at every instant, to a bounded length. |
+| `src/alloy/types.als` | The protocol layer of `types.lean`, one signature per structure: `Ident`, `Value`, `PromiseState`, `TaskState`, `OType` (with `Runnable` carrying its target), `PromiseObject`, `TaskObject`, `Object`, the records `PromiseRecord` and `TaskRecord`, `Message` (`Execute`, `Unblock`), `OutboxEntry`, `Schedule` carrying the opaque `nextCron`, `occurrences` and `expand` as uninterpreted functions keyed by its cron or template, and the alphabet: `Request` and `Response` with one subsignature per constructor, `Status` the codes the handlers answer, the trigger requests. The object model's functions are predicates relating input to output: `addCallback`, `addListener`, `projectPromise`, `fulfillTask`, `viewTask`, `projectObject`, `promiseToRecord`, `taskToRecord`; `projectedState` computes the state a promise shows at an instant; `sameKey` is `OutboxKey`. |
+| `src/alloy/state.als` | `State` (`var objects`, `var schedules`, `var outbox`), `init`, `ServerConfig` with its retry timeout, the lookups on the current instant `storedPromises`, `storedTasks`, `object`, `promise`, `task`, `hasTask`, `schedule`; the effects: `applyAll` is the Lean `applyAll` from the current instant to the next on a step's keyed writes, `apply` the case without schedule writes, `keep` no effects, `readObject` and `readTaskObject` the reads with `matP` and `matT` what a read materialises, `createPromise`, `setSettled`. |
+| `src/alloy/properties.als` | The catalogue, one predicate per Lean property under the same name: the 41 state properties on the current instant with `stateHolds`, the `gaps` (with the config's), the 49 transition properties from the current instant to the next with `transHolds`, the two internal edge properties with `internalWellFormed`, and `legalAt`. |
+| `src/alloy/external.als` | The 21 handlers, one predicate per Lean handler, `[mat, now, req, res]`, with the Lean branches in the Lean order: `promiseGet`, `promiseCreate`, `promiseSettle`, `promiseRegisterCallback`, `promiseRegisterListener`, `promiseSearch`, `scheduleGet`, `scheduleCreate`, `scheduleDelete`, `scheduleSearch`, `taskGet`, `taskCreate`, `taskAcquire`, `taskFence` (through `promiseCreateWith` and `promiseSettleWith`, the inner handlers run after the fence's own reads), `taskHeartbeat`, `taskSuspend` (with `firstBad` where `checkAwaited` stops), `taskFulfill`, `taskRelease`, `taskHalt`, `taskContinue`, `taskSearch`. |
+| `src/alloy/internal.als` | The six triggers, one predicate per Lean trigger: `processPromiseTimeout`, `processCallback` and `processListener` touch what they read (materialising it whatever the machine's `mat`), `processLeaseTimeout` and `processRetryTimeout` view it, `processSchedule` fires `createIfAbsent` at every due occurrence and records the last; `resumeOne` wakes or tells the awaiter. The listener sends `unblock`, the retry sends `execute`. |
+| `src/alloy/system.als` | `Trigger`, the sum of the six triggers over their requests. `Machine`: `mat` fixed for the run, and at every instant `now`, the request, the trigger and the response (a request is `Event.external`, a trigger `Event.internal`, neither `Event.stutter`). `handleExternal` and `handleInternal` dispatch to the handlers and triggers, `step` is the Lean `step` from one instant to the next, `valid` the Lean `Valid`: `init` first, then always a step with the clock not going back. |
+| `src/alloy/theorems.als` | What is checked, as the Lean's `03-theorems`: witnesses of the states the catalogue admits and of every handler's answer and every trigger's outcome at the checks' scope, so no check passes for want of an instance; for every handler and trigger a check that it preserves the state properties and a check that its step satisfies the transition properties (the triggers the internal edges too); traces pinned to their scenarios (a task's lifecycle, a retry's dispatch, a listener's unblock, a schedule's firing); and the catalogue, state and transition properties, along every bounded valid trace. |
 
 The translation: a structure is a signature with value semantics (a fact
 identifies atoms with equal fields, so `=` is structural equality as in
 Lean); a sum is an abstract signature with one subsignature per
 constructor; `Option` is `lone`; `Nat` is a non-negative `Int`; `String`
 is an atom of `Str`, with `EmptyStr` the empty string. The lists the
-catalogue proves duplicate free (`objects` by id, `outbox` by key,
-`callbacks`, `listeners`, `resumes`) are sets, so the three uniqueness
-properties hold by construction; a header list is a relation; a list in
-a request is a `seq`.
+catalogue proves duplicate free (`objects` by id, `schedules` by id,
+`outbox` by key, `callbacks`, `listeners`, `resumes`) are sets, so the
+uniqueness properties hold by construction; a header list is a relation;
+a list in a request is a `seq`; a cron's occurrences are a set, the
+last of the list being the greatest. The opaque cron functions are
+carried by the schedule they apply to, keyed by its cron or template, so
+their relations stay of an arity the analyser can represent.
 
 The monad: a step reads the state it started from throughout and its
 effects are folded onto it at the end. Every effect is keyed, so the
 fold is determined by the last effect on each key: a handler's writes
 are keyed maps, a read's materialisation first and the handler's own
-writes overriding it (`++`), and `apply` folds them once, from the
+writes overriding it (`++`), and `applyAll` folds them once, from the
 current instant to the next.
 
 ```
-java -jar org.alloytools.alloy.dist.jar exec -s glucose src/alloy/properties.als
-java -jar org.alloytools.alloy.dist.jar exec -s glucose src/alloy/external.als
-java -jar org.alloytools.alloy.dist.jar exec -s glucose src/alloy/internal.als
-java -jar org.alloytools.alloy.dist.jar exec -s glucose src/alloy/system.als
+java -jar org.alloytools.alloy.dist.jar exec -s glucose src/alloy/theorems.als
+java -jar org.alloytools.alloy.dist.jar exec -s glucose -c 'taskFence_*' src/alloy/theorems.als
 ```
 
-Alloy 6.2, no libraries beyond the distribution jar; trace checks are
-bounded in length. The bundled native Glucose is much faster than the
-default SAT4J on the handler checks (`taskFence` takes half an hour
-against more than one); drop `-s glucose` where the native library does
-not load. The machine's arithmetic
-is on naturals and Alloy's integers wrap; a sum that leaves the range
-wraps to a negative, which no field admits, so at the edge of the range
-a step does not exist rather than miscomputes. Do not pass
-`--nooverflow`: it treats an overflowing comparison as satisfied and
-invents steps.
+Alloy 6.2, no libraries beyond the distribution jar. The bundled native
+Glucose is much faster than the default SAT4J; drop `-s glucose` where
+the native library does not load. The whole suite takes hours; `-c`
+selects commands by name or wildcard. Scopes are 5-bit integers, two
+instants and four atoms per signature, schedules scoped out of the
+commands that do not touch them; a trace command is pinned to its
+scenario, since an unconstrained `eventually` at this size does not
+finish. The machine's arithmetic is on naturals and Alloy's integers
+wrap; a sum that leaves the range wraps to a negative, which no field
+admits, so at the edge of the range a step does not exist rather than
+miscomputes. Do not pass `--nooverflow`: it treats an overflowing
+comparison as satisfied and invents steps.
 
 ## Build
 
