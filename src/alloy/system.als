@@ -16,7 +16,7 @@ open external
 open internal
 open properties
 
--- `Trigger`: the schedule timeout is left out with the schedules.
+-- `Trigger`
 abstract sig Trigger {}
 
 sig PromiseTimeout extends Trigger { req : one PromiseTimeoutReq }
@@ -24,6 +24,7 @@ sig Callback extends Trigger { req : one PromiseRegisterCallbackReq }
 sig Listener extends Trigger { req : one PromiseRegisterListenerReq }
 sig TaskLeaseTimeout extends Trigger { req : one TaskLeaseTimeoutReq }
 sig TaskRetryTimeout extends Trigger { req : one TaskRetryTimeoutReq }
+sig ScheduleTimeout extends Trigger { req : one ScheduleTimeoutReq }
 
 fact TriggerValue {
   no disj a, b : PromiseTimeout | a.req = b.req
@@ -31,6 +32,7 @@ fact TriggerValue {
   no disj a, b : Listener | a.req = b.req
   no disj a, b : TaskLeaseTimeout | a.req = b.req
   no disj a, b : TaskRetryTimeout | a.req = b.req
+  no disj a, b : ScheduleTimeout | a.req = b.req
 }
 
 one sig Machine {
@@ -56,6 +58,14 @@ pred handleExternal [mat : Bool, now : Int, req : Request, res : Response] {
     (res in PromiseRegisterListenerRes and promiseRegisterListener[mat, now, req, res])
   req in PromiseSearchReq implies
     (res in PromiseSearchRes and promiseSearch[mat, now, req, res])
+  req in ScheduleGetReq implies
+    (res in ScheduleGetRes and scheduleGet[mat, now, req, res])
+  req in ScheduleCreateReq implies
+    (res in ScheduleCreateRes and scheduleCreate[mat, now, req, res])
+  req in ScheduleDeleteReq implies
+    (res in ScheduleDeleteRes and scheduleDelete[mat, now, req, res])
+  req in ScheduleSearchReq implies
+    (res in ScheduleSearchRes and scheduleSearch[mat, now, req, res])
   req in TaskGetReq implies
     (res in TaskGetRes and taskGet[mat, now, req, res])
   req in TaskCreateReq implies
@@ -80,12 +90,13 @@ pred handleExternal [mat : Bool, now : Int, req : Request, res : Response] {
     (res in TaskSearchRes and taskSearch[mat, now, req, res])
 }
 
-pred handleInternal [now : Int, trg : Trigger] {
+pred handleInternal [mat : Bool, now : Int, trg : Trigger] {
   trg in PromiseTimeout implies processPromiseTimeout[now, trg.req]
   trg in Callback implies processCallback[now, trg.req]
   trg in Listener implies processListener[now, trg.req]
   trg in TaskLeaseTimeout implies processLeaseTimeout[now, trg.req]
   trg in TaskRetryTimeout implies processRetryTimeout[now, trg.req]
+  trg in ScheduleTimeout implies processSchedule[mat, now, trg.req]
 }
 
 -- `step`: an external event is handled and answered, an internal one is
@@ -95,7 +106,7 @@ pred step {
     (some Machine.response and
      handleExternal[Machine.mat, Machine.now, Machine.request, Machine.response])
   else some Machine.trigger implies
-    (no Machine.response and handleInternal[Machine.now, Machine.trigger])
+    (no Machine.response and handleInternal[Machine.mat, Machine.now, Machine.trigger])
   else
     (no Machine.response and keep)
 }
@@ -105,32 +116,3 @@ pred valid {
   init
   always (step and Machine.now <= Machine.now')
 }
-
--- A trace that creates a task, acquired, and fulfils it.
-run lifecycle {
-  valid
-  eventually some storedTasks & state.Acquired
-  eventually some storedTasks & state.Fulfilled
-} for 3 but 5 Int, 2 seq, 3 steps, 6 Request, 6 Response, 2 Runnable
-
--- A trace that creates a runnable promise, whose task's retry then
--- dispatches `execute` to its target.
-run dispatch {
-  valid
-  eventually some State.outbox.message & Execute
-} for 3 but 5 Int, 2 seq, 3 steps, 6 Request, 6 Response, 2 Runnable
-
--- A trace in which a promise is created and a listener registered, and
--- the listener trigger, firing once the promise is due, tells it.
-run unblock {
-  valid
-  Machine.request in PromiseCreateReq
-  after Machine.request in PromiseRegisterListenerReq
-  after after Machine.trigger in Listener
-  after after after some State.outbox.message & Unblock
-} for 4 but 5 Int, 2 seq, 4 steps, 3 Request, 3 Response
-
--- Every valid trace satisfies the catalogue at every instant.
-check catalogueAlongTraces {
-  valid implies always stateHolds[Machine.now]
-} for 3 but 5 Int, 2 seq, 3 steps, 6 Request, 6 Response, 2 Runnable

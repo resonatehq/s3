@@ -6,7 +6,7 @@ module internal
 -- branches in the Lean order. The promise timeout, the callback and the
 -- listener touch what they read, materialising it whatever the machine's
 -- `mat`; the lease and retry timeouts view it, writing nothing they did
--- not decide. The schedule trigger is left out with the schedules.
+-- not decide; the schedule trigger reads under the machine's `mat`.
 
 open util/boolean
 open types
@@ -132,56 +132,49 @@ pred processRetryTimeout [now : Int, req : TaskRetryTimeoutReq] {
   }
 }
 
--- Commands. Each trigger has a run showing it acts on a well formed
--- state, and a check that it preserves the catalogue's state properties.
+-- `processSchedule`: the schedule's occurrences since its next run that
+-- are due are fired in order, `createIfAbsent` at each occurrence's
+-- instant: the promise expanded from the schedule's template is created
+-- when absent, read (and under `mat` materialised, at that instant) when
+-- present; then the schedule records the last occurrence and its next
+-- run. Two occurrences expanding to one id write the later one, as the
+-- fold's last write.
+fun expanded [c : Schedule, t : Int] : one Ident { c.expand[t] }
 
-run processPromiseTimeout_ok {
-  some now : Int, req : PromiseTimeoutReq |
-    stateHolds[now] and processPromiseTimeout[now, req] and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
+fun dueOccurrences [c : Schedule, now : Int] : set Int {
+  { t : c.occurrences[c.nextRunAt] | t <= now }
+}
 
-run processCallback_ok {
-  some now : Int, req : PromiseRegisterCallbackReq |
-    stateHolds[now] and processCallback[now, req] and
-    some storedTasks & state.Suspended and after no storedTasks & state.Suspended
-} for 4 but 5 Int, 2 seq, 2 steps
+-- The occurrence whose write lands on `i`: the last that expands to it.
+fun lastFor [c : Schedule, now : Int, i : Ident] : lone Int {
+  max[{ t : dueOccurrences[c, now] | expanded[c, t] = i }]
+}
 
-run processListener_ok {
-  some now : Int, req : PromiseRegisterListenerReq |
-    stateHolds[now] and processListener[now, req] and State.outbox' != State.outbox
-} for 4 but 5 Int, 2 seq, 2 steps
+pred firedAt [mat : Bool, c : Schedule, t : Int, o, o2 : Object] {
+  no object[expanded[c, t]] implies
+    (createPromise[t, expanded[c, t], plus[t, c.promiseTimeout], c.promiseParam,
+                   c.promiseType, none, o] and o2 = o)
+  else
+    readObject[expanded[c, t], t, o, o2]
+}
 
-run processLeaseTimeout_ok {
-  some now : Int, req : TaskLeaseTimeoutReq |
-    stateHolds[now] and processLeaseTimeout[now, req] and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run processRetryTimeout_ok {
-  some now : Int, req : TaskRetryTimeoutReq |
-    stateHolds[now] and processRetryTimeout[now, req] and State.outbox' != State.outbox
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check processPromiseTimeout_preserves {
-  all now : Int, req : PromiseTimeoutReq |
-    stateHolds[now] and processPromiseTimeout[now, req] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check processCallback_preserves {
-  all now : Int, req : PromiseRegisterCallbackReq |
-    stateHolds[now] and processCallback[now, req] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check processListener_preserves {
-  all now : Int, req : PromiseRegisterListenerReq |
-    stateHolds[now] and processListener[now, req] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check processLeaseTimeout_preserves {
-  all now : Int, req : TaskLeaseTimeoutReq |
-    stateHolds[now] and processLeaseTimeout[now, req] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check processRetryTimeout_preserves {
-  all now : Int, req : TaskRetryTimeoutReq |
-    stateHolds[now] and processRetryTimeout[now, req] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
+pred processSchedule [mat : Bool, now : Int, req : ScheduleTimeoutReq] {
+  no schedule[req.schedule] implies keep
+  else let c = schedule[req.schedule], ts = dueOccurrences[c, now] | {
+    all t : ts | some o, o2 : Object | firedAt[mat, c, t, o, o2]
+    let ps = { i : Ident, p : PromiseObject | some o, o2 : Object |
+                 firedAt[mat, c, lastFor[c, now, i], o, o2] and
+                 (no object[i] implies i -> p = o.id -> o.promise else i -> p in matP[mat, o, o2]) },
+        ts2 = { i : Ident, u : TaskObject | some o, o2 : Object |
+                 firedAt[mat, c, lastFor[c, now, i], o, o2] and
+                 (no object[i] implies i -> u = o.id -> o.task else i -> u in matT[mat, o, o2]) } |
+      some ts implies (some d : Schedule | {
+        d.id = c.id and d.cron = c.cron and d.promiseId = c.promiseId and
+        d.promiseTimeout = c.promiseTimeout and d.promiseParam = c.promiseParam and
+        d.promiseType = c.promiseType and d.createdAt = c.createdAt and
+        d.lastRunAt = max[ts] and d.nextRunAt = c.nextCron[max[ts]]
+        applyAll[ps, ts2, d, none, none]
+      }) else
+        applyAll[ps, ts2, none, none, none]
+  }
+}

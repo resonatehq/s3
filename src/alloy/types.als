@@ -290,12 +290,54 @@ pred sameKey [a, b : OutboxEntry] {
      a.message.promise.id = b.message.promise.id and a.address = b.address)
 }
 
+-- Schedules. `nextCron`, `occurrences` and `expand` are opaque in the
+-- Lean; here they are uninterpreted functions carried by the schedule
+-- they are applied to, keyed by its cron (`nextCron`, `occurrences`) or
+-- its template (`expand`), and agreeing across schedules with the same
+-- key, so the relations stay of an arity the analyser can represent.
+-- `occurrences` is a set, the occurrences after an instant; the trigger
+-- keeps those due, as the Lean filters, and a cron's occurrences are
+-- ascending, so the last of the list is the greatest of the set.
+
+sig Schedule {
+  id             : one Ident,
+  cron           : one Str,
+  promiseId      : one Ident,
+  promiseTimeout : one Int,
+  promiseParam   : one Value,
+  promiseType    : one OType,
+  nextRunAt      : one Int,
+  lastRunAt      : lone Int,
+  createdAt      : one Int,
+  nextCron       : Int -> Int,
+  occurrences    : Int -> Int,
+  expand         : Int -> Ident
+} {
+  promiseTimeout >= 0 and nextRunAt >= 0 and createdAt >= 0 and all x : lastRunAt | x >= 0
+  all t : Int | one nextCron[t] and nextCron[t] >= 0 and one expand[t]
+  all s : Int | all t : occurrences[s] | t >= 0
+}
+
+fact CronFunctions {
+  all c, d : Schedule | c.cron = d.cron implies
+    (c.nextCron = d.nextCron and c.occurrences = d.occurrences)
+  all c, d : Schedule | (c.promiseId = d.promiseId and c.id = d.id) implies c.expand = d.expand
+}
+
+fact ScheduleValue {
+  no disj a, b : Schedule |
+    a.id = b.id and a.cron = b.cron and a.promiseId = b.promiseId and
+    a.promiseTimeout = b.promiseTimeout and a.promiseParam = b.promiseParam and
+    a.promiseType = b.promiseType and a.nextRunAt = b.nextRunAt and
+    a.lastRunAt = b.lastRunAt and a.createdAt = b.createdAt
+}
+
 -- Requests and responses. `Request` and `Response` are the sums; each
 -- constructor's payload is the subsignature. A status is one of the codes
--- the handlers answer. The schedule requests are left out with the
--- schedules. The trigger requests, `PromiseTimeoutReq`, `TaskLeaseTimeoutReq`
--- and `TaskRetryTimeoutReq`, come last; the callback and listener triggers
--- carry the register requests.
+-- the handlers answer. The trigger requests, `PromiseTimeoutReq`,
+-- `TaskLeaseTimeoutReq`, `TaskRetryTimeoutReq` and `ScheduleTimeoutReq`,
+-- come last; the callback and listener triggers carry the register
+-- requests.
 
 enum Status { s200, s300, s400, s404, s409, s422, s501 }
 
@@ -362,6 +404,43 @@ sig PromiseSearchReq extends Request {
 sig PromiseSearchRes extends Response {
   promises : set PromiseRecord,
   cursor   : lone Str
+}
+
+sig ScheduleGetReq extends Request {
+  id : one Ident
+}
+
+sig ScheduleGetRes extends Response {
+  schedule : lone Schedule
+}
+
+sig ScheduleCreateReq extends Request {
+  id             : one Ident,
+  cron           : one Str,
+  promiseId      : one Ident,
+  promiseTimeout : one Int,
+  promiseParam   : one Value,
+  promiseType    : one OType
+} { promiseTimeout >= 0 }
+
+sig ScheduleCreateRes extends Response {
+  schedule : lone Schedule
+}
+
+sig ScheduleDeleteReq extends Request {
+  id : one Ident
+}
+
+sig ScheduleDeleteRes extends Response {}
+
+sig ScheduleSearchReq extends Request {
+  limit  : lone Int,
+  cursor : lone Str
+} { all x : limit | x >= 0 }
+
+sig ScheduleSearchRes extends Response {
+  schedules : set Schedule,
+  cursor    : lone Str
 }
 
 sig TaskGetReq extends Request {
@@ -502,6 +581,13 @@ fact RequestValue {
   no disj a, b : PromiseRegisterCallbackReq | a.awaited = b.awaited and a.awaiter = b.awaiter
   no disj a, b : PromiseRegisterListenerReq | a.awaited = b.awaited and a.address = b.address
   no disj a, b : PromiseSearchReq | a.state = b.state and a.limit = b.limit and a.cursor = b.cursor
+  no disj a, b : ScheduleGetReq | a.id = b.id
+  no disj a, b : ScheduleCreateReq |
+    a.id = b.id and a.cron = b.cron and a.promiseId = b.promiseId and
+    a.promiseTimeout = b.promiseTimeout and a.promiseParam = b.promiseParam and
+    a.promiseType = b.promiseType
+  no disj a, b : ScheduleDeleteReq | a.id = b.id
+  no disj a, b : ScheduleSearchReq | a.limit = b.limit and a.cursor = b.cursor
   no disj a, b : TaskGetReq | a.id = b.id
   no disj a, b : TaskCreateReq | a.pid = b.pid and a.ttl = b.ttl and a.action = b.action
   no disj a, b : TaskAcquireReq |
@@ -527,6 +613,11 @@ fact ResponseValue {
   no disj a, b : PromiseRegisterListenerRes | a.status = b.status and a.promise = b.promise
   no disj a, b : PromiseSearchRes |
     a.status = b.status and a.promises = b.promises and a.cursor = b.cursor
+  no disj a, b : ScheduleGetRes | a.status = b.status and a.schedule = b.schedule
+  no disj a, b : ScheduleCreateRes | a.status = b.status and a.schedule = b.schedule
+  no disj a, b : ScheduleDeleteRes | a.status = b.status
+  no disj a, b : ScheduleSearchRes |
+    a.status = b.status and a.schedules = b.schedules and a.cursor = b.cursor
   no disj a, b : TaskGetRes | a.status = b.status and a.task = b.task
   no disj a, b : TaskCreateRes |
     a.status = b.status and a.task = b.task and a.promise = b.promise and a.preload = b.preload
@@ -556,8 +647,13 @@ sig TaskRetryTimeoutReq {
   id : one Ident
 }
 
+sig ScheduleTimeoutReq {
+  schedule : one Ident
+}
+
 fact TriggerRequestValue {
   no disj a, b : PromiseTimeoutReq | a.id = b.id
   no disj a, b : TaskLeaseTimeoutReq | a.id = b.id
   no disj a, b : TaskRetryTimeoutReq | a.id = b.id
+  no disj a, b : ScheduleTimeoutReq | a.schedule = b.schedule
 }

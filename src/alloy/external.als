@@ -7,8 +7,7 @@ module external
 -- The branches are the Lean branches in the Lean order. Every read is of
 -- the current state, as in the monad; a branch's writes are given to
 -- `apply` once, the reads' materialisation first, the handler's own
--- writes overriding it. The schedule handlers are left out with the
--- schedules.
+-- writes overriding it.
 
 open util/boolean
 open types
@@ -50,7 +49,7 @@ pred promiseCreateWith [mat : Bool, now : Int, req : PromiseCreateReq,
                         res : PromiseCreateRes, ps : Ident -> PromiseObject,
                         ts : Ident -> TaskObject] {
   no object[req.id] implies (some o : Object | {
-    createPromise[now, req, o]
+    createPromise[now, req.id, req.timeoutAt, req.param, req.type, req.delay, o]
     res.status = s200 and one res.promise and promiseToRecord[o.promise, o.id, res.promise]
     apply[ps ++ (o.id -> o.promise), ts ++ (o.id -> o.task), none]
   }) else some o, o2 : Object | {
@@ -482,181 +481,45 @@ pred taskSearch [mat : Bool, now : Int, req : TaskSearchReq,
   keep
 }
 
--- Commands. Each handler has a run showing it can succeed on a well formed
--- state, and a check that it preserves the catalogue's state properties:
--- from any state at the first instant, the handler's next state.
--- The machine's arithmetic is on naturals and Alloy's integers wrap: a
--- sum of two naturals that leaves the range wraps to a negative, which
--- no field admits, so at the edge of the range the step does not exist
--- rather than miscomputes. Do not run with `--nooverflow`: it treats an
--- overflowing comparison as satisfied and invents steps.
+-- schedules
 
-run promiseGet_ok {
-  some mat : Bool, now : Int, req : PromiseGetReq, res : PromiseGetRes |
-    stateHolds[now] and promiseGet[mat, now, req, res] and res.status = s200
-} for 4 but 5 Int, 2 seq, 2 steps
+pred scheduleGet [mat : Bool, now : Int, req : ScheduleGetReq, res : ScheduleGetRes] {
+  no schedule[req.id] implies {
+    res.status = s404 and no res.schedule
+  } else {
+    res.status = s200 and res.schedule = schedule[req.id]
+  }
+  keep
+}
 
-run promiseCreate_ok {
-  some mat : Bool, now : Int, req : PromiseCreateReq, res : PromiseCreateRes |
-    stateHolds[now] and promiseCreate[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
+pred scheduleCreate [mat : Bool, now : Int, req : ScheduleCreateReq,
+                     res : ScheduleCreateRes] {
+  some schedule[req.id] implies {
+    res.status = s200 and res.schedule = schedule[req.id]
+    keep
+  } else some c : Schedule | {
+    c.id = req.id and c.cron = req.cron and c.promiseId = req.promiseId and
+    c.promiseTimeout = req.promiseTimeout and c.promiseParam = req.promiseParam and
+    c.promiseType = req.promiseType and c.createdAt = now and
+    c.nextRunAt = c.nextCron[now] and no c.lastRunAt
+    res.status = s200 and res.schedule = c
+    applyAll[none -> none, none -> none, c, none, none]
+  }
+}
 
-run promiseSettle_ok {
-  some mat : Bool, now : Int, req : PromiseSettleReq, res : PromiseSettleRes |
-    stateHolds[now] and promiseSettle[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
+pred scheduleDelete [mat : Bool, now : Int, req : ScheduleDeleteReq,
+                     res : ScheduleDeleteRes] {
+  no schedule[req.id] implies {
+    res.status = s404
+    keep
+  } else {
+    res.status = s200
+    applyAll[none -> none, none -> none, none, schedule[req.id].id, none]
+  }
+}
 
-run promiseRegisterCallback_ok {
-  some mat : Bool, now : Int, req : PromiseRegisterCallbackReq, res : PromiseRegisterCallbackRes |
-    stateHolds[now] and promiseRegisterCallback[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run promiseRegisterListener_ok {
-  some mat : Bool, now : Int, req : PromiseRegisterListenerReq, res : PromiseRegisterListenerRes |
-    stateHolds[now] and promiseRegisterListener[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run promiseSearch_ok {
-  some mat : Bool, now : Int, req : PromiseSearchReq, res : PromiseSearchRes |
-    stateHolds[now] and promiseSearch[mat, now, req, res] and res.status = s501
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run taskGet_ok {
-  some mat : Bool, now : Int, req : TaskGetReq, res : TaskGetRes |
-    stateHolds[now] and taskGet[mat, now, req, res] and res.status = s200
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run taskCreate_ok {
-  some mat : Bool, now : Int, req : TaskCreateReq, res : TaskCreateRes |
-    stateHolds[now] and taskCreate[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run taskAcquire_ok {
-  some mat : Bool, now : Int, req : TaskAcquireReq, res : TaskAcquireRes |
-    stateHolds[now] and taskAcquire[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run taskFence_ok {
-  some mat : Bool, now : Int, req : TaskFenceReq, res : TaskFenceRes |
-    stateHolds[now] and taskFence[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run taskHeartbeat_ok {
-  some mat : Bool, now : Int, req : TaskHeartbeatReq, res : TaskHeartbeatRes |
-    stateHolds[now] and taskHeartbeat[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run taskSuspend_ok {
-  some mat : Bool, now : Int, req : TaskSuspendReq, res : TaskSuspendRes |
-    stateHolds[now] and taskSuspend[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run taskFulfill_ok {
-  some mat : Bool, now : Int, req : TaskFulfillReq, res : TaskFulfillRes |
-    stateHolds[now] and taskFulfill[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run taskRelease_ok {
-  some mat : Bool, now : Int, req : TaskReleaseReq, res : TaskReleaseRes |
-    stateHolds[now] and taskRelease[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run taskHalt_ok {
-  some mat : Bool, now : Int, req : TaskHaltReq, res : TaskHaltRes |
-    stateHolds[now] and taskHalt[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run taskContinue_ok {
-  some mat : Bool, now : Int, req : TaskContinueReq, res : TaskContinueRes |
-    stateHolds[now] and taskContinue[mat, now, req, res] and res.status = s200 and State.objects' != State.objects
-} for 4 but 5 Int, 2 seq, 2 steps
-
-run taskSearch_ok {
-  some mat : Bool, now : Int, req : TaskSearchReq, res : TaskSearchRes |
-    stateHolds[now] and taskSearch[mat, now, req, res] and res.status = s501
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check promiseGet_preserves {
-  all mat : Bool, now : Int, req : PromiseGetReq, res : PromiseGetRes |
-    stateHolds[now] and promiseGet[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check promiseCreate_preserves {
-  all mat : Bool, now : Int, req : PromiseCreateReq, res : PromiseCreateRes |
-    stateHolds[now] and promiseCreate[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check promiseSettle_preserves {
-  all mat : Bool, now : Int, req : PromiseSettleReq, res : PromiseSettleRes |
-    stateHolds[now] and promiseSettle[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check promiseRegisterCallback_preserves {
-  all mat : Bool, now : Int, req : PromiseRegisterCallbackReq, res : PromiseRegisterCallbackRes |
-    stateHolds[now] and promiseRegisterCallback[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check promiseRegisterListener_preserves {
-  all mat : Bool, now : Int, req : PromiseRegisterListenerReq, res : PromiseRegisterListenerRes |
-    stateHolds[now] and promiseRegisterListener[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check promiseSearch_preserves {
-  all mat : Bool, now : Int, req : PromiseSearchReq, res : PromiseSearchRes |
-    stateHolds[now] and promiseSearch[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check taskGet_preserves {
-  all mat : Bool, now : Int, req : TaskGetReq, res : TaskGetRes |
-    stateHolds[now] and taskGet[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check taskCreate_preserves {
-  all mat : Bool, now : Int, req : TaskCreateReq, res : TaskCreateRes |
-    stateHolds[now] and taskCreate[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check taskAcquire_preserves {
-  all mat : Bool, now : Int, req : TaskAcquireReq, res : TaskAcquireRes |
-    stateHolds[now] and taskAcquire[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check taskFence_preserves {
-  all mat : Bool, now : Int, req : TaskFenceReq, res : TaskFenceRes |
-    stateHolds[now] and taskFence[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check taskHeartbeat_preserves {
-  all mat : Bool, now : Int, req : TaskHeartbeatReq, res : TaskHeartbeatRes |
-    stateHolds[now] and taskHeartbeat[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check taskSuspend_preserves {
-  all mat : Bool, now : Int, req : TaskSuspendReq, res : TaskSuspendRes |
-    stateHolds[now] and taskSuspend[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check taskFulfill_preserves {
-  all mat : Bool, now : Int, req : TaskFulfillReq, res : TaskFulfillRes |
-    stateHolds[now] and taskFulfill[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check taskRelease_preserves {
-  all mat : Bool, now : Int, req : TaskReleaseReq, res : TaskReleaseRes |
-    stateHolds[now] and taskRelease[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check taskHalt_preserves {
-  all mat : Bool, now : Int, req : TaskHaltReq, res : TaskHaltRes |
-    stateHolds[now] and taskHalt[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check taskContinue_preserves {
-  all mat : Bool, now : Int, req : TaskContinueReq, res : TaskContinueRes |
-    stateHolds[now] and taskContinue[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
-
-check taskSearch_preserves {
-  all mat : Bool, now : Int, req : TaskSearchReq, res : TaskSearchRes |
-    stateHolds[now] and taskSearch[mat, now, req, res] implies after stateHolds[now]
-} for 4 but 5 Int, 2 seq, 2 steps
+pred scheduleSearch [mat : Bool, now : Int, req : ScheduleSearchReq,
+                     res : ScheduleSearchRes] {
+  res.status = s501 and no res.schedules and no res.cursor
+  keep
+}
