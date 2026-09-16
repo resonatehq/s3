@@ -116,6 +116,18 @@ property (`taskSuspend_transitions`, which holds), checks it against
 this one alone (`taskSuspend_registers_callback`, which fails), and
 shows the step (`suspendOnRegisteredCallback`).
 
+A second finding. The transition property `preserved_no_dead_dispatch`
+asks that a task entering `pending` have a promise still pending at
+`now`. But the schedule trigger fires the occurrences due since its
+last run at their own instants, as `fireOccurrence` does, and an
+occurrence far enough in the past creates a promise whose timeout has
+already passed by `now`, with a pending task that will never be
+dispatched: the property fails on that step, in the Lean as here.
+`theorems.als` treats it as the first: `processSchedule_transitions`
+holds against every other transition property,
+`processSchedule_no_dead_dispatch` fails, `scheduleFiresLate` shows the
+step.
+
 Alloy 6.2, no libraries beyond the distribution jar. The bundled native
 Glucose is much faster than the default SAT4J; drop `-s glucose` where
 the native library does not load. The whole suite takes hours; `-c`
