@@ -105,11 +105,6 @@ def Docs (s s' : Concrete.State) : Prop :=
 theorem Sound.init (H : Hasher) : Sound (Cached.init H) :=
   fun _ _ _ h => (List.not_mem_nil h).elim
 
-theorem Sound.tagged {H : Hasher} {cs : Cached H} (h : Sound cs) : Tagged cs :=
-  fun name org etag hm => (h name org etag hm).2
-
-theorem Same.docs {s s' : Concrete.State} (h : Same s s') : Docs s s' := ⟨h.blob, h.out⟩
-
 theorem Docs.refl (s : Concrete.State) : Docs s s := ⟨fun _ => rfl, rfl⟩
 
 theorem read_sound {H : Hasher} {cs : Cached H} (h : Sound cs) (name : String) : Agree cs name := by

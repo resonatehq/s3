@@ -17,8 +17,6 @@ theorem map_apply {α β : Type} (g : α → β) (x : Abstract.H α) (e : Abstra
 
 theorem ask_apply (e : Abstract.Env) : Abstract.ask e = (e, []) := rfl
 
-theorem emit_apply (f : Abstract.Effect) (e : Abstract.Env) : Abstract.emit f e = ((), [f]) := rfl
-
 theorem setPromise_apply (id : Ident) (p : PromiseObject) (e : Abstract.Env) :
     Abstract.setPromise id p e = ((), [.setPromise id p]) := rfl
 

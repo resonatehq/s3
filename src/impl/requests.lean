@@ -57,21 +57,6 @@ theorem Local_setTask {o : String} {org : Origin} {S : Abstract.State} (hL : Loc
     rw [find_setTask, if_pos rfl, hL _ hid', h, find_write_at hx]
   · rw [find_setTask, if_neg e, find_write_other _ _ _ (hx ▸ e), hL _ hid']
 
-theorem Local_sends {o : String} {org : Origin} {S : Abstract.State} (fx : List Abstract.Effect)
-    (sends : List (String × Message))
-    (h : Local o org (Abstract.applyAll S fx)) :
-    Local o org (Abstract.applyAll S (fx ++ sends.map fun (a, m) => .setMessage a m)) := by
-  intro id hid
-  rw [applyAll_append]
-  have : ∀ (T : Abstract.State) (l : List (String × Message)),
-      find (Abstract.applyAll T (l.map fun (a, m) => Abstract.Effect.setMessage a m)) id = find T id := by
-    intro T l
-    induction l generalizing T with
-    | nil => rfl
-    | cons x xs ih => obtain ⟨a, m⟩ := x; simp only [List.map_cons, Abstract.applyAll]; rw [ih, find_setMessage]
-  rw [this]
-  exact h id hid
-
 theorem orig_write {o : String} {org : Origin} {x : Object} (hx : x.id.origin = o) :
     (∀ ob ∈ org.objects, ob.id.origin = o) → ∀ ob ∈ (org.write x).objects, ob.id.origin = o :=
   fun h => write_derived h hx

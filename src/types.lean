@@ -359,13 +359,6 @@ def TaskFenceAction.targetId : TaskFenceAction → Ident
   | .create r => r.id
   | .settle r => r.id
 
-def parseNat (s : String) : Nat :=
-  go s.toList 0
-where
-  go : List Char → Nat → Nat
-    | [], acc => acc
-    | c :: cs, acc => go cs (acc * 10 + (c.toNat - '0'.toNat))
-
 inductive Message
   | execute (taskId : Ident) (version : Nat)
   | unblock (promise : PromiseRecord)

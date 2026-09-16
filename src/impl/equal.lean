@@ -30,11 +30,6 @@ theorem find?_map_self {l : List Object} {g : Object → Object} (hg : ∀ o, (g
   rw [find?_map_id g hg, find_self_of_nodup hnd hob]
   rfl
 
-theorem find?_map_none {l : List Object} {g : Object → Object} (hg : ∀ o, (g o).id = o.id) {id : Ident}
-    (h : ∀ ob ∈ l, ob.id ≠ id) : (l.map g).find? (·.id == id) = none := by
-  rw [find?_map_id g hg, List.find?_eq_none.2 (fun ob hob => by simpa using h ob hob)]
-  rfl
-
 theorem eq_of_id_nodup {l : List Object} (hnd : (l.map (·.id)).Nodup) {a b : Object} (ha : a ∈ l) (hb : b ∈ l)
     (h : a.id = b.id) : a = b := by
   have h1 := find_self_of_nodup hnd ha
@@ -303,10 +298,6 @@ theorem stageP_id (now : Nat) (P : List Object) (ob : Object) : (stageP now P ob
 theorem stage_id (now : Nat) (P : List Object) (ob : Object) : (stage now P ob).id = ob.id := by
   unfold stage
   split <;> rfl
-
-theorem stageP_task_isSome (now : Nat) (P : List Object) (ob : Object) :
-    (stageP now P ob).task.isSome = ob.task.isSome := by
-  simp [stageP, Object.project]
 
 theorem stageP_promise_state (now : Nat) (P : List Object) (ob : Object) :
     (stageP now P ob).promise.state = (ob.promise.project now).state := by
@@ -966,9 +957,6 @@ theorem g3_id (now : Nat) (org : Origin) (o : Object) : (g3 now org o).id = o.id
 
 theorem g4_id (now : Nat) (o : Object) : (g4 now o).id = o.id := by
   simp only [g4, Concrete.leaseTimeout]; split <;> (try split) <;> rfl
-
-theorem g5_id (now : Nat) (o : Object) : (g5 now o).id = o.id := by
-  simp only [g5, retryObj, Concrete.retryTimeout]; split <;> (try split) <;> rfl
 
 theorem WF_map {l : List Object} (hwf : WF ⟨l⟩) (g : Object → Object) (hid : ∀ o, (g o).id = o.id)
     (hcb : ∀ o, (g o).promise.callbacks <+ o.promise.callbacks)

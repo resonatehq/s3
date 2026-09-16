@@ -404,14 +404,4 @@ theorem run_accepted (name : String) (f : Origin → α × Commands) (s : State)
     (run H name f s).2.2 = true := by
   simp only [run, applyAll_accepted]
 
-theorem step_external_accepted (now : Nat) (s : State) (req : Request) (name : String)
-    (h : req.origin? = some name) :
-    (step H (.external req) now s).1 = (handle now (s.origin name) (.external req)).1 := by
-  simp only [step, h, run, applyAll_accepted, ↓reduceIte]
-
-theorem step_internal_accepted (now : Nat) (s : State) (t : Timer)
-    (h : (s.blob? (.timer t)).isSome = true) (hd : t.deadline ≤ now) :
-    (step H (.internal t) now s).1 = .internal := by
-  simp only [step, h, hd, and_self, ↓reduceIte, run, applyAll_accepted, handle]
-
 end Concrete
