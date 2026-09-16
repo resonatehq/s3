@@ -23,10 +23,10 @@ theorem WF_good {org : Origin} (h : WF org) {id : Ident} {now : Nat} {o : Object
     rw [project_callbacks] at hw'
     exact h3 w hw'
 
-theorem WF_write_of {o : Object} (hg : Good o) {x : Object} (hid : x.id = o.id)
+theorem WF_set_of {o : Object} (hg : Good o) {x : Object} (hid : x.id = o.id)
     (hcb : x.promise.callbacks <+ o.promise.callbacks) (hls : x.promise.listeners <+ o.promise.listeners)
-    {d : Origin} (hd : WF d) : WF (d.write x) :=
-  WF_write_fresh hd ⟨hg.1.sublist hls, hg.2.1.sublist hcb, fun w hw => by
+    {d : Origin} (hd : WF d) : WF (d.set x) :=
+  WF_set_fresh hd ⟨hg.1.sublist hls, hg.2.1.sublist hcb, fun w hw => by
     rw [hid]; exact hg.2.2 w (hcb.subset hw)⟩
 
 theorem addCallback_listeners (p : PromiseObject) (w : Ident) : (p.addCallback w).listeners = p.listeners := by
@@ -35,9 +35,9 @@ theorem addCallback_listeners (p : PromiseObject) (w : Ident) : (p.addCallback w
 theorem addListener_callbacks (p : PromiseObject) (a : String) : (p.addListener a).callbacks = p.callbacks := by
   unfold PromiseObject.addListener; split <;> rfl
 
-theorem WF_write_add {o : Object} (hg : Good o) {w : Ident} (hne : w ≠ o.id) (ho : w.origin = o.id.origin)
-    {d : Origin} (hd : WF d) : WF (d.write { o with promise := o.promise.addCallback w }) := by
-  refine WF_write_fresh hd ⟨?_, ?_, fun a ha => ?_⟩
+theorem WF_set_add {o : Object} (hg : Good o) {w : Ident} (hne : w ≠ o.id) (ho : w.origin = o.id.origin)
+    {d : Origin} (hd : WF d) : WF (d.set { o with promise := o.promise.addCallback w }) := by
+  refine WF_set_fresh hd ⟨?_, ?_, fun a ha => ?_⟩
   · show (o.promise.addCallback w).listeners.Nodup
     rw [addCallback_listeners]; exact hg.1
   · show (o.promise.addCallback w).callbacks.Nodup
@@ -55,9 +55,9 @@ theorem WF_write_add {o : Object} (hg : Good o) {w : Ident} (hne : w ≠ o.id) (
       · exact hg.2.2 a ha'
       · exact ⟨hne, ho⟩
 
-theorem WF_write_addListener {o : Object} (hg : Good o) (a : String) {d : Origin} (hd : WF d) :
-    WF (d.write { o with promise := o.promise.addListener a }) := by
-  refine WF_write_fresh hd ⟨?_, ?_, ?_⟩
+theorem WF_set_addListener {o : Object} (hg : Good o) (a : String) {d : Origin} (hd : WF d) :
+    WF (d.set { o with promise := o.promise.addListener a }) := by
+  refine WF_set_fresh hd ⟨?_, ?_, ?_⟩
   · show (o.promise.addListener a).listeners.Nodup
     unfold PromiseObject.addListener
     split
@@ -69,9 +69,9 @@ theorem WF_write_addListener {o : Object} (hg : Good o) (a : String) {d : Origin
   · show ∀ w ∈ (o.promise.addListener a).callbacks, _
     rw [addListener_callbacks]; exact hg.2.2
 
-theorem WF_write_new {d : Origin} (hd : WF d) (id : Ident) (p : PromiseObject) (t : Option TaskObject)
-    (hp : p.callbacks = []) (hl : p.listeners = []) : WF (d.write ⟨id, p, t⟩) :=
-  WF_write_fresh hd ⟨by show p.listeners.Nodup; rw [hl]; exact List.nodup_nil,
+theorem WF_set_new {d : Origin} (hd : WF d) (id : Ident) (p : PromiseObject) (t : Option TaskObject)
+    (hp : p.callbacks = []) (hl : p.listeners = []) : WF (d.set ⟨id, p, t⟩) :=
+  WF_set_fresh hd ⟨by show p.listeners.Nodup; rw [hl]; exact List.nodup_nil,
     by show p.callbacks.Nodup; rw [hp]; exact List.nodup_nil, fun w hw => by simp [hp] at hw⟩
 
 open Protocol (PromiseGetReq PromiseCreateReq PromiseSettleReq PromiseRegisterCallbackReq
@@ -92,9 +92,9 @@ theorem promiseCreate_wf {org : Origin} (h : WF org) (now : Nat) (req : PromiseC
   · dsimp only
     split
     · split
-      · exact WF_write_new h _ _ _ rfl rfl
-      · exact WF_write_new h _ _ _ rfl rfl
-    · exact WF_write_new h _ _ _ rfl rfl
+      · exact WF_set_new h _ _ _ rfl rfl
+      · exact WF_set_new h _ _ _ rfl rfl
+    · exact WF_set_new h _ _ _ rfl rfl
 
 theorem promiseSettle_wf {org : Origin} (h : WF org) (now : Nat) (req : PromiseSettleReq) :
     WF (Concrete.promiseSettle now org req).2.put := by
@@ -106,7 +106,7 @@ theorem promiseSettle_wf {org : Origin} (h : WF org) (now : Nat) (req : PromiseS
     | some o =>
         dsimp only
         split
-        · refine WF_write_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
+        · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
         · exact h
 
 theorem promiseRegisterCallback_wf {org : Origin} (h : WF org) (now : Nat)
@@ -136,7 +136,7 @@ theorem promiseRegisterCallback_wf {org : Origin} (h : WF org) (now : Nat)
                   by_cases hs : req.awaited.sameOrigin req.awaiter = true
                   · exact sameOrigin_eq hs
                   · exact absurd (Or.inr (by simpa using hs)) hc
-                exact WF_write_add (WF_good h hf) hne ho h
+                exact WF_set_add (WF_good h hf) hne ho h
               · exact h
 
 theorem promiseRegisterListener_wf {org : Origin} (h : WF org) (now : Nat)
@@ -150,7 +150,7 @@ theorem promiseRegisterListener_wf {org : Origin} (h : WF org) (now : Nat)
       split
       · exact h
       · split
-        · exact WF_write_addListener (WF_good h hf) req.address h
+        · exact WF_set_addListener (WF_good h hf) req.address h
         · exact h
 
 theorem taskGet_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskGetReq) :
@@ -168,8 +168,8 @@ theorem taskCreate_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskCreateR
     | none =>
         dsimp only
         split
-        · exact WF_write_new h _ _ _ rfl rfl
-        · exact WF_write_new h _ _ _ rfl rfl
+        · exact WF_set_new h _ _ _ rfl rfl
+        · exact WF_set_new h _ _ _ rfl rfl
     | some o =>
         dsimp only
         split
@@ -179,7 +179,7 @@ theorem taskCreate_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskCreateR
           · split
             · exact h
             · split
-              · refine WF_write_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
+              · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
               · exact h
 
 theorem taskAcquire_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskAcquireReq) :
@@ -195,7 +195,7 @@ theorem taskAcquire_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskAcquir
           simp only [Option.map_some]
           split
           · exact h
-          · refine WF_write_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
+          · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem taskFence_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskFenceReq) :
     WF (Concrete.taskFence now org req).2.put := by
@@ -242,7 +242,7 @@ theorem hbStep_wf {org : Origin} (h : WF org) (now : Nat) (pid : String) :
           | some t =>
               simp only [Option.map_some]
               split
-              · refine WF_write_of (WF_good h hf) ?_ ?_ ?_ hc <;> first | rfl | exact List.Sublist.refl _
+              · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ hc <;> first | rfl | exact List.Sublist.refl _
               · exact hc
 
 theorem taskHeartbeat_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskHeartbeatReq) :
@@ -263,7 +263,7 @@ theorem regStep_wf {org : Origin} (h : WF org) (now : Nat) (awaiter : Ident) :
       | none => exact hd
       | some oa =>
           have hi := hids id (List.mem_cons_self ..)
-          refine WF_write_add (WF_good h hf) ?_ ?_ hd
+          refine WF_set_add (WF_good h hf) ?_ ?_ hd
           · rw [get_id hf]; exact hi.1.symm
           · rw [get_id hf]; exact hi.2
 
@@ -287,8 +287,8 @@ theorem taskSuspend_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskSuspen
             · split
               · exact h
               · split
-                · refine WF_write_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
-                · refine WF_write_of (WF_good h hf) ?_ ?_ ?_ ?_
+                · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
+                · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ ?_
                   · rfl
                   · exact List.Sublist.refl _
                   · exact List.Sublist.refl _
@@ -318,7 +318,7 @@ theorem taskFulfill_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskFulfil
             simp only [Option.map_some]
             split
             · exact h
-            · refine WF_write_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
+            · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem taskRelease_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskReleaseReq) :
     WF (Concrete.taskRelease now org req).2.put := by
@@ -333,7 +333,7 @@ theorem taskRelease_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskReleas
           simp only [Option.map_some]
           split
           · exact h
-          · refine WF_write_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
+          · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem taskHalt_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskHaltReq) :
     WF (Concrete.taskHalt now org req).2.put := by
@@ -350,7 +350,7 @@ theorem taskHalt_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskHaltReq) 
           · exact h
           · split
             · exact h
-            · refine WF_write_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
+            · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem taskContinue_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskContinueReq) :
     WF (Concrete.taskContinue now org req).2.put := by
@@ -365,7 +365,7 @@ theorem taskContinue_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskConti
           simp only [Option.map_some]
           split
           · exact h
-          · refine WF_write_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
+          · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem handleExternal_wf {org : Origin} (h : WF org) (now : Nat) (req : Request) :
     WF (Concrete.handleExternal now org req).2.put := by

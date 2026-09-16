@@ -14,9 +14,9 @@ structure Sim (o : String) (org : Origin) (S : Abstract.State) {α : Type}
   orig  : (∀ ob ∈ org.objects, ob.id.origin = o) → ∀ ob ∈ c.put.objects, ob.id.origin = o
   nodup : (org.objects.map (·.id)).Nodup → (c.put.objects.map (·.id)).Nodup
 
-theorem find_write_at {org : Origin} {x : Object} {id : Ident} (hx : x.id = id) :
-    Origin.find (org.write x) id = some x := by
-  rw [← hx]; exact find_write_same org x
+theorem find_set_at {org : Origin} {x : Object} {id : Ident} (hx : x.id = id) :
+    Origin.find (org.set x) id = some x := by
+  rw [← hx]; exact find_set_same org x
 
 theorem Sim.skip {o : String} {org : Origin} {S : Abstract.State} {α : Type} (hL : Local o org S)
     (a : α) : Sim o org S (a, []) a { put := org } :=
@@ -25,41 +25,41 @@ theorem Sim.skip {o : String} {org : Origin} {S : Abstract.State} {α : Type} (h
 theorem Local_setPromise {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     {id : Ident} (hid : id.origin = o) {p : PromiseObject} {x : Object} (hx : x.id = id)
     (h : Abstract.Object.withPromise id p (Origin.find org id) = x) :
-    Local o (org.write x) (Abstract.applyAll S [.setPromise id p]) := by
+    Local o (org.set x) (Abstract.applyAll S [.setPromise id p]) := by
   intro id' hid'
   simp only [Abstract.applyAll]
   by_cases e : id' = id
   · subst e
-    rw [find_setPromise_same, hL _ hid', h, find_write_at hx]
-  · rw [find_setPromise_other _ _ _ _ e, find_write_other _ _ _ (hx ▸ e), hL _ hid']
+    rw [find_setPromise_same, hL _ hid', h, find_set_at hx]
+  · rw [find_setPromise_other _ _ _ _ e, find_set_other _ _ _ (hx ▸ e), hL _ hid']
 
 theorem Local_setPromise_setTask {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     {id : Ident} (hid : id.origin = o) {p : PromiseObject} {t : TaskObject} {x : Object} (hx : x.id = id)
     (h : { Abstract.Object.withPromise id p (Origin.find org id) with task := some t } = x) :
-    Local o (org.write x) (Abstract.applyAll S [.setPromise id p, .setTask id t]) := by
+    Local o (org.set x) (Abstract.applyAll S [.setPromise id p, .setTask id t]) := by
   intro id' hid'
   simp only [Abstract.applyAll]
   by_cases e : id' = id
   · subst e
-    rw [find_setTask, if_pos rfl, find_setPromise_same, hL _ hid', find_write_at hx, Option.map_some]
+    rw [find_setTask, if_pos rfl, find_setPromise_same, hL _ hid', find_set_at hx, Option.map_some]
     rw [← h]
-  · rw [find_setTask, if_neg e, find_setPromise_other _ _ _ _ e, find_write_other _ _ _ (hx ▸ e),
+  · rw [find_setTask, if_neg e, find_setPromise_other _ _ _ _ e, find_set_other _ _ _ (hx ▸ e),
         hL _ hid']
 
 theorem Local_setTask {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     {id : Ident} (hid : id.origin = o) {t : TaskObject} {x : Object} (hx : x.id = id)
     (h : (Origin.find org id).map (fun ob => { ob with task := some t }) = some x) :
-    Local o (org.write x) (Abstract.applyAll S [.setTask id t]) := by
+    Local o (org.set x) (Abstract.applyAll S [.setTask id t]) := by
   intro id' hid'
   simp only [Abstract.applyAll]
   by_cases e : id' = id
   · subst e
-    rw [find_setTask, if_pos rfl, hL _ hid', h, find_write_at hx]
-  · rw [find_setTask, if_neg e, find_write_other _ _ _ (hx ▸ e), hL _ hid']
+    rw [find_setTask, if_pos rfl, hL _ hid', h, find_set_at hx]
+  · rw [find_setTask, if_neg e, find_set_other _ _ _ (hx ▸ e), hL _ hid']
 
-theorem orig_write {o : String} {org : Origin} {x : Object} (hx : x.id.origin = o) :
-    (∀ ob ∈ org.objects, ob.id.origin = o) → ∀ ob ∈ (org.write x).objects, ob.id.origin = o :=
-  fun h => write_derived h hx
+theorem orig_set {o : String} {org : Origin} {x : Object} (hx : x.id.origin = o) :
+    (∀ ob ∈ org.objects, ob.id.origin = o) → ∀ ob ∈ (org.set x).objects, ob.id.origin = o :=
+  fun h => set_derived h hx
 
 theorem find_orig {org : Origin} {id : Ident} {ob : Object}
     (h : Origin.find org id = some ob) : ob.id = id := (find_mem h).2
@@ -101,10 +101,10 @@ theorem promiseCreate_sim {o : String} {org : Origin} {S : Abstract.State} (hL :
       first
         | exact ⟨rfl, ⟨hid, hid, trivial⟩,
             Local_setPromise_setTask hL hid rfl (by simp [hf, Abstract.Object.withPromise]),
-            rfl, orig_write hid, write_nodup⟩
+            rfl, orig_set hid, set_nodup⟩
         | exact ⟨rfl, ⟨hid, trivial⟩,
             Local_setPromise hL hid rfl (by simp [hf, Abstract.Object.withPromise]),
-            rfl, orig_write hid, write_nodup⟩
+            rfl, orig_set hid, set_nodup⟩
 
 theorem settable_ne_pending {st : PromiseState} (h : st.settable = true) : (st != .pending) = true := by
   cases st <;> simp_all [Protocol.PromiseState.settable]
@@ -134,18 +134,18 @@ theorem promiseSettle_sim {o : String} {org : Origin} {S : Abstract.State} (hL :
           have hido : ob.id.origin = o := hob ▸ hid
           cases ht : ob.task with
           | none =>
-              refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_write hido, write_nodup⟩
+              refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_set hido, set_nodup⟩
               exact Local_setPromise hL hido rfl (by rw [hob, hf]; simp [Abstract.Object.withPromise, ht, hob])
           | some t =>
               by_cases hft : (t.state != TaskState.fulfilled) = true
               · have hft' : t.state ≠ TaskState.fulfilled := by simpa using hft
                 simp only [hft, ↓reduceIte, setTask_apply]
-                refine ⟨rfl, ⟨hido, hido, trivial⟩, ?_, rfl, orig_write hido, write_nodup⟩
+                refine ⟨rfl, ⟨hido, hido, trivial⟩, ?_, rfl, orig_set hido, set_nodup⟩
                 exact Local_setPromise_setTask hL hido rfl
                   (by rw [hob, hf]; simp [Abstract.Object.withPromise, hob, hft'])
               · have hft' : t.state = TaskState.fulfilled := by simpa using hft
                 simp only [hft, Bool.false_eq_true, ↓reduceIte, pure_apply]
-                refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_write hido, write_nodup⟩
+                refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_set hido, set_nodup⟩
                 exact Local_setPromise hL hido rfl
                   (by rw [hob, hf]; simp [Abstract.Object.withPromise, ht, hob, hft'])
         · have hp' : ((ob.project now).promise.state == PromiseState.pending) = false := by simpa using hp
@@ -195,7 +195,7 @@ theorem promiseRegisterCallback_sim {o : String} {org : Origin} {S : Abstract.St
                     have hido : awaited.id.origin = o := hob ▸ hid
                     by_cases h6 : ((awaiter.project now).promise.state == PromiseState.pending) = true
                     · simp only [h5, h6, and_self, ↓reduceIte, bind_apply, setPromise_apply, pure_apply]
-                      refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_write hido, write_nodup⟩
+                      refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_set hido, set_nodup⟩
                       exact Local_setPromise hL hido rfl
                         (by rw [hob, hf]; simp [Abstract.Object.withPromise, hob])
                     · simp only [h5, h6, and_false, Bool.false_eq_true, ↓reduceIte, bind_apply, pure_apply]
@@ -229,7 +229,7 @@ theorem promiseRegisterListener_sim {o : String} {org : Origin} {S : Abstract.St
           have hob := find_orig hf
           have hido : awaited.id.origin = o := hob ▸ hid
           simp only [h5, ↓reduceIte]
-          refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_write hido, write_nodup⟩
+          refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_set hido, set_nodup⟩
           exact Local_setPromise hL hido rfl (by rw [hob, hf]; simp [Abstract.Object.withPromise, hob])
         · have h5' : ((awaited.project now).promise.state == PromiseState.pending) = false := by simpa using h5
           simp only [h5', Bool.false_eq_true, ↓reduceIte, pure_apply]
@@ -324,7 +324,7 @@ theorem taskAcquire_sim {o : String} {org : Origin} {S : Abstract.State} (hL : L
                 rw [heq] at htv ⊢
                 have hob := find_orig hf
                 have hido : ob.id.origin = o := hob ▸ hid
-                refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_write hido, write_nodup⟩
+                refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_set hido, set_nodup⟩
                 exact Local_setTask hL hido rfl (by rw [hob, hf]; simp [hob])
 
 theorem taskRelease_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
@@ -363,7 +363,7 @@ theorem taskRelease_sim {o : String} {org : Origin} {S : Abstract.State} (hL : L
                 rw [heq] at htv ⊢
                 have hob := find_orig hf
                 have hido : ob.id.origin = o := hob ▸ hid
-                refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_write hido, write_nodup⟩
+                refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_set hido, set_nodup⟩
                 exact Local_setTask hL hido rfl (by rw [hob, hf]; simp [hob])
 
 theorem taskContinue_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
@@ -398,7 +398,7 @@ theorem taskContinue_sim {o : String} {org : Origin} {S : Abstract.State} (hL : 
               rw [heq] at htv ⊢
               have hob := find_orig hf
               have hido : ob.id.origin = o := hob ▸ hid
-              refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_write hido, write_nodup⟩
+              refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_set hido, set_nodup⟩
               exact Local_setTask hL hido rfl (by rw [hob, hf]; simp [hob])
 
 theorem taskHalt_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
@@ -432,7 +432,7 @@ theorem taskHalt_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Loca
               rw [heq] at htv ⊢
               have hob := find_orig hf
               have hido : ob.id.origin = o := hob ▸ hid
-              refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_write hido, write_nodup⟩
+              refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_set hido, set_nodup⟩
               exact Local_setTask hL hido rfl (by rw [hob, hf]; simp [hob])
 
 theorem taskFulfill_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
@@ -479,7 +479,7 @@ theorem taskFulfill_sim {o : String} {org : Origin} {S : Abstract.State} (hL : L
                     setTask_apply, pure_apply]
                   have hob := find_orig hf
                   have hido : ob.id.origin = o := hob ▸ hid
-                  refine ⟨rfl, ⟨hido, hido, trivial⟩, ?_, rfl, orig_write hido, write_nodup⟩
+                  refine ⟨rfl, ⟨hido, hido, trivial⟩, ?_, rfl, orig_set hido, set_nodup⟩
                   exact Local_setPromise_setTask hL hido rfl
                     (by rw [hob, hf]; simp [Abstract.Object.withPromise, hob])
   · have hs' : (!req.action.state.settable) = true := by simpa using hs
@@ -502,7 +502,7 @@ theorem taskCreate_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Lo
         simp only [h1, ↓reduceIte] <;>
         exact ⟨rfl, ⟨hid, hid, trivial⟩,
           Local_setPromise_setTask hL hid rfl (by simp [hf, Abstract.Object.withPromise]),
-          rfl, orig_write hid, write_nodup⟩
+          rfl, orig_set hid, set_nodup⟩
     | some ob =>
         simp only [Option.map_some, pure_apply]
         by_cases h2 : (!(ob.project now).promise.type.isRunnable) = true
@@ -528,7 +528,7 @@ theorem taskCreate_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Lo
                   rw [heq] at htv ⊢
                   have hob := find_orig hf
                   have hido : ob.id.origin = o := hob ▸ hid
-                  refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_write hido, write_nodup⟩
+                  refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_set hido, set_nodup⟩
                   exact Local_setTask hL hido rfl (by rw [hob, hf]; simp [hob])
                 · have c2' : (tv.state == TaskState.pending) = false := by simpa using c2
                   simp only [c1', c2', Bool.false_eq_true, ↓reduceIte, pure_apply]
@@ -609,25 +609,25 @@ theorem taskFence_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Loc
 theorem Local_setTask_from {o : String} {d : Origin} {T : Abstract.State} (hL : Local o d T)
     {id : Ident} (hid : id.origin = o) {t : TaskObject} {x y : Object} (hx : x.id = id)
     (hy : Origin.find d id = some y) (hxy : x = { y with task := some t }) :
-    Local o (d.write x) (Abstract.applyAll T [.setTask id t]) := by
+    Local o (d.set x) (Abstract.applyAll T [.setTask id t]) := by
   intro id' hid'
   simp only [Abstract.applyAll]
   by_cases e : id' = id
   · subst e
-    rw [find_setTask, if_pos rfl, hL _ hid', hy, Option.map_some, find_write_at hx, hxy]
-  · rw [find_setTask, if_neg e, find_write_other _ _ _ (hx ▸ e), hL _ hid']
+    rw [find_setTask, if_pos rfl, hL _ hid', hy, Option.map_some, find_set_at hx, hxy]
+  · rw [find_setTask, if_neg e, find_set_other _ _ _ (hx ▸ e), hL _ hid']
 
 theorem Local_setPromise_from {o : String} {d : Origin} {T : Abstract.State} (hL : Local o d T)
     {id : Ident} (hid : id.origin = o) {p : PromiseObject} {x y : Object} (hx : x.id = id)
     (hy : Origin.find d id = some y) (hxy : x = { y with promise := p }) :
-    Local o (d.write x) (Abstract.applyAll T [.setPromise id p]) := by
+    Local o (d.set x) (Abstract.applyAll T [.setPromise id p]) := by
   intro id' hid'
   simp only [Abstract.applyAll]
   by_cases e : id' = id
   · subst e
-    rw [find_setPromise_same, hL _ hid', hy, find_write_at hx, hxy]
+    rw [find_setPromise_same, hL _ hid', hy, find_set_at hx, hxy]
     rfl
-  · rw [find_setPromise_other _ _ _ _ e, find_write_other _ _ _ (hx ▸ e), hL _ hid']
+  · rw [find_setPromise_other _ _ _ _ e, find_set_other _ _ _ (hx ▸ e), hL _ hid']
 
 open Protocol (TaskRef)
 
@@ -641,7 +641,7 @@ def hbStep (now : Nat) (org : Origin) (pid : String) (c : Commands) (ref : TaskR
         let lease := now + t.ttl.getD 0
         { c with
           arm := c.arm ++ (if t.leaseTimeoutAt == some lease then [] else [⟨lease, o.id, .lease⟩]),
-          put := c.put.write { o with task := some { t with leaseTimeoutAt := some lease } },
+          put := c.put.set { o with task := some { t with leaseTimeoutAt := some lease } },
           del := c.del ++ (if t.leaseTimeoutAt == some lease then [] else t.timers o.id) }
       else
         c
@@ -711,7 +711,7 @@ theorem heartbeatAll_sim {o : String} {org : Origin} {S : Abstract.State} (hL : 
                     have hy' : Origin.find c.put ob.id = some y := by rw [hob]; exact hy
                     simp only [List.nil_append]
                     refine ⟨Local_setTask_from hacc.loc hido rfl hy' ?_, ?_,
-                      fun h => write_derived (hacc.orig h) hido, fun h => write_nodup (hacc.nodup h)⟩
+                      fun h => set_derived (hacc.orig h) hido, fun h => set_nodup (hacc.nodup h)⟩
                     · cases y with
                       | mk yi yp yt =>
                           cases ob with
@@ -723,8 +723,8 @@ theorem heartbeatAll_sim {o : String} {org : Origin} {S : Abstract.State} (hL : 
                       · subst e
                         have hx : ({ ob with task := some { tv with leaseTimeoutAt := some (now + tv.ttl.getD 0) } }
                           : Object).id = ref.id := hob
-                        rw [find_write_at hx, hf]; rfl
-                      · rw [find_write_other _ _ _ (hob ▸ e)]; exact hacc.prom id
+                        rw [find_set_at hx, hf]; rfl
+                      · rw [find_set_other _ _ _ (hob ▸ e)]; exact hacc.prom id
               · simp only [hc, ↓reduceIte, pure_apply]
                 exact ⟨trivial, hacc, hsend, rfl⟩
 
@@ -742,7 +742,7 @@ theorem taskHeartbeat_sim {o : String} {org : Origin} {S : Abstract.State} (hL :
 def regStep (awaiter : Ident) (d : Origin) (oa : Option Object) : Origin :=
   match oa with
   | some oa =>
-      d.write { oa with promise := oa.promise.addCallback awaiter }
+      d.set { oa with promise := oa.promise.addCallback awaiter }
   | none =>
       d
 
@@ -765,10 +765,10 @@ theorem taskSuspend_eq (now : Nat) (org : Origin) (req : TaskSuspendReq) :
                if awaited.any (fun oa => !(oa.map (·.promise.type.awaitable)).getD false) then
                  ({ status := 422 }, { put := org })
                else if awaited.any (fun oa => (oa.map (·.promise.state != .pending)).getD false) then
-                 ({ status := 300 }, { put := org.write { o with task := some { t with resumes := [] } } })
+                 ({ status := 300 }, { put := org.set { o with task := some { t with resumes := [] } } })
                else
                  ({ status := 200 },
-                  { put := (awaited.foldl (regStep req.id) org).write
+                  { put := (awaited.foldl (regStep req.id) org).set
                       { o with task := some { t with state := .suspended, pid := none, ttl := none,
                                                      leaseTimeoutAt := none, retryTimeoutAt := none,
                                                      resumes := [] } },
@@ -871,7 +871,7 @@ theorem registerAwaited_sim {o : String} {org : Origin} {S : Abstract.State} (hL
               rw [hy, Option.map_some, Option.some.injEq] at htk
               have hyid : y.id = ob.id := (find_orig hy).trans hob.symm
               have hy' : Origin.find d ob.id = some y := by rw [hob]; exact hy
-              have hacc' : RAcc o org (d.write { ob with promise := ob.promise.addCallback awaiter })
+              have hacc' : RAcc o org (d.set { ob with promise := ob.promise.addCallback awaiter })
                   (Abstract.applyAll T [.setPromise ob.id (ob.promise.addCallback awaiter)]) := by
                 refine ⟨Local_setPromise_from hacc.loc hido hx hy' ?_, ?_⟩
                 · cases y with
@@ -883,16 +883,16 @@ theorem registerAwaited_sim {o : String} {org : Origin} {S : Abstract.State} (hL
                 · intro id
                   by_cases e : id = ob.id
                   · subst e
-                    rw [find_write_at hx, hob, hf]; rfl
-                  · rw [find_write_other _ _ _ (hx ▸ e)]; exact hacc.task id
+                    rw [find_set_at hx, hob, hf]; rfl
+                  · rw [find_set_other _ _ _ (hx ▸ e)]; exact hacc.task id
               obtain ⟨i1, i2, i3, i4, i5, i6⟩ :=
                 registerAwaited_sim hL awaiter now rest _ _ hrest hprest hacc'
               simp only [Abstract.applyAll] at i2
               refine ⟨⟨hido, i1⟩, by simp only [Abstract.applyAll]; exact i2, i3, ?_,
-                fun h => i5 (write_derived h hido), fun h => i6 (write_nodup h)⟩
+                fun h => i5 (set_derived h hido), fun h => i6 (set_nodup h)⟩
               intro id hid
               rw [i4 id (fun m => hid (List.mem_cons_of_mem _ m)),
-                find_write_other _ _ _ (by rw [hx, hob]; exact fun e => hid (e ▸ List.mem_cons_self ..))]
+                find_set_other _ _ _ (by rw [hx, hob]; exact fun e => hid (e ▸ List.mem_cons_self ..))]
 
 theorem taskSuspend_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : TaskSuspendReq) (hid : req.id.origin = o) :
@@ -969,7 +969,7 @@ theorem taskSuspend_sim {o : String} {org : Origin} {S : Abstract.State} (hL : L
                               (fun oa => (oa.map (·.promise.state != .pending)).getD false) = true
                           · simp only [a1', a2, Bool.false_eq_true, ↓reduceIte, bind_apply, setTask_apply,
                               pure_apply, List.append_nil, List.nil_append]
-                            refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_write hido, write_nodup⟩
+                            refine ⟨rfl, ⟨hido, trivial⟩, ?_, rfl, orig_set hido, set_nodup⟩
                             exact Local_setTask hL hido rfl (by rw [hob, hf]; simp [hob])
                           · have a2' : ((req.actions.map (·.awaited)).map (org.get · now)).any
                                 (fun oa => (oa.map (·.promise.state != .pending)).getD false) = false := by
@@ -995,7 +995,7 @@ theorem taskSuspend_sim {o : String} {org : Origin} {S : Abstract.State} (hL : L
                                 (regStep req.id) org) ob.id = some ob := by
                               rw [hob, i4 req.id hnm, hf]
                             refine ⟨rfl, (Fx_append _ _ _).2 ⟨i1, hido, trivial⟩, ?_, ?_,
-                              fun h => write_derived (i5 h) hido, fun h => write_nodup (i6 h)⟩
+                              fun h => set_derived (i5 h) hido, fun h => set_nodup (i6 h)⟩
                             · rw [applyAll_append]
                               exact Local_setTask_from i2.loc hido rfl hy rfl
                             · rw [sendsOf_append, i3]; rfl

@@ -10,16 +10,16 @@ theorem ids_map {l : List Object} {g : Object → Object} (hg : ∀ o, (g o).id 
     (l.map g).map (·.id) = l.map (·.id) := by
   rw [List.map_map]; congr 1; funext o; exact hg o
 
-theorem write_map {l : List Object} {g : Object → Object} (hg : ∀ o, (g o).id = o.id) {x : Object}
+theorem set_map {l : List Object} {g : Object → Object} (hg : ∀ o, (g o).id = o.id) {x : Object}
     (hx : ∃ o ∈ l, o.id = x.id) :
-    (⟨l.map g⟩ : Origin).write x = ⟨l.map fun o => if o.id == x.id then x else g o⟩ := by
+    (⟨l.map g⟩ : Origin).set x = ⟨l.map fun o => if o.id == x.id then x else g o⟩ := by
   have hany : (l.map g).any (·.id == x.id) = true := by
     rw [List.any_map]
     refine List.any_eq_true.2 ?_
     obtain ⟨o, ho, hox⟩ := hx
     exact ⟨o, ho, by simp [Function.comp, hg, hox]⟩
   apply Origin.eq_of_objects
-  rw [write_present hany, List.map_map]
+  rw [set_present hany, List.map_map]
   congr 1
   funext o
   simp only [Function.comp, hg]
@@ -51,7 +51,7 @@ theorem getD_id {step : Object → Option Object} (hid : ∀ o x, step o = some 
 
 theorem bulk_put (step : Object → Option Object) (hid : ∀ o x, step o = some x → x.id = o.id)
     (f : Commands → Object → Commands)
-    (hf : ∀ c o, (f c o).put = match step o with | some x => c.put.write x | none => c.put) :
+    (hf : ∀ c o, (f c o).put = match step o with | some x => c.put.set x | none => c.put) :
     ∀ (P Q : List Object) (c : Commands), ((P ++ Q).map (·.id)).Nodup →
       c.put = ⟨(P ++ Q).map fun o => if o.id ∈ P.map (·.id) then (step o).getD o else o⟩ →
       (Q.foldl f c).put = ⟨(P ++ Q).map fun o => (step o).getD o⟩
@@ -87,7 +87,7 @@ theorem bulk_put (step : Object → Option Object) (hid : ∀ o x, step o = some
         | some x =>
             have hxo : x.id = o.id := hid o x hs
             simp only
-            rw [write_map (fun ob => by split <;> first | exact getD_id hid ob | rfl) ⟨o, hmem, hxo.symm⟩]
+            rw [set_map (fun ob => by split <;> first | exact getD_id hid ob | rfl) ⟨o, hmem, hxo.symm⟩]
             apply Origin.eq_of_objects
             apply List.map_congr_left
             intro ob hob
@@ -489,7 +489,7 @@ theorem resume_put (now : Nat) (a : Ident) (c : Commands) (w : Ident) :
     (Chain.resume now a c w).put =
       match (c.put.get w now).bind (fun o => o.task.map (o, ·)) with
       | none => c.put
-      | some (wo, t) => c.put.write { wo with task := some (t.resume now a) } := by
+      | some (wo, t) => c.put.set { wo with task := some (t.resume now a) } := by
   unfold Chain.resume
   cases hb : (c.put.get w now).bind (fun o => o.task.map (o, ·)) with
   | none => rfl
@@ -563,18 +563,18 @@ theorem inner_step {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodup
       rw [Object.project_set_callbacks, stageP_project]
       rfl
   have hc₁ : (cbStepOld now s.id c w).put =
-      (Chain.resume now s.id { c with put := c.put.write (stageC now P s Q₂) } w).put := by
+      (Chain.resume now s.id { c with put := c.put.set (stageC now P s Q₂) } w).put := by
     unfold cbStepOld
     rw [hcurS]
-    show (Chain.resume now s.id { c with put := c.put.write { stageC now P s (w :: Q₂) with promise := { (stageC now P s (w :: Q₂)).promise with callbacks := (stageC now P s (w :: Q₂)).promise.callbacks.filter (· != w) } } } w).put = _
-    show (Chain.resume now s.id { c with put := c.put.write { stageP now P s with promise := { (stageP now P s).promise with callbacks := (w :: Q₂).filter (· != w) } } } w).put = _
+    show (Chain.resume now s.id { c with put := c.put.set { stageC now P s (w :: Q₂) with promise := { (stageC now P s (w :: Q₂)).promise with callbacks := (stageC now P s (w :: Q₂)).promise.callbacks.filter (· != w) } } } w).put = _
+    show (Chain.resume now s.id { c with put := c.put.set { stageP now P s with promise := { (stageP now P s).promise with callbacks := (w :: Q₂).filter (· != w) } } } w).put = _
     rw [filter_cons_ne_self' hwQ₂]
     rfl
   rw [hc₁, resume_put]
   simp only
-  have hput₁ : c.put.write (stageC now P s Q₂) =
+  have hput₁ : c.put.set (stageC now P s Q₂) =
       ⟨d.objects.map fun ob => if ob.id == s.id then stageC now P s Q₂ else inner now P s Q₁ (w :: Q₂) ob⟩ := by
-    rw [hc, write_map (x := stageC now P s Q₂) (inner_id now P s Q₁ (w :: Q₂)) ⟨s, hs, rfl⟩, stageC_id]
+    rw [hc, set_map (x := stageC now P s Q₂) (inner_id now P s Q₁ (w :: Q₂)) ⟨s, hs, rfl⟩, stageC_id]
   have hf₁ : ∀ ob, (if ob.id == s.id then stageC now P s Q₂ else inner now P s Q₁ (w :: Q₂) ob).id = ob.id := by
     intro ob
     split
@@ -655,7 +655,7 @@ theorem inner_step {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodup
           simp only
           have hxid : ∀ t' : TaskObject, ({ stageP now P obw with task := some t' } : Object).id = w :=
             fun _ => hobwid
-          rw [write_map hf₁ ⟨obw, hobw, hobwid.trans (hxid _).symm⟩]
+          rw [set_map hf₁ ⟨obw, hobw, hobwid.trans (hxid _).symm⟩]
           apply Origin.eq_of_objects
           apply List.map_congr_left
           intro ob hob

@@ -9,7 +9,7 @@ open Concrete (Origin Commands Timer)
 def promiseTimeouts (now : Nat) (org : Origin) : Commands :=
   org.objects.foldl (init := { put := org }) fun c o =>
     if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now then
-      { c with put := c.put.write (o.project now), del := c.del ++ o.timers }
+      { c with put := c.put.set (o.project now), del := c.del ++ o.timers }
     else
       c
 
@@ -18,7 +18,7 @@ def listeners (now : Nat) (org : Origin) : Commands :=
     let o := o.project now
     if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
       { c with
-        put := c.put.write { o with promise := { o.promise with listeners := [] } },
+        put := c.put.set { o with promise := { o.promise with listeners := [] } },
         send := c.send ++ o.promise.listeners.map fun a => (a, .unblock (o.promise.toRecord o.id)) }
     else
       c
@@ -32,15 +32,15 @@ def resume (now : Nat) (awaited : Ident) (c : Commands) (awaiter : Ident) : Comm
       | .suspended =>
           { c with
             arm := c.arm ++ [⟨now, w.id, .retry⟩],
-            put := c.put.write { w with task := some { t with state := .pending, resumes := [awaited],
+            put := c.put.set { w with task := some { t with state := .pending, resumes := [awaited],
                                                               retryTimeoutAt := some now } } }
       | .pending | .acquired | .halted =>
           if t.resumes.contains awaited then
-            { c with put := c.put.write w }
+            { c with put := c.put.set w }
           else
-            { c with put := c.put.write { w with task := some { t with resumes := t.resumes ++ [awaited] } } }
+            { c with put := c.put.set { w with task := some { t with resumes := t.resumes ++ [awaited] } } }
       | .fulfilled =>
-          { c with put := c.put.write w }
+          { c with put := c.put.set w }
 
 def callbacks (now : Nat) (org : Origin) : Commands :=
   org.objects.foldl (init := { put := org }) fun c o =>
@@ -50,7 +50,7 @@ def callbacks (now : Nat) (org : Origin) : Commands :=
         match c.put.get o.id now with
         | some cur =>
             resume now o.id
-              { c with put := c.put.write { cur with promise :=
+              { c with put := c.put.set { cur with promise :=
                   { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } } }
               awaiter
         | none =>
@@ -67,7 +67,7 @@ def leaseTimeouts (now : Nat) (org : Origin) : Commands :=
             ∧ o.promise.state == .pending then
           { c with
             arm := c.arm ++ [⟨now, o.id, .retry⟩],
-            put := c.put.write { o with task := some { t with state := .pending, pid := none, ttl := none,
+            put := c.put.set { o with task := some { t with state := .pending, pid := none, ttl := none,
                                                               leaseTimeoutAt := none,
                                                               retryTimeoutAt := some now } },
             del := c.del ++ t.timers o.id }
@@ -85,7 +85,7 @@ def retryTimeouts (now : Nat) (org : Origin) : Commands :=
             ∧ o.promise.state == .pending then
           { c with
             arm := c.arm ++ [⟨now + Concrete.retryDelay, o.id, .retry⟩],
-            put := c.put.write { o with task := some { t with retryTimeoutAt := some (now + Concrete.retryDelay) } },
+            put := c.put.set { o with task := some { t with retryTimeoutAt := some (now + Concrete.retryDelay) } },
             del := c.del ++ t.timers o.id,
             send := c.send ++ [(target, .execute o.id t.version)] }
         else

@@ -6,22 +6,22 @@ open Protocol (Ident Message OutboxEntry Object PromiseObject TaskObject Promise
 open Concrete (Origin Commands)
 open scoped List
 
-theorem WF_write {org : Origin} {x X : Object} (h : WF org) (hX : X ∈ org.objects)
+theorem WF_set {org : Origin} {x X : Object} (h : WF org) (hX : X ∈ org.objects)
     (hid : x.id = X.id) (hcb : x.promise.callbacks <+ X.promise.callbacks)
-    (hls : x.promise.listeners <+ X.promise.listeners) : WF (org.write x) := by
+    (hls : x.promise.listeners <+ X.promise.listeners) : WF (org.set x) := by
   intro ob hob
-  rcases mem_write hob with rfl | hob
+  rcases mem_set hob with rfl | hob
   · obtain ⟨h1, h2, h3⟩ := h X hX
     refine ⟨h1.sublist hls, h2.sublist hcb, fun w hw => ?_⟩
     rw [hid]
     exact h3 w (hcb.subset hw)
   · exact h ob hob
 
-theorem WF_write_fresh {org : Origin} {x : Object} (h : WF org)
+theorem WF_set_fresh {org : Origin} {x : Object} (h : WF org)
     (hx : x.promise.listeners.Nodup ∧ x.promise.callbacks.Nodup ∧
-      ∀ w ∈ x.promise.callbacks, w ≠ x.id ∧ w.origin = x.id.origin) : WF (org.write x) := by
+      ∀ w ∈ x.promise.callbacks, w ≠ x.id ∧ w.origin = x.id.origin) : WF (org.set x) := by
   intro ob hob
-  rcases mem_write hob with rfl | hob
+  rcases mem_set hob with rfl | hob
   · exact hx
   · exact h ob hob
 
@@ -279,29 +279,29 @@ theorem SwInv.sends {o : String} {S : Abstract.State} {c : Commands} {T : Abstra
   intro id hid
   rw [find_applyAll_sends, hput, h.loc id hid]
 
-theorem SwInv.write_proj {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
+theorem SwInv.set_proj {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
     (h : SwInv o S c T) {w : Ident} (hw : w.origin = o) {X : Object} (hX : Origin.find c.put w = some X)
-    (now : Nat) {c' : Commands} (hput : c'.put = c.put.write (X.project now)) (hsend : c'.send = c.send) :
+    (now : Nat) {c' : Commands} (hput : c'.put = c.put.set (X.project now)) (hsend : c'.send = c.send) :
     SwInv o S c' (Abstract.applyAll T (materialiseFx w X (X.project now))) := by
   have hXw : X.id = w := (find_mem hX).2
   have hmem : X ∈ c.put.objects := (find_mem hX).1
   have hT : find T w = some X := (h.loc w hw).trans hX
   have hx : (X.project now).id = w := hXw
   refine h.step (materialiseFx w X (X.project now)) (Fx_of_onlyOn (materialiseFx_onlyOn ..) hw) ?_
-    (by rw [hsend, sendsOf_materialise, List.append_nil]) (hput ▸ write_derived h.orig (hXw ▸ hw))
-    (hput ▸ write_nodup h.nodup) (hput ▸ WF_write h.wf hmem rfl (callbacks_sub X now) (listeners_sub X now))
+    (by rw [hsend, sendsOf_materialise, List.append_nil]) (hput ▸ set_derived h.orig (hXw ▸ hw))
+    (hput ▸ set_nodup h.nodup) (hput ▸ WF_set h.wf hmem rfl (callbacks_sub X now) (listeners_sub X now))
   intro id hid
   rw [hput]
   by_cases e : id = w
   · subst e
-    rw [find_write_at hx, find_materialise_same hT]
+    rw [find_set_at hx, find_materialise_same hT]
   · have hne : id ≠ (X.project now).id := fun e' => e (e'.trans hx)
-    rw [find_write_other _ _ _ hne, find_applyAll_onlyOn (materialiseFx_onlyOn ..) e, h.loc id hid]
+    rw [find_set_other _ _ _ hne, find_applyAll_onlyOn (materialiseFx_onlyOn ..) e, h.loc id hid]
 
-theorem SwInv.write_task {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
+theorem SwInv.set_task {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
     (h : SwInv o S c T) {w : Ident} (hw : w.origin = o) {X : Object} (hX : Origin.find c.put w = some X)
     (now : Nat) (t : TaskObject) {c' : Commands}
-    (hput : c'.put = c.put.write { X.project now with task := some t }) (hsend : c'.send = c.send) :
+    (hput : c'.put = c.put.set { X.project now with task := some t }) (hsend : c'.send = c.send) :
     SwInv o S c' (Abstract.applyAll T (materialiseFx w X (X.project now) ++ [.setTask w t])) := by
   have hXw : X.id = w := (find_mem hX).2
   have hmem : X ∈ c.put.objects := (find_mem hX).1
@@ -310,24 +310,24 @@ theorem SwInv.write_task {o : String} {S : Abstract.State} {c : Commands} {T : A
   refine h.step (materialiseFx w X (X.project now) ++ [.setTask w t])
     ((Fx_append o (materialiseFx w X (X.project now)) [.setTask w t]).2
       ⟨Fx_of_onlyOn (materialiseFx_onlyOn ..) hw, hw, trivial⟩) ?_
-    (by simp [hsend, sendsOf_append, sendsOf_materialise, sendsOf]) (hput ▸ write_derived h.orig (hXw ▸ hw))
-    (hput ▸ write_nodup h.nodup) (hput ▸ WF_write h.wf hmem rfl (callbacks_sub X now) (listeners_sub X now))
+    (by simp [hsend, sendsOf_append, sendsOf_materialise, sendsOf]) (hput ▸ set_derived h.orig (hXw ▸ hw))
+    (hput ▸ set_nodup h.nodup) (hput ▸ WF_set h.wf hmem rfl (callbacks_sub X now) (listeners_sub X now))
   intro id hid
   rw [hput, applyAll_append]
   by_cases e : id = w
   · subst e
-    rw [find_write_at hx]
+    rw [find_set_at hx]
     simp only [Abstract.applyAll, find_setTask, if_true, find_materialise_same hT, Option.map_some]
   · have hne : id ≠ ({ X.project now with task := some t } : Object).id := fun e' => e (e'.trans hx)
-    rw [find_write_other _ _ _ hne]
+    rw [find_set_other _ _ _ hne]
     simp only [Abstract.applyAll, find_setTask, if_neg e]
     rw [find_applyAll_onlyOn (materialiseFx_onlyOn ..) e, h.loc id hid]
 
-theorem SwInv.write_promise {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
+theorem SwInv.set_promise {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
     (h : SwInv o S c T) {w : Ident} (hw : w.origin = o) {X : Object} (hX : Origin.find c.put w = some X)
     (now : Nat) (p : PromiseObject) (hcb : p.callbacks <+ X.promise.callbacks)
     (hls : p.listeners <+ X.promise.listeners) {c' : Commands}
-    (hput : c'.put = c.put.write { X.project now with promise := p }) (hsend : c'.send = c.send) :
+    (hput : c'.put = c.put.set { X.project now with promise := p }) (hsend : c'.send = c.send) :
     SwInv o S c' (Abstract.applyAll T (materialiseFx w X (X.project now) ++ [.setPromise w p])) := by
   have hXw : X.id = w := (find_mem hX).2
   have hmem : X ∈ c.put.objects := (find_mem hX).1
@@ -336,22 +336,22 @@ theorem SwInv.write_promise {o : String} {S : Abstract.State} {c : Commands} {T 
   refine h.step (materialiseFx w X (X.project now) ++ [.setPromise w p])
     ((Fx_append o (materialiseFx w X (X.project now)) [.setPromise w p]).2
       ⟨Fx_of_onlyOn (materialiseFx_onlyOn ..) hw, hw, trivial⟩) ?_
-    (by simp [hsend, sendsOf_append, sendsOf_materialise, sendsOf]) (hput ▸ write_derived h.orig (hXw ▸ hw))
-    (hput ▸ write_nodup h.nodup) (hput ▸ WF_write h.wf hmem rfl hcb hls)
+    (by simp [hsend, sendsOf_append, sendsOf_materialise, sendsOf]) (hput ▸ set_derived h.orig (hXw ▸ hw))
+    (hput ▸ set_nodup h.nodup) (hput ▸ WF_set h.wf hmem rfl hcb hls)
   intro id hid
   rw [hput, applyAll_append]
   by_cases e : id = w
   · subst e
-    rw [find_write_at hx]
+    rw [find_set_at hx]
     simp only [Abstract.applyAll, find_setPromise_same, find_materialise_same hT, Abstract.Object.withPromise]
   · have hne : id ≠ ({ X.project now with promise := p } : Object).id := fun e' => e (e'.trans hx)
-    rw [find_write_other _ _ _ hne]
+    rw [find_set_other _ _ _ hne]
     simp only [Abstract.applyAll]
     rw [find_setPromise_other _ _ _ _ e, find_applyAll_onlyOn (materialiseFx_onlyOn ..) e, h.loc id hid]
 
-theorem SwInv.write_task_plain {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
+theorem SwInv.set_task_plain {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
     (h : SwInv o S c T) {w : Ident} (hw : w.origin = o) {X : Object} (hX : Origin.find c.put w = some X)
-    (t : TaskObject) {c' : Commands} (hput : c'.put = c.put.write { X with task := some t })
+    (t : TaskObject) {c' : Commands} (hput : c'.put = c.put.set { X with task := some t })
     (hsend : c'.send = c.send) :
     SwInv o S c' (Abstract.applyAll T [.setTask w t]) := by
   have hXw : X.id = w := (find_mem hX).2
@@ -359,22 +359,22 @@ theorem SwInv.write_task_plain {o : String} {S : Abstract.State} {c : Commands} 
   have hT : find T w = some X := (h.loc w hw).trans hX
   have hx : ({ X with task := some t } : Object).id = w := hXw
   refine h.step [.setTask w t] ⟨hw, trivial⟩ ?_ (by simp [hsend, sendsOf])
-    (hput ▸ write_derived h.orig (hXw ▸ hw))
-    (hput ▸ write_nodup h.nodup) (hput ▸ WF_write h.wf hmem rfl (List.Sublist.refl _) (List.Sublist.refl _))
+    (hput ▸ set_derived h.orig (hXw ▸ hw))
+    (hput ▸ set_nodup h.nodup) (hput ▸ WF_set h.wf hmem rfl (List.Sublist.refl _) (List.Sublist.refl _))
   intro id hid
   rw [hput]
   by_cases e : id = w
   · subst e
-    rw [find_write_at hx]
+    rw [find_set_at hx]
     simp only [Abstract.applyAll, find_setTask, if_true, hT, Option.map_some]
   · have hne : id ≠ ({ X with task := some t } : Object).id := fun e' => e (e'.trans hx)
-    rw [find_write_other _ _ _ hne]
+    rw [find_set_other _ _ _ hne]
     simp only [Abstract.applyAll, find_setTask, if_neg e]
     exact h.loc id hid
 
 def ptStep (now : Nat) (c : Commands) (o : Object) : Commands :=
   if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now then
-    { c with put := c.put.write (o.project now), del := c.del ++ o.timers }
+    { c with put := c.put.set (o.project now), del := c.del ++ o.timers }
   else
     c
 
@@ -410,16 +410,16 @@ theorem promiseTimeouts_sim {o : String} {S : Abstract.State} (now : Nat) :
       simp only [List.map_cons, List.nodup_cons] at hnd
       simp only [List.foldl_cons]
       by_cases hc : (ob.promise.state == PromiseState.pending) = true ∧ ob.promise.timeoutAt ≤ now
-      · have hstep : ptStep now c ob = { c with put := c.put.write (ob.project now), del := c.del ++ ob.timers } := by
+      · have hstep : ptStep now c ob = { c with put := c.put.set (ob.project now), del := c.del ++ ob.timers } := by
           unfold ptStep; rw [if_pos hc]
         have htrig : ptTrig now ob = some (.promiseTimeout ⟨ob.id⟩) := by
           unfold ptTrig; rw [if_pos hc]
         rw [hstep, List.filterMap_cons_some htrig, execI_cons, processPromiseTimeout_fx, h.loc ob.id hido, hob]
-        refine promiseTimeouts_sim now l _ _ (h.write_proj hido hob now rfl rfl) ?_ hnd.2
+        refine promiseTimeouts_sim now l _ _ (h.set_proj hido hob now rfl rfl) ?_ hnd.2
         intro ob' hob'
         have hne : ob'.id ≠ (ob.project now).id := fun e => hnd.1 (e ▸ List.mem_map_of_mem hob')
-        show Origin.find (c.put.write (ob.project now)) ob'.id = some ob'
-        rw [find_write_other _ _ _ hne]
+        show Origin.find (c.put.set (ob.project now)) ob'.id = some ob'
+        rw [find_set_other _ _ _ hne]
         exact hfind ob' (List.mem_cons_of_mem _ hob')
       · have hstep : ptStep now c ob = c := by
           unfold ptStep; rw [if_neg hc]
@@ -434,11 +434,11 @@ def lsStep (now : Nat) (id : Ident) (c : Commands) (address : String) : Commands
   | some cur =>
       if cur.promise.state != .pending ∧ cur.promise.listeners.contains address then
         { c with
-          put := c.put.write { cur with promise :=
+          put := c.put.set { cur with promise :=
             { cur.promise with listeners := cur.promise.listeners.filter (· != address) } },
           send := c.send ++ [(address, .unblock (cur.promise.toRecord cur.id))] }
       else
-        { c with put := c.put.write cur }
+        { c with put := c.put.set cur }
   | none =>
       c
 
@@ -473,7 +473,7 @@ def lsBulk (now : Nat) (c : Commands) (o : Object) : Commands :=
   let o := o.project now
   if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
     { c with
-      put := c.put.write { o with promise := { o.promise with listeners := [] } },
+      put := c.put.set { o with promise := { o.promise with listeners := [] } },
       send := c.send ++ o.promise.listeners.map fun a => (a, .unblock (o.promise.toRecord o.id)) }
   else
     c
@@ -538,7 +538,7 @@ theorem lsStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
               simpa using h1.1
             have hstep : lsStep now id c a =
                 { c with
-                  put := c.put.write { X.project now with promise :=
+                  put := c.put.set { X.project now with promise :=
                     { (X.project now).promise with
                       listeners := (X.project now).promise.listeners.filter (· != a) } },
                   send := c.send ++ [(a, .unblock ((X.project now).promise.toRecord id))] } := by
@@ -547,16 +547,16 @@ theorem lsStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
             simp only [h1a, Bool.false_eq_true, ↓reduceIte, h1.2]
             refine lsStep_sim now id hido as _ _ ?_
             rw [applyAll_append]
-            exact (h.write_promise hido hX now
+            exact (h.set_promise hido hX now
               { (X.project now).promise with
                 listeners := (X.project now).promise.listeners.filter (· != a) } (callbacks_sub X now)
               (by show ((X.promise.project now).listeners.filter _) <+ X.promise.listeners
                   rw [project_listeners]; exact List.filter_sublist)
-              (c' := { c with put := c.put.write { X.project now with promise :=
+              (c' := { c with put := c.put.set { X.project now with promise :=
                     { (X.project now).promise with
                       listeners := (X.project now).promise.listeners.filter (· != a) } } }) rfl rfl).sends
               [(a, .unblock ((X.project now).promise.toRecord id))] rfl rfl
-          · have hstep : lsStep now id c a = { c with put := c.put.write (X.project now) } := by
+          · have hstep : lsStep now id c a = { c with put := c.put.set (X.project now) } := by
               unfold lsStep; rw [hg]; simp only [h1, ↓reduceIte]
             rw [hstep]
             have hpc : ∀ (M R : List Abstract.Effect),
@@ -573,7 +573,7 @@ theorem lsStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
                 rw [if_neg hp, hc]
                 simp
             rw [hpc]
-            exact lsStep_sim now id hido as _ _ (h.write_proj hido hX now rfl rfl)
+            exact lsStep_sim now id hido as _ _ (h.set_proj hido hX now rfl rfl)
 
 theorem lsOuter_step {o : String} {S : Abstract.State} (now : Nat) (c : Commands) (T : Abstract.State)
     (h : SwInv o S c T) (ob : Object) (hob : ob.id.origin = o) :
@@ -643,7 +643,7 @@ theorem filter_cons_ne_self {a : String} {l : List String} (h : a ∉ l) : (a ::
 theorem Origin.eq_of_objects {a b : Origin} (h : a.objects = b.objects) : a = b := by
   cases a; cases b; cases h; rfl
 
-theorem write_write {d : Origin} {x y : Object} (h : x.id = y.id) : (d.write x).write y = d.write y := by
+theorem set_set {d : Origin} {x y : Object} (h : x.id = y.id) : (d.set x).set y = d.set y := by
   have hf : ∀ o : Object, (if (if o.id == x.id then x else o).id == y.id then y else
       (if o.id == x.id then x else o)) = if o.id == y.id then y else o := by
     intro o
@@ -652,25 +652,25 @@ theorem write_write {d : Origin} {x y : Object} (h : x.id = y.id) : (d.write x).
     · have e' : (o.id == x.id) = false := by simpa using e
       simp [e']
   by_cases hp : d.objects.any (·.id == x.id) = true
-  · have hpy : (d.write x).objects.any (·.id == y.id) = true := by
-      rw [write_present hp, List.any_map]
+  · have hpy : (d.set x).objects.any (·.id == y.id) = true := by
+      rw [set_present hp, List.any_map]
       refine (List.any_eq_true.2 ?_)
       obtain ⟨z, hz, hzx⟩ := List.any_eq_true.1 hp
       refine ⟨z, hz, ?_⟩
       simp [Function.comp, ← h, hzx]
     have hpy' : d.objects.any (·.id == y.id) = true := by rw [← h]; exact hp
     apply Origin.eq_of_objects
-    rw [write_present hpy, write_present hp, write_present hpy', List.map_map]
+    rw [set_present hpy, set_present hp, set_present hpy', List.map_map]
     congr 1
     funext o
     exact hf o
   · have hp' := eq_false_of_ne_true hp
     have hpy' : d.objects.any (·.id == y.id) = false := by rw [← h]; exact hp'
-    have hpx : (d.write x).objects.any (·.id == y.id) = true := by
-      rw [write_absent hp', List.any_append]
+    have hpx : (d.set x).objects.any (·.id == y.id) = true := by
+      rw [set_absent hp', List.any_append]
       simp [h]
     apply Origin.eq_of_objects
-    rw [write_present hpx, write_absent hp', write_absent hpy', List.map_append, List.map_singleton]
+    rw [set_present hpx, set_absent hp', set_absent hpy', List.map_append, List.map_singleton]
     congr 1
     · conv => rhs; rw [← List.map_id d.objects]
       apply List.map_congr_left
@@ -686,7 +686,7 @@ theorem lsFold_eq (now : Nat) (o : Object) (hst : o.project now = o)
     ∀ (a : String) (as : List String) (c : Commands), (a :: as).Nodup →
       c.put.get o.id now = some { o with promise := { o.promise with listeners := a :: as } } →
       (a :: as).foldl (lsStep now o.id) c =
-        { c with put := c.put.write { o with promise := { o.promise with listeners := [] } },
+        { c with put := c.put.set { o with promise := { o.promise with listeners := [] } },
                  send := c.send ++ (a :: as).map fun b => (b, .unblock (o.promise.toRecord o.id)) }
   | a, [], c, _, hg => by
       simp only [List.foldl_cons, List.foldl_nil, lsStep, hg]
@@ -700,7 +700,7 @@ theorem lsFold_eq (now : Nat) (o : Object) (hst : o.project now = o)
       have hnd' := List.nodup_cons.1 hnd
       rw [List.foldl_cons]
       have hstep : lsStep now o.id c a =
-          { c with put := c.put.write { o with promise := { o.promise with listeners := b :: as } },
+          { c with put := c.put.set { o with promise := { o.promise with listeners := b :: as } },
                    send := c.send ++ [(a, .unblock (o.promise.toRecord o.id))] } := by
         unfold lsStep
         rw [hg]
@@ -711,13 +711,13 @@ theorem lsFold_eq (now : Nat) (o : Object) (hst : o.project now = o)
         simp only [h1, h2, and_self, ↓reduceIte]
         simp [filter_cons_ne_self hnd'.1, toRecord_set_listeners]
       rw [hstep]
-      have hg' : ({ c with put := c.put.write { o with promise := { o.promise with listeners := b :: as } },
+      have hg' : ({ c with put := c.put.set { o with promise := { o.promise with listeners := b :: as } },
                             send := c.send ++ [(a, .unblock (o.promise.toRecord o.id))] } : Commands).put.get o.id now =
           some { o with promise := { o.promise with listeners := b :: as } } := by
-        show (c.put.write _).get o.id now = _
-        rw [get_eq, find_write_at rfl, Option.map_some, Object.project_set_listeners, hst]
+        show (c.put.set _).get o.id now = _
+        rw [get_eq, find_set_at rfl, Option.map_some, Object.project_set_listeners, hst]
       rw [lsFold_eq now o hst hnp b as _ hnd'.2 hg']
-      have hw := write_write (d := c.put) (x := { o with promise := { o.promise with listeners := b :: as } })
+      have hw := set_set (d := c.put) (x := { o with promise := { o.promise with listeners := b :: as } })
         (y := { o with promise := { o.promise with listeners := [] } }) rfl
       simp only [List.map_cons, List.append_assoc, List.singleton_append]
       rw [hw]
@@ -744,7 +744,7 @@ theorem lsBulk_find_other {c : Commands} {ob : Object} (now : Nat) {id : Ident} 
     Origin.find (lsBulk now c ob).put id = Origin.find c.put id := by
   simp only [lsBulk]
   split
-  · exact find_write_other _ _ _ hne
+  · exact find_set_other _ _ _ hne
   · rfl
 
 theorem lsBulk_sim {o : String} {S : Abstract.State} (now : Nat) :
@@ -770,11 +770,11 @@ def cbStep (now : Nat) (id : Ident) (c : Commands) (awaiter : Ident) : Commands 
   | some cur =>
       if cur.promise.state != .pending ∧ cur.promise.callbacks.contains awaiter then
         Chain.resume now id
-          { c with put := c.put.write { cur with promise :=
+          { c with put := c.put.set { cur with promise :=
               { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } } }
           awaiter
       else
-        { c with put := c.put.write cur }
+        { c with put := c.put.set cur }
   | none =>
       c
 
@@ -796,7 +796,7 @@ def cbStepOld (now : Nat) (id : Ident) (c : Commands) (awaiter : Ident) : Comman
   match c.put.get id now with
   | some cur =>
       Chain.resume now id
-        { c with put := c.put.write { cur with promise :=
+        { c with put := c.put.set { cur with promise :=
             { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } } }
         awaiter
   | none =>
@@ -916,18 +916,18 @@ theorem resume_sim {o : String} {S : Abstract.State} (now : Nat) (awaited w : Id
           cases hs : tv.state
           case suspended =>
             simp only
-            exact h.write_task hw hY now _ rfl rfl
+            exact h.set_task hw hY now _ rfl rfl
           case fulfilled =>
             simp only [List.append_nil]
-            exact h.write_proj hw hY now rfl rfl
+            exact h.set_proj hw hY now rfl rfl
           all_goals
             simp only
             by_cases hc : tv.resumes.contains awaited = true
             · simp only [hc, Bool.not_true, Bool.false_eq_true, ↓reduceIte, List.append_nil]
-              exact h.write_proj hw hY now rfl rfl
+              exact h.set_proj hw hY now rfl rfl
             · have hc' : tv.resumes.contains awaited = false := by simpa using hc
               simp only [hc', Bool.not_false, ↓reduceIte]
-              exact h.write_task hw hY now _ rfl rfl
+              exact h.set_task hw hY now _ rfl rfl
 
 theorem cbStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (hido : id.origin = o) :
     ∀ (ws : List Ident) (c : Commands) (T : Abstract.State), SwInv o S c T →
@@ -960,7 +960,7 @@ theorem cbStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
             have hwo' : w.origin = o := hwo.trans (hXid ▸ hido)
             have hstep : cbStep now id c w =
                 Chain.resume now id
-                  { c with put := c.put.write { X.project now with promise :=
+                  { c with put := c.put.set { X.project now with promise :=
                       { (X.project now).promise with
                         callbacks := (X.project now).promise.callbacks.filter (· != w) } } }
                   w := by
@@ -969,12 +969,12 @@ theorem cbStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
             simp only [h1a, Bool.false_eq_true, ↓reduceIte, h1.2]
             refine cbStep_sim now id hido ws _ _ ?_
             rw [applyAll_append]
-            have h2 := h.write_promise hido hX now
+            have h2 := h.set_promise hido hX now
               { (X.project now).promise with
                 callbacks := (X.project now).promise.callbacks.filter (· != w) }
               (by show ((X.promise.project now).callbacks.filter _) <+ X.promise.callbacks
                   rw [project_callbacks]; exact List.filter_sublist) (listeners_sub X now)
-              (c' := { c with put := c.put.write { X.project now with promise :=
+              (c' := { c with put := c.put.set { X.project now with promise :=
                       { (X.project now).promise with
                         callbacks := (X.project now).promise.callbacks.filter (· != w) } } }) rfl rfl
             have hfind : find T w = find (Abstract.applyAll T
@@ -986,7 +986,7 @@ theorem cbStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
               rw [find_setPromise_other _ _ _ _ hne', find_applyAll_onlyOn (materialiseFx_onlyOn ..) hne']
             rw [resumeFx_congr hfind]
             exact resume_sim now id w hwo' _ _ h2
-          · have hstep : cbStep now id c w = { c with put := c.put.write (X.project now) } := by
+          · have hstep : cbStep now id c w = { c with put := c.put.set (X.project now) } := by
               unfold cbStep; rw [hg]; simp only [h1, ↓reduceIte]
             rw [hstep]
             have hpc : ∀ (M R : List Abstract.Effect),
@@ -1003,7 +1003,7 @@ theorem cbStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
                 rw [if_neg hp, hc]
                 simp
             rw [hpc]
-            exact cbStep_sim now id hido ws _ _ (h.write_proj hido hX now rfl rfl)
+            exact cbStep_sim now id hido ws _ _ (h.set_proj hido hX now rfl rfl)
 
 theorem cbOuter_step {o : String} {S : Abstract.State} (now : Nat) (c : Commands) (T : Abstract.State)
     (h : SwInv o S c T) (ob : Object) (hob : ob.id.origin = o) :
@@ -1047,7 +1047,7 @@ theorem resume_find_other (now : Nat) (awaited : Ident) (c : Commands) (w id : I
               (try simp only [hr, Bool.false_eq_true, ↓reduceIte]) <;>
               first
                 | rfl
-                | exact find_write_other _ _ _ (fun e => h (e.trans hY)))
+                | exact find_set_other _ _ _ (fun e => h (e.trans hY)))
 
 theorem resume_proj (now : Nat) (awaited : Ident) (c : Commands) (w id : Ident) :
     (Origin.find (Chain.resume now awaited c w).put id).map (fun cur => cur.promise.project now) =
@@ -1066,10 +1066,10 @@ theorem resume_proj (now : Nat) (awaited : Ident) (c : Commands) (w id : Ident) 
         | some t =>
             simp only [Option.map_some]
             have key : ∀ x : Object, x.id = id → x.promise = (X.project now).promise →
-                (Origin.find (c.put.write x) id).map (fun cur => cur.promise.project now) =
+                (Origin.find (c.put.set x) id).map (fun cur => cur.promise.project now) =
                   (Origin.find c.put id).map (fun cur => cur.promise.project now) := by
               intro x hx hp
-              rw [find_write_at hx, hX, Option.map_some, Option.map_some, hp, project_promise,
+              rw [find_set_at hx, hX, Option.map_some, Option.map_some, hp, project_promise,
                 PromiseObject.project_idem]
             cases t.state
             all_goals
@@ -1092,8 +1092,8 @@ theorem cbStep_proj {c : Commands} {id : Ident} {w : Ident} (now : Nat) {id' : I
       have hne' : id' ≠ ({ cur with promise := { cur.promise with callbacks := cur.promise.callbacks.filter (· != w) } } : Object).id :=
         fun e => hne (e.trans hc)
       split
-      · rw [resume_proj, find_write_other _ _ _ hne']
-      · rw [find_write_other _ _ _ (fun e => hne (e.trans hc))]
+      · rw [resume_proj, find_set_other _ _ _ hne']
+      · rw [find_set_other _ _ _ (fun e => hne (e.trans hc))]
 
 theorem cbFold_proj (now : Nat) (id : Ident) : ∀ (ws : List Ident) (c : Commands) {id' : Ident}, id' ≠ id →
     (Origin.find (ws.foldl (cbStep now id) c).put id').map (fun cur => cur.promise.project now) =
@@ -1139,7 +1139,7 @@ theorem cbFold_eq (now : Nat) (id : Ident) (p : PromiseObject) (hp : p.project n
           rw [resume_find_other _ _ _ _ _ (hne w (List.mem_cons_self ..)).symm]
           have hx : ({ X.project now with promise := { (X.project now).promise with
               callbacks := (X.project now).promise.callbacks.filter (· != w) } } : Object).id = id := hXid
-          rw [find_write_at hx, Option.map_some]
+          rw [find_set_at hx, Option.map_some]
           refine congrArg some ?_
           show ({ (X.project now).promise with
               callbacks := (X.project now).promise.callbacks.filter (· != w) } : PromiseObject).project now = _
@@ -1207,7 +1207,7 @@ def ltStep (now : Nat) (c : Commands) (o : Object) : Commands :=
           ∧ o.promise.state == .pending then
         { c with
           arm := c.arm ++ [⟨now, o.id, .retry⟩],
-          put := c.put.write { o with task := some { t with state := .pending, pid := none, ttl := none,
+          put := c.put.set { o with task := some { t with state := .pending, pid := none, ttl := none,
                                                             leaseTimeoutAt := none,
                                                             retryTimeoutAt := some now } },
           del := c.del ++ t.timers o.id }
@@ -1310,12 +1310,12 @@ theorem leaseTimeouts_sim {o : String} {S : Abstract.State} (now : Nat) :
                   rw [hdl, Option.any_some] at this
                   exact of_decide_eq_true this
                 simp only [hdln, and_self, ↓reduceIte]
-                refine leaseTimeouts_sim now l _ _ (h.write_task_plain hido hob _ rfl rfl) ?_ hnd.2
+                refine leaseTimeouts_sim now l _ _ (h.set_task_plain hido hob _ rfl rfl) ?_ hnd.2
                 intro ob' hob'
                 have hne : ob'.id ≠ ob.id := fun e => hnd.1 (e ▸ List.mem_map_of_mem hob')
-                have key : ∀ x : Object, x.id = ob.id → Origin.find (c.put.write x) ob'.id = some ob' := by
+                have key : ∀ x : Object, x.id = ob.id → Origin.find (c.put.set x) ob'.id = some ob' := by
                   intro x hx
-                  rw [find_write_other _ _ _ (fun e => hne (e.trans hx))]
+                  rw [find_set_other _ _ _ (fun e => hne (e.trans hx))]
                   exact hrest ob' hob'
                 exact key _ rfl
           · have hstep : ltStep now c ob = c := by
@@ -1333,7 +1333,7 @@ def rtStep (now : Nat) (c : Commands) (o : Object) : Commands :=
           ∧ o.promise.state == .pending then
         { c with
           arm := c.arm ++ [⟨now + Concrete.retryDelay, o.id, .retry⟩],
-          put := c.put.write { o with task := some { t with retryTimeoutAt := some (now + Concrete.retryDelay) } },
+          put := c.put.set { o with task := some { t with retryTimeoutAt := some (now + Concrete.retryDelay) } },
           del := c.del ++ t.timers o.id,
           send := c.send ++ [(target, .execute o.id t.version)] }
       else
@@ -1449,16 +1449,16 @@ theorem retryTimeouts_sim {o : String} {S : Abstract.State} (now : Nat) :
                         [(target, Message.execute ob.id tv.version)].map (fun (a, m) => Abstract.Effect.setMessage a m) := rfl
                     rw [hlist, applyAll_append]
                     refine retryTimeouts_sim now l _ _
-                      ((h.write_task_plain hido hob _
+                      ((h.set_task_plain hido hob _
                         (c' := { c with
                           arm := c.arm ++ [⟨now + Concrete.retryDelay, ob.id, .retry⟩],
-                          put := c.put.write { ob with task := some { tv with retryTimeoutAt := some (now + Concrete.retryDelay) } },
+                          put := c.put.set { ob with task := some { tv with retryTimeoutAt := some (now + Concrete.retryDelay) } },
                           del := c.del ++ tv.timers ob.id }) rfl rfl).sends _ rfl rfl) ?_ hnd.2
                     intro ob' hob'
                     have hne : ob'.id ≠ ob.id := fun e => hnd.1 (e ▸ List.mem_map_of_mem hob')
-                    have key : ∀ x : Object, x.id = ob.id → Origin.find (c.put.write x) ob'.id = some ob' := by
+                    have key : ∀ x : Object, x.id = ob.id → Origin.find (c.put.set x) ob'.id = some ob' := by
                       intro x hx
-                      rw [find_write_other _ _ _ (fun e => hne (e.trans hx))]
+                      rw [find_set_other _ _ _ (fun e => hne (e.trans hx))]
                       exact hrest ob' hob'
                     exact key _ rfl
               · have hstep : rtStep now c ob = c := by
