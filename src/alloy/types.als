@@ -295,9 +295,12 @@ pred sameKey [a, b : OutboxEntry] {
 -- they are applied to, keyed by its cron (`nextCron`, `occurrences`) or
 -- its template (`expand`), and agreeing across schedules with the same
 -- key, so the relations stay of an arity the analyser can represent.
--- `occurrences` is a set, the occurrences after an instant; the trigger
--- keeps those due, as the Lean filters, and a cron's occurrences are
--- ascending, so the last of the list is the greatest of the set.
+-- What a cron is: the next occurrence after an instant is after it, and
+-- absent where it leaves the range, so a step needing it does not exist
+-- there rather than miscomputes; `occurrences` is a set, the occurrences
+-- from an instant on, none before it; the trigger keeps those due, as the
+-- Lean filters, and a cron's occurrences are ascending, so the last of
+-- the list is the greatest of the set.
 
 sig Schedule {
   id             : one Ident,
@@ -309,13 +312,13 @@ sig Schedule {
   nextRunAt      : one Int,
   lastRunAt      : lone Int,
   createdAt      : one Int,
-  nextCron       : Int -> Int,
+  nextCron       : Int -> lone Int,
   occurrences    : Int -> Int,
-  expand         : Int -> Ident
+  expand         : Int -> one Ident
 } {
   promiseTimeout >= 0 and nextRunAt >= 0 and createdAt >= 0 and all x : lastRunAt | x >= 0
-  all t : Int | one nextCron[t] and nextCron[t] >= 0 and one expand[t]
-  all s : Int | all t : occurrences[s] | t >= 0
+  all t : Int | all n : nextCron[t] | n > t
+  all s : Int | all t : occurrences[s] | t >= s
 }
 
 fact CronFunctions {

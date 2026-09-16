@@ -87,7 +87,10 @@ uniqueness properties hold by construction; a header list is a relation;
 a list in a request is a `seq`; a cron's occurrences are a set, the
 last of the list being the greatest. The opaque cron functions are
 carried by the schedule they apply to, keyed by its cron or template, so
-their relations stay of an arity the analyser can represent.
+their relations stay of an arity the analyser can represent, and they
+carry what the Lean leaves to the reader: the next occurrence after an
+instant is after it, and the occurrences from an instant on are not
+before it; without these the schedule properties do not hold.
 
 The monad: a step reads the state it started from throughout and its
 effects are folded onto it at the end. Every effect is keyed, so the
@@ -100,6 +103,18 @@ current instant to the next.
 java -jar org.alloytools.alloy.dist.jar exec -s glucose src/alloy/theorems.als
 java -jar org.alloytools.alloy.dist.jar exec -s glucose -c 'taskFence_*' src/alloy/theorems.als
 ```
+
+A finding. The transition property
+`consistent_suspension_registers_callback` asks that a suspending task
+newly register its callback on a pending awaited promise. But the
+callback may already be there, registered by `promiseRegisterCallback`
+before the suspend, and then the suspend registers nothing new: the
+property fails on that step, in the Lean as here, out of reach of the
+Lean's sweep over sequences of three events. `theorems.als` keeps the
+property as stated, checks the suspend against every other transition
+property (`taskSuspend_transitions`, which holds), checks it against
+this one alone (`taskSuspend_registers_callback`, which fails), and
+shows the step (`suspendOnRegisteredCallback`).
 
 Alloy 6.2, no libraries beyond the distribution jar. The bundled native
 Glucose is much faster than the default SAT4J; drop `-s glucose` where

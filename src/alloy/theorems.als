@@ -103,6 +103,58 @@ run showRecords {
     promiseToRecord[o.promise, o.id, r] and taskToRecord[o.task, o.id, q]
 } for 4 but 5 Int, 1 steps, 0 Schedule
 
+-- `transHolds` less the property of the finding below.
+pred transHoldsButSuspensionRegisters [now : Int] {
+  preserved_promise_birth_fields_immutable[now]
+  preserved_settled_promise_record[now]
+  monotone_promise_set_grows[now]
+  monotone_task_set_grows[now]
+  monotone_task_version_increases_only_on_acquisition[now]
+  preserved_fulfilled_task[now]
+  preserved_promise_state_frozen_once_settled[now]
+  preserved_promise_settlement_is_one_way[now]
+  consistent_promise_settled_at_moves_with_state[now]
+  preserved_promise_value_until_settlement[now]
+  preserved_promise_no_duplicate_ids[now]
+  monotone_promise_callbacks_grow_while_pending[now]
+  monotone_promise_callbacks_shrink_once_settled[now]
+  monotone_promise_listeners_grow_while_pending[now]
+  monotone_promise_listeners_shrink_once_settled[now]
+  consistent_promise_state_edge_admissible[now]
+  consistent_task_state_edge_admissible[now]
+  preserved_task_acquisition_only_from_pending[now]
+  preserved_task_suspension_only_from_acquired[now]
+  preserved_task_halted_only_reenters_via_pending[now]
+  consistent_settlement_fulfils_task[now]
+  consistent_task_fulfilment_needs_settlement[now]
+  consistent_obligation_discharge_requires_settled[now]
+  consistent_callback_consumption_resumes_awaiter[now]
+  consistent_listener_consumption_enqueues_unblock[now]
+  consistent_wake_follows_callback_consumption[now]
+  consistent_task_birth_couples_promise_birth[now]
+  monotone_outbox_keys_never_disappear[now]
+  consistent_new_execute_matches_task_and_target[now]
+  consistent_new_unblock_carries_stored_record[now]
+  consistent_new_unblock_discharges_its_listener[now]
+  preserved_schedule_birth_fields_immutable[now]
+  consistent_task_birth_state[now]
+  consistent_task_lease_released_atomically[now]
+  preserved_task_lease_holder_stable[now]
+  consistent_task_lease_fields_move_together[now]
+  monotone_task_resumes_grow_or_clear[now]
+  consistent_task_resumes_cleared_only_on_dispatch_or_park[now]
+  preserved_no_dead_dispatch[now]
+  preserved_execute_only_for_live_task[now]
+  consistent_promise_settlement_stamp[now]
+  preserved_timedout_is_server_owned[now]
+  consistent_new_promise_born_clean[now]
+  consistent_task_acquisition_is_atomic[now]
+  consistent_task_lease_deadline_is_now_plus_ttl[now]
+  consistent_task_pending_entry_arms_retry[now]
+  consistent_task_retry_rearm_only_when_due[now]
+  monotone_task_retry_rearm_advances[now]
+}
+
 -- The handlers: a witness per answer, then the catalogue on the step.
 
 run promiseGet_404 {
@@ -590,10 +642,29 @@ check taskSuspend_preserves {
     stateHolds[now] and taskSuspend[mat, now, req, res] implies after stateHolds[now]
 } for 4 but 5 Int, 2 seq, 2 steps, 0 Schedule
 
+-- A finding. `consistent_suspension_registers_callback` asks that a
+-- task suspending newly register its callback on a pending awaited
+-- promise; but the callback may already be there, registered by
+-- `promiseRegisterCallback` before the suspend, and then the suspend
+-- registers nothing new. The Lean's sweep, over sequences of three
+-- events, does not reach it. The suspend satisfies every other
+-- transition property; the property alone fails, and the run shows how.
 check taskSuspend_transitions {
   all mat : Bool, now : Int, req : TaskSuspendReq, res : TaskSuspendRes |
     stateHolds[now] and well_formed_config_retry_positive and taskSuspend[mat, now, req, res]
-      implies transHolds[now]
+      implies transHoldsButSuspensionRegisters[now]
+} for 4 but 5 Int, 2 seq, 2 steps, 0 Schedule
+
+check taskSuspend_registers_callback {
+  all mat : Bool, now : Int, req : TaskSuspendReq, res : TaskSuspendRes |
+    stateHolds[now] and taskSuspend[mat, now, req, res]
+      implies consistent_suspension_registers_callback[now]
+} for 4 but 5 Int, 2 seq, 2 steps, 0 Schedule
+
+run suspendOnRegisteredCallback {
+  some mat : Bool, now : Int, req : TaskSuspendReq, res : TaskSuspendRes |
+    stateHolds[now] and taskSuspend[mat, now, req, res] and res.status = s200 and
+    all a : req.actions.elems | req.id in promise[a.awaited].callbacks
 } for 4 but 5 Int, 2 seq, 2 steps, 0 Schedule
 
 check taskFulfill_preserves {
@@ -820,5 +891,6 @@ run scheduled {
 -- Every valid trace satisfies the catalogue at every instant, and every
 -- step of it the transition properties.
 check catalogueAlongTraces {
-  valid implies always (stateHolds[Machine.now] and transHolds[Machine.now])
+  (valid and well_formed_config_retry_positive) implies
+    always (stateHolds[Machine.now] and transHolds[Machine.now])
 } for 3 but 5 Int, 2 seq, 3 steps, 6 Request, 6 Response, 2 Runnable, 0 Schedule
