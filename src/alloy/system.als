@@ -120,11 +120,15 @@ run dispatch {
   eventually some State.outbox.message & Execute
 } for 3 but 5 Int, 2 seq, 3 steps, 6 Request, 6 Response, 2 Runnable
 
--- A trace in which a settled promise's listener is told.
+-- A trace in which a promise is created and a listener registered, and
+-- the listener trigger, firing once the promise is due, tells it.
 run unblock {
   valid
-  eventually some State.outbox.message & Unblock
-} for 3 but 5 Int, 2 seq, 4 steps, 6 Request, 6 Response, 2 Runnable
+  Machine.request in PromiseCreateReq
+  after Machine.request in PromiseRegisterListenerReq
+  after after Machine.trigger in Listener
+  after after after some State.outbox.message & Unblock
+} for 4 but 5 Int, 2 seq, 4 steps, 3 Request, 3 Response
 
 -- Every valid trace satisfies the catalogue at every instant.
 check catalogueAlongTraces {
