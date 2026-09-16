@@ -246,10 +246,13 @@ pred well_formed_promise_delay_before_deadline [now : Int] {
       implies t.retryTimeoutAt < o.promise.timeoutAt
 }
 
+pred well_formed_config_retry_positive { 0 < ServerConfig.retryTimeout }
+
 pred gapsHold [now : Int] {
   well_formed_task_ttl_positive[now]
   well_formed_promise_target_is_nonempty[now]
   well_formed_promise_delay_before_deadline[now]
+  well_formed_config_retry_positive
 }
 
 -- Commands. The runs show the catalogue admits the states it is meant to

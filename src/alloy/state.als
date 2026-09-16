@@ -17,6 +17,11 @@ one sig State {
 -- `State.init`
 pred init { no State.objects and no State.outbox }
 
+-- `ServerConfig`: the retry timeout of `Env.config`, one for the run.
+one sig ServerConfig {
+  retryTimeout : one Int
+} { retryTimeout >= 0 }
+
 -- `State.promises`
 fun storedPromises : set PromiseObject { State.objects.promise }
 

@@ -293,7 +293,9 @@ pred sameKey [a, b : OutboxEntry] {
 -- Requests and responses. `Request` and `Response` are the sums; each
 -- constructor's payload is the subsignature. A status is one of the codes
 -- the handlers answer. The schedule requests are left out with the
--- schedules.
+-- schedules. The trigger requests, `PromiseTimeoutReq`, `TaskLeaseTimeoutReq`
+-- and `TaskRetryTimeoutReq`, come last; the callback and listener triggers
+-- carry the register requests.
 
 enum Status { s200, s300, s400, s404, s409, s422, s501 }
 
@@ -540,4 +542,22 @@ fact ResponseValue {
   no disj a, b : TaskHaltRes | a.status = b.status
   no disj a, b : TaskContinueRes | a.status = b.status
   no disj a, b : TaskSearchRes | a.status = b.status and a.tasks = b.tasks and a.cursor = b.cursor
+}
+
+sig PromiseTimeoutReq {
+  id : one Ident
+}
+
+sig TaskLeaseTimeoutReq {
+  id : one Ident
+}
+
+sig TaskRetryTimeoutReq {
+  id : one Ident
+}
+
+fact TriggerRequestValue {
+  no disj a, b : PromiseTimeoutReq | a.id = b.id
+  no disj a, b : TaskLeaseTimeoutReq | a.id = b.id
+  no disj a, b : TaskRetryTimeoutReq | a.id = b.id
 }
