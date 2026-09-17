@@ -88,7 +88,7 @@ def applyAll {H : Hasher} : State → List (Effect H) → State × Bool
 def Commands.effects {H : Hasher} (name : String) (cond : Cond H) (c : Commands) :
     List (Effect H) :=
   c.arm.map (fun t => .put (.timer t) .timer .any)
-  ++ [.put (.origin name) (.origin c.put) cond]
+  ++ [.put (.origin name) (.origin c.org) cond]
   ++ c.del.map (fun t => .del (.timer t))
   ++ c.send.map (fun (a, m) => .send a m)
 
@@ -226,12 +226,12 @@ def handleExternal (now : Nat) (org : Origin) : Request → Response × Commands
 def handle (now : Nat) (org : Origin) : Event → Reply × Commands
   | .external req =>
       let swept := sweep now org
-      let (res, c) := handleExternal now swept.put req
+      let (res, c) := handleExternal now swept.org req
       (.external res, swept.merge c)
   | .internal _ =>
       (.internal, sweep now org)
   | .stutter =>
-      (.stutter, { put := org })
+      (.stutter, { org })
 
 def step (H : Hasher) (ev : Event) (now : Nat) (s : State) : Reply × State :=
   match ev with
@@ -389,7 +389,7 @@ theorem applyAll_accepted (s : State) (name : String) (c : Commands) :
   rw [applyAll_append, if_pos h1]
   have key : ∀ s1 : State,
       (Cond.of H (s.blob? (.origin name))).holds (s1.blob? (.origin name)) = true →
-      (applyAll s1 (Effect.put (.origin name) (.origin c.put) (Cond.of H (s.blob? (.origin name))) ::
+      (applyAll s1 (Effect.put (.origin name) (.origin c.org) (Cond.of H (s.blob? (.origin name))) ::
         (c.del.map (fun t => Effect.del (H := H) (.timer t)) ++
          c.send.map (fun (a, m) => Effect.send (H := H) a m)))).2 = true := by
     intro s1 hh

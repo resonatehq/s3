@@ -274,7 +274,7 @@ theorem origin_put {s s' : Concrete.State} {name : String} {org : Origin} {c : C
 
 theorem run_state (H : Concrete.Hasher) (name : String) (c : Commands) (s : Concrete.State) :
     (Concrete.applyAll s (c.effects name (Concrete.Cond.of H (s.blob? (.origin name))))).1.blob? (.origin name)
-      = some (.origin c.put) ∧
+      = some (.origin c.org) ∧
     (∀ m, m ≠ name →
       (Concrete.applyAll s (c.effects name (Concrete.Cond.of H (s.blob? (.origin name))))).1.blob? (.origin m)
         = s.blob? (.origin m)) ∧
@@ -282,7 +282,7 @@ theorem run_state (H : Concrete.Hasher) (name : String) (c : Commands) (s : Conc
       = sendsFold s.outbox c.send ∧
     (∀ m b, (Path.origin m, b) ∈
         (Concrete.applyAll s (c.effects name (Concrete.Cond.of H (s.blob? (.origin name))))).1.bucket →
-      (m = name ∧ b = .origin c.put) ∨ (Path.origin m, b) ∈ s.bucket) ∧
+      (m = name ∧ b = .origin c.org) ∨ (Path.origin m, b) ∈ s.bucket) ∧
     ((s.bucket.map (·.1)).Nodup →
       ((Concrete.applyAll s (c.effects name (Concrete.Cond.of H (s.blob? (.origin name))))).1.bucket.map (·.1)).Nodup) := by
   unfold Commands.effects
@@ -294,10 +294,10 @@ theorem run_state (H : Concrete.Hasher) (name : String) (c : Commands) (s : Conc
   simp only at sameA
   have hhold : (Concrete.Cond.of H (s.blob? (.origin name))).holds (s1.blob? (.origin name)) = true := by
     rw [sameA.blob]; exact Concrete.Cond.of_holds _
-  have hP : (Concrete.Effect.put (H := H) (.origin name) (.origin c.put) (Concrete.Cond.of H (s.blob? (.origin name)))).apply s1 =
-      some { s1 with bucket := (Path.origin name, Blob.origin c.put) :: s1.bucket.filter (·.1 != Path.origin name) } := by
+  have hP : (Concrete.Effect.put (H := H) (.origin name) (.origin c.org) (Concrete.Cond.of H (s.blob? (.origin name)))).apply s1 =
+      some { s1 with bucket := (Path.origin name, Blob.origin c.org) :: s1.bucket.filter (·.1 != Path.origin name) } := by
     simp [Concrete.Effect.apply, hhold]
-  obtain ⟨s2, hs2⟩ : ∃ s2, (Concrete.Effect.put (H := H) (.origin name) (.origin c.put) (Concrete.Cond.of H (s.blob? (.origin name)))).apply s1 = some s2 :=
+  obtain ⟨s2, hs2⟩ : ∃ s2, (Concrete.Effect.put (H := H) (.origin name) (.origin c.org) (Concrete.Cond.of H (s.blob? (.origin name)))).apply s1 = some s2 :=
     ⟨_, hP⟩
   obtain ⟨hP1, hP2, hP3, hP4, hP5⟩ := origin_put hs2
   obtain ⟨hD, sameD⟩ := timers_phase (H := H) (c.del.map fun t => .del (.timer t)) s2
@@ -308,11 +308,11 @@ theorem run_state (H : Concrete.Hasher) (name : String) (c : Commands) (s : Conc
   simp only at sameD
   obtain ⟨hS, hS1, hS2⟩ := sends_phase (H := H) c.send s3
   have e1 : Concrete.applyAll s ((c.arm.map fun t => Concrete.Effect.put (H := H) (.timer t) .timer .any) ++
-      [Concrete.Effect.put (.origin name) (.origin c.put) (Concrete.Cond.of H (s.blob? (.origin name)))]) = (s2, true) := by
+      [Concrete.Effect.put (.origin name) (.origin c.org) (Concrete.Cond.of H (s.blob? (.origin name)))]) = (s2, true) := by
     rw [Concrete.applyAll_append, hs1, if_pos rfl]
     simp only [Concrete.applyAll, hs2]
   have e2 : Concrete.applyAll s ((c.arm.map fun t => Concrete.Effect.put (H := H) (.timer t) .timer .any) ++
-      [Concrete.Effect.put (.origin name) (.origin c.put) (Concrete.Cond.of H (s.blob? (.origin name)))] ++
+      [Concrete.Effect.put (.origin name) (.origin c.org) (Concrete.Cond.of H (s.blob? (.origin name)))] ++
       c.del.map fun t => Concrete.Effect.del (.timer t)) = (s3, true) := by
     rw [Concrete.applyAll_append, e1, if_pos rfl]
     exact hs3
@@ -498,7 +498,7 @@ theorem observations_internal (now : Nat) : ∀ (l : List Abstract.Trigger) (evs
 theorem SwInv.equiv {o : String} {s s' : Concrete.State} {S : Abstract.State} {c : Commands}
     {T : Abstract.State} (inv : Inv s) (rel : Equiv (abstract s) S) (h : SwInv o S c T)
     (inv' : Inv s')
-    (h1 : s'.blob? (.origin o) = some (.origin c.put))
+    (h1 : s'.blob? (.origin o) = some (.origin c.org))
     (h2 : ∀ m, m ≠ o → s'.blob? (.origin m) = s.blob? (.origin m))
     (h3 : s'.outbox = sendsFold s.outbox c.send) :
     Equiv (abstract s') T := by
@@ -546,7 +546,7 @@ theorem step_sim (H : Concrete.Hasher) (ev : Concrete.Event) (now : Nat)
           have hL := Local_of_rel inv rel name
           obtain ⟨horig, hnd, hwf⟩ := inv.origin_props name
           have hsw := sweep_sim hL horig hnd hwf now
-          rcases hC : Concrete.handleExternal now (Concrete.sweep now (s.origin name)).put req with ⟨res, c⟩
+          rcases hC : Concrete.handleExternal now (Concrete.sweep now (s.origin name)).org req with ⟨res, c⟩
           have hsim := handleExternal_sim hsw.loc now req ho
           rw [hC] at hsim
           have hwf' := handleExternal_wf hsw.wf now req

@@ -9,17 +9,17 @@ structure Sim (o : String) (org : Origin) (S : Abstract.State) {α : Type}
     (r : α × List Abstract.Effect) (res : α) (c : Commands) : Prop where
   res   : r.1 = res
   fx    : Fx o r.2
-  loc   : Local o c.put (Abstract.applyAll S r.2)
+  loc   : Local o c.org (Abstract.applyAll S r.2)
   send  : sendsOf r.2 = c.send
-  orig  : (∀ ob ∈ org.objects, ob.id.origin = o) → ∀ ob ∈ c.put.objects, ob.id.origin = o
-  nodup : (org.objects.map (·.id)).Nodup → (c.put.objects.map (·.id)).Nodup
+  orig  : (∀ ob ∈ org.objects, ob.id.origin = o) → ∀ ob ∈ c.org.objects, ob.id.origin = o
+  nodup : (org.objects.map (·.id)).Nodup → (c.org.objects.map (·.id)).Nodup
 
 theorem find_set_at {org : Origin} {x : Object} {id : Ident} (hx : x.id = id) :
     Origin.find (org.set x) id = some x := by
   rw [← hx]; exact find_set_same org x
 
 theorem Sim.skip {o : String} {org : Origin} {S : Abstract.State} {α : Type} (hL : Local o org S)
-    (a : α) : Sim o org S (a, []) a { put := org } :=
+    (a : α) : Sim o org S (a, []) a { org } :=
   ⟨rfl, trivial, hL, rfl, fun h => h, fun h => h⟩
 
 theorem Local_setPromise {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
@@ -641,14 +641,14 @@ def hbStep (now : Nat) (org : Origin) (pid : String) (c : Commands) (ref : TaskR
         let lease := now + t.ttl.getD 0
         { c with
           arm := c.arm ++ (if t.leaseTimeoutAt == some lease then [] else [⟨lease, o.id, .lease⟩]),
-          put := c.put.set { o with task := some { t with leaseTimeoutAt := some lease } },
+          org := c.org.set { o with task := some { t with leaseTimeoutAt := some lease } },
           del := c.del ++ (if t.leaseTimeoutAt == some lease then [] else t.timers o.id) }
       else
         c
 
 theorem taskHeartbeat_eq (now : Nat) (org : Origin) (req : TaskHeartbeatReq) :
     Concrete.taskHeartbeat now org req =
-      ({ status := 200 }, req.tasks.foldl (hbStep now org req.pid) { put := org }) := rfl
+      ({ status := 200 }, req.tasks.foldl (hbStep now org req.pid) { org }) := rfl
 
 structure Acc (o : String) (org : Origin) (d : Origin) (T : Abstract.State) : Prop where
   loc   : Local o d T
@@ -659,9 +659,9 @@ structure Acc (o : String) (org : Origin) (d : Origin) (T : Abstract.State) : Pr
 theorem heartbeatAll_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (pid : String) (now : Nat) :
     ∀ (refs : List TaskRef) (c : Commands) (T : Abstract.State),
-      (∀ ref ∈ refs, ref.id.origin = o) → Acc o org c.put T → c.send = [] →
+      (∀ ref ∈ refs, ref.id.origin = o) → Acc o org c.org T → c.send = [] →
       Fx o (Abstract.heartbeatAll pid now refs (env S)).2 ∧
-      Acc o org (refs.foldl (hbStep now org pid) c).put
+      Acc o org (refs.foldl (hbStep now org pid) c).org
         (Abstract.applyAll T (Abstract.heartbeatAll pid now refs (env S)).2) ∧
       sendsOf (Abstract.heartbeatAll pid now refs (env S)).2 = (refs.foldl (hbStep now org pid) c).send
   | [], c, T, _, hacc, hsend => ⟨trivial, hacc, by simp [Abstract.heartbeatAll, pure_apply, sendsOf, hsend]⟩
@@ -670,7 +670,7 @@ theorem heartbeatAll_sim {o : String} {org : Origin} {S : Abstract.State} (hL : 
       have hrest : ∀ r ∈ refs, r.id.origin = o := fun r hr => hrefs r (List.mem_cons_of_mem _ hr)
       simp only [Abstract.heartbeatAll, bind_apply, List.foldl_cons]
       suffices h : Fx o (Abstract.heartbeatOne pid ref now (env S)).2 ∧
-          Acc o org (hbStep now org pid c ref).put
+          Acc o org (hbStep now org pid c ref).org
             (Abstract.applyAll T (Abstract.heartbeatOne pid ref now (env S)).2) ∧
           (hbStep now org pid c ref).send = [] ∧
           sendsOf (Abstract.heartbeatOne pid ref now (env S)).2 = [] by
@@ -703,12 +703,12 @@ theorem heartbeatAll_sim {o : String} {org : Origin} {S : Abstract.State} (hL : 
                 refine ⟨⟨hido, trivial⟩, ?_, hsend, rfl⟩
                 have hp := hacc.prom ref.id
                 rw [hf, Option.map_some] at hp
-                cases hy : Origin.find c.put ref.id with
+                cases hy : Origin.find c.org ref.id with
                 | none => rw [hy] at hp; cases hp
                 | some y =>
                     rw [hy, Option.map_some, Option.some.injEq] at hp
                     have hyid : y.id = ob.id := (find_orig hy).trans hob.symm
-                    have hy' : Origin.find c.put ob.id = some y := by rw [hob]; exact hy
+                    have hy' : Origin.find c.org ob.id = some y := by rw [hob]; exact hy
                     simp only [List.nil_append]
                     refine ⟨Local_setTask_from hacc.loc hido rfl hy' ?_, ?_,
                       fun h => set_derived (hacc.orig h) hido, fun h => set_nodup (hacc.nodup h)⟩
@@ -736,7 +736,7 @@ theorem taskHeartbeat_sim {o : String} {org : Origin} {S : Abstract.State} (hL :
   unfold Abstract.taskHeartbeat
   simp only [bind_apply, pure_apply, List.append_nil]
   have hacc : Acc o org org S := ⟨hL, fun _ => rfl, fun h => h, fun h => h⟩
-  obtain ⟨h1, h2, h3⟩ := heartbeatAll_sim hL req.pid now req.tasks { put := org } S hid hacc rfl
+  obtain ⟨h1, h2, h3⟩ := heartbeatAll_sim hL req.pid now req.tasks { org } S hid hacc rfl
   exact ⟨rfl, h1, h2.loc, h3, h2.orig, h2.nodup⟩
 
 def regStep (awaiter : Ident) (d : Origin) (oa : Option Object) : Origin :=
@@ -752,23 +752,23 @@ theorem taskSuspend_eq (now : Nat) (org : Origin) (req : TaskSuspendReq) :
        if req.actions.isEmpty ∨ awaitedIds.contains req.id
            ∨ awaitedIds.any (fun a => !a.sameOrigin req.id)
            ∨ awaitedIds.eraseDups.length != awaitedIds.length then
-         ({ status := 400 }, { put := org })
+         ({ status := 400 }, { org })
        else
          match (org.get req.id now).bind fun o => o.task.map (o, ·) with
          | none =>
-             ({ status := 404 }, { put := org })
+             ({ status := 404 }, { org })
          | some (o, t) =>
              if t.state != .acquired ∨ o.promise.state != .pending ∨ t.version != req.version then
-               ({ status := 409 }, { put := org })
+               ({ status := 409 }, { org })
              else
                let awaited := awaitedIds.map (org.get · now)
                if awaited.any (fun oa => !(oa.map (·.promise.type.awaitable)).getD false) then
-                 ({ status := 422 }, { put := org })
+                 ({ status := 422 }, { org })
                else if awaited.any (fun oa => (oa.map (·.promise.state != .pending)).getD false) then
-                 ({ status := 300 }, { put := org.set { o with task := some { t with resumes := [] } } })
+                 ({ status := 300 }, { org := org.set { o with task := some { t with resumes := [] } } })
                else
                  ({ status := 200 },
-                  { put := (awaited.foldl (regStep req.id) org).set
+                  { org := (awaited.foldl (regStep req.id) org).set
                       { o with task := some { t with state := .suspended, pid := none, ttl := none,
                                                      leaseTimeoutAt := none, retryTimeoutAt := none,
                                                      resumes := [] } },

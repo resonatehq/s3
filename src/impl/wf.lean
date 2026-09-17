@@ -80,12 +80,12 @@ open Protocol (PromiseGetReq PromiseCreateReq PromiseSettleReq PromiseRegisterCa
                TaskContinueReq TaskSearchReq TaskRef)
 
 theorem promiseGet_wf {org : Origin} (h : WF org) (now : Nat) (req : PromiseGetReq) :
-    WF (Concrete.promiseGet now org req).2.put := by
+    WF (Concrete.promiseGet now org req).2.org := by
   unfold Concrete.promiseGet
   split <;> exact h
 
 theorem promiseCreate_wf {org : Origin} (h : WF org) (now : Nat) (req : PromiseCreateReq) :
-    WF (Concrete.promiseCreate now org req).2.put := by
+    WF (Concrete.promiseCreate now org req).2.org := by
   unfold Concrete.promiseCreate
   split
   · exact h
@@ -97,7 +97,7 @@ theorem promiseCreate_wf {org : Origin} (h : WF org) (now : Nat) (req : PromiseC
     · exact WF_set_new h _ _ _ rfl rfl
 
 theorem promiseSettle_wf {org : Origin} (h : WF org) (now : Nat) (req : PromiseSettleReq) :
-    WF (Concrete.promiseSettle now org req).2.put := by
+    WF (Concrete.promiseSettle now org req).2.org := by
   unfold Concrete.promiseSettle
   split
   · exact h
@@ -111,7 +111,7 @@ theorem promiseSettle_wf {org : Origin} (h : WF org) (now : Nat) (req : PromiseS
 
 theorem promiseRegisterCallback_wf {org : Origin} (h : WF org) (now : Nat)
     (req : PromiseRegisterCallbackReq) :
-    WF (Concrete.promiseRegisterCallback now org req).2.put := by
+    WF (Concrete.promiseRegisterCallback now org req).2.org := by
   unfold Concrete.promiseRegisterCallback
   by_cases hc : (req.awaited == req.awaiter) = true ∨ (!req.awaited.sameOrigin req.awaiter) = true
   · rw [if_pos hc]
@@ -141,7 +141,7 @@ theorem promiseRegisterCallback_wf {org : Origin} (h : WF org) (now : Nat)
 
 theorem promiseRegisterListener_wf {org : Origin} (h : WF org) (now : Nat)
     (req : PromiseRegisterListenerReq) :
-    WF (Concrete.promiseRegisterListener now org req).2.put := by
+    WF (Concrete.promiseRegisterListener now org req).2.org := by
   unfold Concrete.promiseRegisterListener
   cases hf : org.get req.awaited now with
   | none => exact h
@@ -154,12 +154,12 @@ theorem promiseRegisterListener_wf {org : Origin} (h : WF org) (now : Nat)
         · exact h
 
 theorem taskGet_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskGetReq) :
-    WF (Concrete.taskGet now org req).2.put := by
+    WF (Concrete.taskGet now org req).2.org := by
   unfold Concrete.taskGet
   split <;> exact h
 
 theorem taskCreate_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskCreateReq) :
-    WF (Concrete.taskCreate now org req).2.put := by
+    WF (Concrete.taskCreate now org req).2.org := by
   unfold Concrete.taskCreate
   dsimp only
   split
@@ -183,7 +183,7 @@ theorem taskCreate_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskCreateR
               · exact h
 
 theorem taskAcquire_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskAcquireReq) :
-    WF (Concrete.taskAcquire now org req).2.put := by
+    WF (Concrete.taskAcquire now org req).2.org := by
   unfold Concrete.taskAcquire
   cases hf : org.get req.id now with
   | none => exact h
@@ -198,7 +198,7 @@ theorem taskAcquire_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskAcquir
           · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem taskFence_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskFenceReq) :
-    WF (Concrete.taskFence now org req).2.put := by
+    WF (Concrete.taskFence now org req).2.org := by
   unfold Concrete.taskFence
   split
   · exact h
@@ -227,7 +227,7 @@ theorem taskFence_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskFenceReq
                   exact this
 
 theorem hbStep_wf {org : Origin} (h : WF org) (now : Nat) (pid : String) :
-    ∀ (refs : List TaskRef) (c : Commands), WF c.put → WF (refs.foldl (hbStep now org pid) c).put
+    ∀ (refs : List TaskRef) (c : Commands), WF c.org → WF (refs.foldl (hbStep now org pid) c).org
   | [], _, hc => hc
   | ref :: refs, c, hc => by
       simp only [List.foldl_cons]
@@ -246,7 +246,7 @@ theorem hbStep_wf {org : Origin} (h : WF org) (now : Nat) (pid : String) :
               · exact hc
 
 theorem taskHeartbeat_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskHeartbeatReq) :
-    WF (Concrete.taskHeartbeat now org req).2.put := by
+    WF (Concrete.taskHeartbeat now org req).2.org := by
   rw [taskHeartbeat_eq]
   exact hbStep_wf h now req.pid req.tasks _ h
 
@@ -268,7 +268,7 @@ theorem regStep_wf {org : Origin} (h : WF org) (now : Nat) (awaiter : Ident) :
           · rw [get_id hf]; exact hi.2
 
 theorem taskSuspend_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskSuspendReq) :
-    WF (Concrete.taskSuspend now org req).2.put := by
+    WF (Concrete.taskSuspend now org req).2.org := by
   rw [taskSuspend_eq]
   dsimp only
   split
@@ -304,7 +304,7 @@ theorem taskSuspend_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskSuspen
                     exact sameOrigin_eq (by simpa using h3')
 
 theorem taskFulfill_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskFulfillReq) :
-    WF (Concrete.taskFulfill now org req).2.put := by
+    WF (Concrete.taskFulfill now org req).2.org := by
   unfold Concrete.taskFulfill
   split
   · exact h
@@ -321,7 +321,7 @@ theorem taskFulfill_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskFulfil
             · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem taskRelease_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskReleaseReq) :
-    WF (Concrete.taskRelease now org req).2.put := by
+    WF (Concrete.taskRelease now org req).2.org := by
   unfold Concrete.taskRelease
   cases hf : org.get req.id now with
   | none => exact h
@@ -336,7 +336,7 @@ theorem taskRelease_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskReleas
           · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem taskHalt_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskHaltReq) :
-    WF (Concrete.taskHalt now org req).2.put := by
+    WF (Concrete.taskHalt now org req).2.org := by
   unfold Concrete.taskHalt
   cases hf : org.get req.id now with
   | none => exact h
@@ -353,7 +353,7 @@ theorem taskHalt_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskHaltReq) 
             · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem taskContinue_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskContinueReq) :
-    WF (Concrete.taskContinue now org req).2.put := by
+    WF (Concrete.taskContinue now org req).2.org := by
   unfold Concrete.taskContinue
   cases hf : org.get req.id now with
   | none => exact h
@@ -368,7 +368,7 @@ theorem taskContinue_wf {org : Origin} (h : WF org) (now : Nat) (req : TaskConti
           · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem handleExternal_wf {org : Origin} (h : WF org) (now : Nat) (req : Request) :
-    WF (Concrete.handleExternal now org req).2.put := by
+    WF (Concrete.handleExternal now org req).2.org := by
   cases req with
   | promiseGet r =>
       rcases hC : Concrete.promiseGet now org r with ⟨res, c⟩

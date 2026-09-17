@@ -7,7 +7,7 @@ open Protocol (Ident Message PromiseState TaskState Object PromiseObject TaskObj
 def retryDelay : Nat := 5000
 
 def Commands.merge (c d : Commands) : Commands :=
-  { arm := c.arm ++ d.arm, put := d.put, del := c.del ++ d.del, send := c.send ++ d.send }
+  { arm := c.arm ++ d.arm, org := d.org, del := c.del ++ d.del, send := c.send ++ d.send }
 
 def promiseTimeout (now : Nat) (o : Object) : Option Object :=
   if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now then
@@ -92,7 +92,7 @@ def sweep (now : Nat) (org : Origin) : Commands :=
   let before := org.objects.flatMap (·.timers)
   let after := (changes.map (·.obj)).flatMap (·.timers)
   { arm  := after.filter (!before.contains ·),
-    put  := ⟨changes.map (·.obj)⟩,
+    org  := ⟨changes.map (·.obj)⟩,
     del  := before.filter (!after.contains ·),
     send := changes.flatMap (·.unblocks) ++ changes.flatMap (·.executes) }
 

@@ -23,8 +23,8 @@ def attempt (H : Hasher) (name : String) (f : Origin → α × Commands) (cs : C
   let (org, cond) := cs.read name
   let (a, c) := f org
   let (s', ok) := applyAll cs.state (c.effects name cond)
-  let etag := H.hash (.origin c.put)
-  (a, { state := s', cache := if ok then (name, c.put, etag) :: cs.forget name else cs.forget name }, ok)
+  let etag := H.hash (.origin c.org)
+  (a, { state := s', cache := if ok then (name, c.org, etag) :: cs.forget name else cs.forget name }, ok)
 
 def runCached (H : Hasher) (name : String) (f : Origin → α × Commands) (cs : Cached H) :
     α × Cached H × Bool :=
@@ -184,7 +184,7 @@ theorem attempt_of_read {α : Type} (H : Hasher) (name : String) (f : Origin →
     (attempt H name f cs).1 = (Concrete.run H name f cs.state).1 ∧
     (attempt H name f cs).2.1 =
       { state := (Concrete.run H name f cs.state).2.1,
-        cache := (name, (f (cs.state.origin name)).2.put, H.hash (.origin (f (cs.state.origin name)).2.put)) ::
+        cache := (name, (f (cs.state.origin name)).2.org, H.hash (.origin (f (cs.state.origin name)).2.org)) ::
           cs.forget name } ∧
     (attempt H name f cs).2.2 = true := by
   unfold Agree at hr
@@ -200,7 +200,7 @@ theorem attempt_of_read {α : Type} (H : Hasher) (name : String) (f : Origin →
 
 theorem attempt_cache {α : Type} (H : Hasher) (name : String) (f : Origin → α × Commands) (cs : Cached H) :
     ∃ c : Commands, (attempt H name f cs).2.1.cache =
-      if (attempt H name f cs).2.2 then (name, c.put, H.hash (.origin c.put)) :: cs.forget name
+      if (attempt H name f cs).2.2 then (name, c.org, H.hash (.origin c.org)) :: cs.forget name
       else cs.forget name := by
   unfold attempt
   rcases hr : cs.read name with ⟨org, cond⟩
@@ -311,12 +311,12 @@ theorem run_docs {α : Type} (H : Hasher) (name : String) (f : Origin → α × 
 theorem agree_after {α : Type} (H : Hasher) (name : String) (f : Origin → α × Commands) (s : Concrete.State)
     (rest : List (String × Origin × H.Hash)) :
     Agree ({ state := (Concrete.run H name f s).2.1,
-             cache := (name, (f (s.origin name)).2.put, H.hash (.origin (f (s.origin name)).2.put)) :: rest } : Cached H)
+             cache := (name, (f (s.origin name)).2.org, H.hash (.origin (f (s.origin name)).2.org)) :: rest } : Cached H)
       name := by
   unfold Agree Cached.read
   simp only [List.find?_cons, beq_self_eq_true]
   obtain ⟨h1, -, -, -, -⟩ := run_state H name (f (s.origin name)).2 s
-  show ((f (s.origin name)).2.put, Concrete.Cond.hash (H.hash (.origin (f (s.origin name)).2.put))) =
+  show ((f (s.origin name)).2.org, Concrete.Cond.hash (H.hash (.origin (f (s.origin name)).2.org))) =
     (Concrete.State.origin (Concrete.run H name f s).2.1 name,
       Concrete.Cond.of H ((Concrete.run H name f s).2.1.blob? (.origin name)))
   rw [State.origin_eq (Concrete.run H name f s).2.1 name, run_snd, h1]

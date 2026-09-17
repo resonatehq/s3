@@ -7,24 +7,24 @@ open Protocol (Ident Message PromiseState TaskState Object PromiseObject TaskObj
 open Concrete (Origin Commands Timer)
 
 def promiseTimeouts (now : Nat) (org : Origin) : Commands :=
-  org.objects.foldl (init := { put := org }) fun c o =>
+  org.objects.foldl (init := { org }) fun c o =>
     if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now then
-      { c with put := c.put.set (o.project now), del := c.del ++ o.timers }
+      { c with org := c.org.set (o.project now), del := c.del ++ o.timers }
     else
       c
 
 def listeners (now : Nat) (org : Origin) : Commands :=
-  org.objects.foldl (init := { put := org }) fun c o =>
+  org.objects.foldl (init := { org }) fun c o =>
     let o := o.project now
     if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
       { c with
-        put := c.put.set { o with promise := { o.promise with listeners := [] } },
+        org := c.org.set { o with promise := { o.promise with listeners := [] } },
         send := c.send ++ o.promise.listeners.map fun a => (a, .unblock (o.promise.toRecord o.id)) }
     else
       c
 
 def resume (now : Nat) (awaited : Ident) (c : Commands) (awaiter : Ident) : Commands :=
-  match (c.put.get awaiter now).bind fun w => w.task.map (w, ·) with
+  match (c.org.get awaiter now).bind fun w => w.task.map (w, ·) with
   | none =>
       c
   | some (w, t) =>
@@ -32,25 +32,25 @@ def resume (now : Nat) (awaited : Ident) (c : Commands) (awaiter : Ident) : Comm
       | .suspended =>
           { c with
             arm := c.arm ++ [⟨now, w.id, .retry⟩],
-            put := c.put.set { w with task := some { t with state := .pending, resumes := [awaited],
+            org := c.org.set { w with task := some { t with state := .pending, resumes := [awaited],
                                                               retryTimeoutAt := some now } } }
       | .pending | .acquired | .halted =>
           if t.resumes.contains awaited then
-            { c with put := c.put.set w }
+            { c with org := c.org.set w }
           else
-            { c with put := c.put.set { w with task := some { t with resumes := t.resumes ++ [awaited] } } }
+            { c with org := c.org.set { w with task := some { t with resumes := t.resumes ++ [awaited] } } }
       | .fulfilled =>
-          { c with put := c.put.set w }
+          { c with org := c.org.set w }
 
 def callbacks (now : Nat) (org : Origin) : Commands :=
-  org.objects.foldl (init := { put := org }) fun c o =>
+  org.objects.foldl (init := { org }) fun c o =>
     let o := o.project now
     if o.promise.state != .pending then
       o.promise.callbacks.foldl (init := c) fun c awaiter =>
-        match c.put.get o.id now with
+        match c.org.get o.id now with
         | some cur =>
             resume now o.id
-              { c with put := c.put.set { cur with promise :=
+              { c with org := c.org.set { cur with promise :=
                   { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } } }
               awaiter
         | none =>
@@ -59,7 +59,7 @@ def callbacks (now : Nat) (org : Origin) : Commands :=
       c
 
 def leaseTimeouts (now : Nat) (org : Origin) : Commands :=
-  org.objects.foldl (init := { put := org }) fun c o =>
+  org.objects.foldl (init := { org }) fun c o =>
     let o := o.project now
     match o.task with
     | some t =>
@@ -67,7 +67,7 @@ def leaseTimeouts (now : Nat) (org : Origin) : Commands :=
             ∧ o.promise.state == .pending then
           { c with
             arm := c.arm ++ [⟨now, o.id, .retry⟩],
-            put := c.put.set { o with task := some { t with state := .pending, pid := none, ttl := none,
+            org := c.org.set { o with task := some { t with state := .pending, pid := none, ttl := none,
                                                               leaseTimeoutAt := none,
                                                               retryTimeoutAt := some now } },
             del := c.del ++ t.timers o.id }
@@ -77,7 +77,7 @@ def leaseTimeouts (now : Nat) (org : Origin) : Commands :=
         c
 
 def retryTimeouts (now : Nat) (org : Origin) : Commands :=
-  org.objects.foldl (init := { put := org }) fun c o =>
+  org.objects.foldl (init := { org }) fun c o =>
     let o := o.project now
     match o.task, o.promise.type with
     | some t, .runnable target =>
@@ -85,7 +85,7 @@ def retryTimeouts (now : Nat) (org : Origin) : Commands :=
             ∧ o.promise.state == .pending then
           { c with
             arm := c.arm ++ [⟨now + Concrete.retryDelay, o.id, .retry⟩],
-            put := c.put.set { o with task := some { t with retryTimeoutAt := some (now + Concrete.retryDelay) } },
+            org := c.org.set { o with task := some { t with retryTimeoutAt := some (now + Concrete.retryDelay) } },
             del := c.del ++ t.timers o.id,
             send := c.send ++ [(target, .execute o.id t.version)] }
         else
@@ -95,10 +95,10 @@ def retryTimeouts (now : Nat) (org : Origin) : Commands :=
 
 def sweep (now : Nat) (org : Origin) : Commands :=
   let c1 := promiseTimeouts now org
-  let c2 := c1.merge (listeners now c1.put)
-  let c3 := c2.merge (callbacks now c2.put)
-  let c4 := c3.merge (leaseTimeouts now c3.put)
-  c4.merge (retryTimeouts now c4.put)
+  let c2 := c1.merge (listeners now c1.org)
+  let c3 := c2.merge (callbacks now c2.org)
+  let c4 := c3.merge (leaseTimeouts now c3.org)
+  c4.merge (retryTimeouts now c4.org)
 
 def promiseTimeoutTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
   org.objects.filterMap fun o =>
@@ -149,10 +149,10 @@ def retryTimeoutTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
 
 def sweepTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
   let c1 := promiseTimeouts now org
-  let c2 := c1.merge (listeners now c1.put)
-  let c3 := c2.merge (callbacks now c2.put)
-  let c4 := c3.merge (leaseTimeouts now c3.put)
-  promiseTimeoutTriggers now org ++ listenerTriggers now c1.put ++ callbackTriggers now c2.put
-    ++ leaseTimeoutTriggers now c3.put ++ retryTimeoutTriggers now c4.put
+  let c2 := c1.merge (listeners now c1.org)
+  let c3 := c2.merge (callbacks now c2.org)
+  let c4 := c3.merge (leaseTimeouts now c3.org)
+  promiseTimeoutTriggers now org ++ listenerTriggers now c1.org ++ callbackTriggers now c2.org
+    ++ leaseTimeoutTriggers now c3.org ++ retryTimeoutTriggers now c4.org
 
 end Chain
