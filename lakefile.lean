@@ -24,3 +24,9 @@ lean_lib «impl» where
   srcDir := "src"
   roots  := #[]
   globs  := #[.submodules `impl]
+
+@[default_target]
+lean_lib «refinement» where
+  srcDir := "src"
+  roots  := #[]
+  globs  := #[.submodules `refinement]

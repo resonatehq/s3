@@ -1,4 +1,4 @@
-import impl.relation
+import refinement.relation
 
 namespace Refinement
 

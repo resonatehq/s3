@@ -1,4 +1,4 @@
-import impl.system
+import refinement.store
 import «02-abstract».«system»
 
 namespace Chain

@@ -1,4 +1,4 @@
-import impl.passes
+import refinement.passes
 
 namespace Abstract
 

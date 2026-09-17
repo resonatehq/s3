@@ -6,7 +6,7 @@ Resonate, implemented on a compare-and-swap object store, in Lean 4. The proof t
 
 You do not need to review the proofs. You need to review the theorems.
 
-Every theorem in this repository is checked by Lean. When `lake build` succeeds, every statement marked `theorem` holds, with no step taken on trust, from the standard axioms of Lean alone. There is no `sorry` in `impl`; the main theorems below depend on nothing but `propext`, `Classical.choice` and `Quot.sound`.
+Every theorem in this repository is checked by Lean. When `lake build` succeeds, every statement marked `theorem` holds, with no step taken on trust, from the standard axioms of Lean alone. There is no `sorry` in `impl` or `refinement`; the main theorems below depend on nothing but `propext`, `Classical.choice` and `Quot.sound`.
 
 What remains for a human is to read the statements and the definitions they name, and to judge whether they say what you want said. Is `Concrete.step` the machine you intend to run? Is `Abstract.Valid` the specification you mean? Is "the same k-th observation" the equivalence you care about? Those questions are the whole review. Everything between the statement and the closing `:=` has already been checked, more thoroughly than any reader could.
 
@@ -16,11 +16,12 @@ This is why the theorems below are printed in full and translated word for word.
 
 Resonate is a durable execution system. This repository is a Lean 4 formalisation of Resonate on a compare-and-swap object store such as Amazon S3, with machine-checked proofs that the implementation refines its specification. It contains definitions and theorems only, no runnable service.
 
-Three layers under `src/`:
+Four folders under `src/`:
 
 - `types.lean` is the protocol: identifiers, promises, tasks, schedules, callbacks and listeners, outbox messages, and the request and response alphabets.
-- `spec/02-abstract` is the specification: an abstract state machine over objects, schedules and an outbox, driven by external requests and internal triggers such as timeouts. `spec/03-theorems` proves properties of the specification; a few `sorry`s remain there, none used by `impl`.
-- `impl/` is the implementation: state as blobs in a bucket keyed by path, written with conditional puts; every request and every timer first sweeps its origin document; a read cache is optional.
+- `spec/02-abstract` is the specification: an abstract state machine over objects, schedules and an outbox, driven by external requests and internal triggers such as timeouts. `spec/03-theorems` proves properties of the specification; a few `sorry`s remain there, none used below.
+- `impl/` is the implementation, laid out like the specification: `state` (the origin document, the bucket, conditional puts), `external` (the request handlers), `internal` (the sweep), `system` (events, the step, traces), and `cache` (the machine with a read cache). Definitions only, no theorems.
+- `refinement/` is the proof that `impl` refines `spec`. Nothing in `impl` depends on it.
 
 The headline theorems follow.
 

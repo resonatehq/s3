@@ -1,4 +1,4 @@
-import types
+import impl.state
 
 namespace Concrete
 
@@ -24,51 +24,6 @@ open Protocol (PromiseGetReq PromiseGetRes
                   ScheduleCreateReq ScheduleCreateRes
                   ScheduleDeleteReq ScheduleDeleteRes
                   ScheduleSearchReq ScheduleSearchRes)
-
-structure Origin where
-  objects : List Object := []
-  deriving Repr
-
-inductive TimerKind
-  | promise
-  | lease
-  | retry
-  deriving Repr, DecidableEq
-
-structure Timer where
-  deadline : Nat
-  id       : Ident
-  kind     : TimerKind
-  deriving Repr, DecidableEq
-
-structure Commands where
-  arm  : List Timer := []
-  org  : Origin
-  del  : List Timer := []
-  send : List (String × Message) := []
-  deriving Repr
-
-def Origin.get (org : Origin) (id : Ident) (now : Nat) : Option Object :=
-  (org.objects.find? (·.id == id)).map (·.project now)
-
-def Origin.set (org : Origin) (o : Object) : Origin :=
-  if org.objects.any (·.id == o.id) then
-    ⟨org.objects.map fun x => if x.id == o.id then o else x⟩
-  else
-    ⟨org.objects ++ [o]⟩
-
-def _root_.Protocol.TaskObject.timers (t : TaskObject) (id : Ident) : List Timer :=
-  match t.state, t.leaseTimeoutAt, t.retryTimeoutAt with
-  | .acquired, some dl, _ =>
-      [⟨dl, id, .lease⟩]
-  | .pending, _, some dl =>
-      [⟨dl, id, .retry⟩]
-  | _, _, _ =>
-      []
-
-def _root_.Protocol.Object.timers (o : Object) : List Timer :=
-  (if o.promise.state == .pending then [⟨o.promise.timeoutAt, o.id, .promise⟩] else [])
-  ++ (o.task.map (·.timers o.id)).getD []
 
 def promiseGet (now : Nat) (org : Origin) (req : PromiseGetReq) : PromiseGetRes × Commands :=
   match org.get req.id now with

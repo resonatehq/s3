@@ -1,4 +1,4 @@
-import impl.trace
+import refinement.trace
 
 namespace Refinement
 

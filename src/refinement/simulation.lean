@@ -1,5 +1,5 @@
-import impl.wf
-import impl.equal
+import refinement.wf
+import refinement.equal
 
 namespace Refinement
 
