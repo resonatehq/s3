@@ -52,10 +52,10 @@ theorem del_timer (tm : Timer) : ∀ (ts : List Timer) (s : Concrete.State),
           rfl
 
 theorem write_timer {cfg : Config} {name : String} {parts : List (List Object)} {cond : Concrete.Cond H}
-    {org : Origin} {s s' : Concrete.State} (hp : s.parts name = parts)
-    (h : (Concrete.write H cfg name parts cond org).apply s = some s') (tm : Timer) :
+    {objects : List Object} {s s' : Concrete.State} (hp : s.parts name = parts)
+    (h : (Concrete.write H cfg name parts cond objects).apply s = some s') (tm : Timer) :
     s'.blob? (.timer tm) = s.blob? (.timer tm) := by
-  rw [Concrete.write_apply cfg name parts cond org hp] at h
+  rw [Concrete.write_apply cfg name parts cond objects hp] at h
   split at h
   · cases h
     rw [blob?_eq, blobIn_put, if_neg (by simp)]
@@ -64,7 +64,7 @@ theorem write_timer {cfg : Config} {name : String} {parts : List (List Object)} 
 
 theorem timer_after (cfg : Config) (name : String) (c : Commands) (s : Concrete.State) (tm : Timer) :
     (Concrete.applyAll s (c.effects (Concrete.write H cfg name (s.parts name)
-      (Concrete.Cond.of H (s.blob? (.origin name))) c.org))).1.blob? (.timer tm) =
+      (Concrete.Cond.of H (s.blob? (.origin name))) c.add))).1.blob? (.timer tm) =
       if tm ∈ c.del then none else if tm ∈ c.arm then some .timer else s.blob? (.timer tm) := by
   unfold Commands.effects
   obtain ⟨hA, sameA⟩ := timers_phase (H := H) (c.arm.map fun t => .put (.timer t) .timer .any) s
@@ -78,7 +78,7 @@ theorem timer_after (cfg : Config) (name : String) (c : Commands) (s : Concrete.
     unfold Concrete.State.parts; rw [sameA.blob]
   have hhold : (Concrete.Cond.of H (s.blob? (.origin name))).holds (s1.blob? (.origin name)) = true := by
     rw [sameA.blob]; exact Concrete.Cond.of_holds _
-  obtain ⟨s2, hs2⟩ : ∃ s2, (Concrete.write H cfg name (s.parts name) (Concrete.Cond.of H (s.blob? (.origin name))) c.org).apply s1 = some s2 :=
+  obtain ⟨s2, hs2⟩ : ∃ s2, (Concrete.write H cfg name (s.parts name) (Concrete.Cond.of H (s.blob? (.origin name))) c.add).apply s1 = some s2 :=
     ⟨_, by rw [Concrete.write_apply cfg name _ _ _ hp1, if_pos hhold]⟩
   have h2t := write_timer hp1 hs2 tm
   have hDt := del_timer (H := H) tm c.del s2
@@ -95,7 +95,7 @@ theorem timer_after (cfg : Config) (name : String) (c : Commands) (s : Concrete.
   rw [Concrete.applyAll_append, hs3, if_pos rfl, blob?_eq, hS1, ← blob?_eq, hDt, h2t, hAt]
 
 theorem run_alike {α : Type} (cfg cfg' : Config) (name : String) (f : Origin → α × Commands)
-    {s t : Concrete.State} (h : Alike s t) (hext : ∀ org, Extends org (f org).2.org) :
+    {s t : Concrete.State} (h : Alike s t) :
     (Concrete.run H cfg name f s).1 = (Concrete.run H cfg' name f t).1 ∧
     Alike (Concrete.run H cfg name f s).2.1 (Concrete.run H cfg' name f t).2.1 := by
   have horg : s.origin name = t.origin name := h.origin name
@@ -103,13 +103,13 @@ theorem run_alike {α : Type} (cfg cfg' : Config) (name : String) (f : Origin �
   rw [run_snd, run_snd, horg]
   obtain ⟨h1, h2, h3, -, -, -⟩ := run_state H cfg name (f (t.origin name)).2 s
   obtain ⟨h1', h2', h3', -, -, -⟩ := run_state H cfg' name (f (t.origin name)).2 t
-  have hx : Extends (t.origin name) (f (t.origin name)).2.org := hext _
-  have hxs : Extends (s.origin name) (f (t.origin name)).2.org := by rw [horg]; exact hx
-  rw [view_next cfg (s.parts name) hxs] at h1
-  rw [view_next cfg' (t.parts name) hx] at h1'
+  rw [view_next] at h1 h1'
   refine ⟨fun m => ?_, fun tm => ?_, ?_⟩
   · by_cases hm : m = name
-    · subst hm; rw [h1, h1']
+    · subst hm
+      rw [h1, h1']
+      show ((s.origin m).add _).current = ((t.origin m).add _).current
+      rw [horg]
     · rw [State.origin_eq, h2 m hm, State.origin_eq (Concrete.applyAll t _).1, h2' m hm, ← State.origin_eq,
         ← State.origin_eq, h.origin m]
   · rw [timer_after, timer_after, h.timer tm]
@@ -128,7 +128,6 @@ theorem step_alike (cfg cfg' : Config) (ev : Event) (now : Nat) {s t : Concrete.
       | some name =>
           simp only [Concrete.step, ho]
           obtain ⟨h1, h2⟩ := run_alike (H := H) cfg cfg' name (fun org => Concrete.handle (.external req) now org) h
-            (fun org => handle_extends _ now org)
           have hok := Concrete.run_accepted (H := H) cfg name (fun org => Concrete.handle (.external req) now org) s
           have hok' := Concrete.run_accepted (H := H) cfg' name (fun org => Concrete.handle (.external req) now org) t
           rcases hR : Concrete.run H cfg name (fun org => Concrete.handle (.external req) now org) s with ⟨r, s', ok⟩
@@ -144,7 +143,6 @@ theorem step_alike (cfg cfg' : Config) (ev : Event) (now : Nat) {s t : Concrete.
       by_cases hl : (t.blob? (.timer tm)).isSome = true ∧ tm.deadline ≤ now
       · rw [if_pos hl, if_pos hl]
         obtain ⟨h1, h2⟩ := run_alike (H := H) cfg cfg' tm.id.origin (fun org => Concrete.handle (.internal tm) now org) h
-          (fun org => handle_extends _ now org)
         have hok := Concrete.run_accepted (H := H) cfg tm.id.origin (fun org => Concrete.handle (.internal tm) now org) s
         have hok' := Concrete.run_accepted (H := H) cfg' tm.id.origin (fun org => Concrete.handle (.internal tm) now org) t
         rcases hR : Concrete.run H cfg tm.id.origin (fun org => Concrete.handle (.internal tm) now org) s with ⟨r, s', ok⟩

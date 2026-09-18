@@ -9,17 +9,17 @@ structure Sim (o : String) (org : Origin) (S : Abstract.State) {α : Type}
     (r : α × List Abstract.Effect) (res : α) (c : Commands) : Prop where
   res   : r.1 = res
   fx    : Fx o r.2
-  loc   : Local o c.org (Abstract.applyAll S r.2)
+  loc   : Local o (c.doc org) (Abstract.applyAll S r.2)
   send  : sendsOf r.2 = c.send
-  orig  : (∀ ob ∈ org.current.objects, ob.id.origin = o) → ∀ ob ∈ c.org.current.objects, ob.id.origin = o
+  orig  : (∀ ob ∈ org.current.objects, ob.id.origin = o) → ∀ ob ∈ (c.doc org).current.objects, ob.id.origin = o
 
 theorem find_set_at {org : Origin} {x : Object} {id : Ident} (hx : x.id = id) :
     Origin.find (org.set x) id = some x := by
   rw [← hx]; exact find_set_same org x
 
 theorem Sim.skip {o : String} {org : Origin} {S : Abstract.State} {α : Type} (hL : Local o org S)
-    (a : α) : Sim o org S (a, []) a { org } :=
-  ⟨rfl, trivial, hL, rfl, fun h => h⟩
+    (a : α) : Sim o org S (a, []) a {} :=
+  ⟨rfl, trivial, by rw [doc_empty]; exact hL, rfl, fun h => by rw [doc_empty]; exact h⟩
 
 theorem Local_setPromise {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     {id : Ident} (hid : id.origin = o) {p : PromiseObject} {x : Object} (hx : x.id = id)
@@ -641,14 +641,14 @@ def hbStep (now : Nat) (org : Origin) (pid : String) (c : Commands) (ref : TaskR
         let t' := { t with leaseTimeoutAt := some lease }
         { c with
           arm := c.arm ++ (if t.leaseTimeoutAt == some lease then [] else t'.timers o.id),
-          org := c.org.set { o with task := some t' },
+          add := c.add ++ [{ o with task := some t' }],
           del := c.del ++ (if t.leaseTimeoutAt == some lease then [] else t.timers o.id) }
       else
         c
 
 theorem taskHeartbeat_eq (now : Nat) (org : Origin) (req : TaskHeartbeatReq) :
     Concrete.taskHeartbeat req now org =
-      ({ status := 200 }, req.tasks.foldl (hbStep now org req.pid) { org }) := rfl
+      ({ status := 200 }, req.tasks.foldl (hbStep now org req.pid) {}) := rfl
 
 structure Acc (o : String) (org : Origin) (d : Origin) (T : Abstract.State) : Prop where
   loc   : Local o d T
@@ -658,9 +658,9 @@ structure Acc (o : String) (org : Origin) (d : Origin) (T : Abstract.State) : Pr
 theorem heartbeatAll_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (pid : String) (now : Nat) :
     ∀ (refs : List TaskRef) (c : Commands) (T : Abstract.State),
-      (∀ ref ∈ refs, ref.id.origin = o) → Acc o org c.org T → c.send = [] →
+      (∀ ref ∈ refs, ref.id.origin = o) → Acc o org (c.doc org) T → c.send = [] →
       Fx o (Abstract.heartbeatAll pid now refs (env S)).2 ∧
-      Acc o org (refs.foldl (hbStep now org pid) c).org
+      Acc o org ((refs.foldl (hbStep now org pid) c).doc org)
         (Abstract.applyAll T (Abstract.heartbeatAll pid now refs (env S)).2) ∧
       sendsOf (Abstract.heartbeatAll pid now refs (env S)).2 = (refs.foldl (hbStep now org pid) c).send
   | [], c, T, _, hacc, hsend => ⟨trivial, hacc, by simp [Abstract.heartbeatAll, pure_apply, sendsOf, hsend]⟩
@@ -669,7 +669,7 @@ theorem heartbeatAll_sim {o : String} {org : Origin} {S : Abstract.State} (hL : 
       have hrest : ∀ r ∈ refs, r.id.origin = o := fun r hr => hrefs r (List.mem_cons_of_mem _ hr)
       simp only [Abstract.heartbeatAll, bind_apply, List.foldl_cons]
       suffices h : Fx o (Abstract.heartbeatOne pid ref now (env S)).2 ∧
-          Acc o org (hbStep now org pid c ref).org
+          Acc o org ((hbStep now org pid c ref).doc org)
             (Abstract.applyAll T (Abstract.heartbeatOne pid ref now (env S)).2) ∧
           (hbStep now org pid c ref).send = [] ∧
           sendsOf (Abstract.heartbeatOne pid ref now (env S)).2 = [] by
@@ -702,13 +702,22 @@ theorem heartbeatAll_sim {o : String} {org : Origin} {S : Abstract.State} (hL : 
                 refine ⟨⟨hido, trivial⟩, ?_, hsend, rfl⟩
                 have hp := hacc.prom ref.id
                 rw [hf, Option.map_some] at hp
-                cases hy : Origin.find c.org ref.id with
+                cases hy : Origin.find (c.doc org) ref.id with
                 | none => rw [hy] at hp; cases hp
                 | some y =>
                     rw [hy, Option.map_some, Option.some.injEq] at hp
                     have hyid : y.id = ob.id := (find_orig hy).trans hob.symm
-                    have hy' : Origin.find c.org ob.id = some y := by rw [hob]; exact hy
+                    have hy' : Origin.find (c.doc org) ob.id = some y := by rw [hob]; exact hy
                     simp only [List.nil_append]
+                    have hdoc : ({ c with
+                        arm := c.arm ++ (if tv.leaseTimeoutAt == some (now + tv.ttl.getD 0) then [] else
+                          ({ tv with leaseTimeoutAt := some (now + tv.ttl.getD 0) } : TaskObject).timers ob.id),
+                        add := c.add ++ [{ ob with task := some { tv with leaseTimeoutAt := some (now + tv.ttl.getD 0) } }],
+                        del := c.del ++ (if tv.leaseTimeoutAt == some (now + tv.ttl.getD 0) then [] else tv.timers ob.id) } :
+                          Commands).doc org =
+                        (c.doc org).set { ob with task := some { tv with leaseTimeoutAt := some (now + tv.ttl.getD 0) } } :=
+                      add_snoc org c.add _
+                    rw [hdoc]
                     refine ⟨Local_setTask_from hacc.loc hido rfl hy' ?_, ?_,
                       fun h => set_derived (hacc.orig h) hido⟩
                     · cases y with
@@ -734,16 +743,17 @@ theorem taskHeartbeat_sim {o : String} {org : Origin} {S : Abstract.State} (hL :
   rw [taskHeartbeat_eq]
   unfold Abstract.taskHeartbeat
   simp only [bind_apply, pure_apply, List.append_nil]
-  have hacc : Acc o org org S := ⟨hL, fun _ => rfl, fun h => h⟩
-  obtain ⟨h1, h2, h3⟩ := heartbeatAll_sim hL req.pid now req.tasks { org } S hid hacc rfl
+  have hacc : Acc o org (({} : Commands).doc org) S := by
+    rw [doc_empty]; exact ⟨hL, fun _ => rfl, fun h => h⟩
+  obtain ⟨h1, h2, h3⟩ := heartbeatAll_sim hL req.pid now req.tasks {} S hid hacc rfl
   exact ⟨rfl, h1, h2.loc, h3, h2.orig⟩
 
-def regStep (awaiter : Ident) (d : Origin) (oa : Option Object) : Origin :=
+def regStep (awaiter : Ident) (adds : List Object) (oa : Option Object) : List Object :=
   match oa with
   | some oa =>
-      d.set { oa with promise := oa.promise.addCallback awaiter }
+      adds ++ [{ oa with promise := oa.promise.addCallback awaiter }]
   | none =>
-      d
+      adds
 
 theorem taskSuspend_eq (now : Nat) (org : Origin) (req : TaskSuspendReq) :
     Concrete.taskSuspend req now org =
@@ -751,26 +761,26 @@ theorem taskSuspend_eq (now : Nat) (org : Origin) (req : TaskSuspendReq) :
        if req.actions.isEmpty ∨ awaitedIds.contains req.id
            ∨ awaitedIds.any (fun a => !a.sameOrigin req.id)
            ∨ awaitedIds.eraseDups.length != awaitedIds.length then
-         ({ status := 400 }, { org })
+         ({ status := 400 }, {})
        else
          match (org.get req.id now).bind fun o => o.task.map (o, ·) with
          | none =>
-             ({ status := 404 }, { org })
+             ({ status := 404 }, {})
          | some (o, t) =>
              if t.state != .acquired ∨ o.promise.state != .pending ∨ t.version != req.version then
-               ({ status := 409 }, { org })
+               ({ status := 409 }, {})
              else
                let awaited := awaitedIds.map (org.get · now)
                if awaited.any (fun oa => !(oa.map (·.promise.type.awaitable)).getD false) then
-                 ({ status := 422 }, { org })
+                 ({ status := 422 }, {})
                else if awaited.any (fun oa => (oa.map (·.promise.state != .pending)).getD false) then
-                 ({ status := 300 }, { org := org.set { o with task := some { t with resumes := [] } } })
+                 ({ status := 300 }, { add := [{ o with task := some { t with resumes := [] } }] })
                else
                  ({ status := 200 },
-                  { org := (awaited.foldl (regStep req.id) org).set
-                      { o with task := some { t with state := .suspended, pid := none, ttl := none,
-                                                     leaseTimeoutAt := none, retryTimeoutAt := none,
-                                                     resumes := [] } },
+                  { add := awaited.foldl (regStep req.id) [] ++
+                      [{ o with task := some { t with state := .suspended, pid := none, ttl := none,
+                                                      leaseTimeoutAt := none, retryTimeoutAt := none,
+                                                      resumes := [] } }],
                     del := t.timers o.id })) := rfl
 
 theorem contains_map_awaited (actions : List PromiseRegisterCallbackReq) (id : Ident) :
@@ -824,22 +834,22 @@ structure RAcc (o : String) (org : Origin) (d : Origin) (T : Abstract.State) : P
 
 theorem registerAwaited_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (awaiter : Ident) (now : Nat) :
-    ∀ (actions : List PromiseRegisterCallbackReq) (d : Origin) (T : Abstract.State),
+    ∀ (actions : List PromiseRegisterCallbackReq) (adds : List Object) (T : Abstract.State),
       (∀ a ∈ actions, a.awaited.origin = o) →
       (∀ a ∈ actions, ∀ ob, Origin.find org a.awaited = some ob → ob.project now = ob) →
-      RAcc o org d T →
+      RAcc o org (org.add adds) T →
       Fx o (Abstract.registerAwaited awaiter now actions (env S)).2 ∧
-      RAcc o org (((actions.map (·.awaited)).map (org.get · now)).foldl (regStep awaiter) d)
+      RAcc o org (org.add (((actions.map (·.awaited)).map (org.get · now)).foldl (regStep awaiter) adds))
         (Abstract.applyAll T (Abstract.registerAwaited awaiter now actions (env S)).2) ∧
       sendsOf (Abstract.registerAwaited awaiter now actions (env S)).2 = [] ∧
       (∀ id, id ∉ actions.map (·.awaited) →
-        Origin.find (((actions.map (·.awaited)).map (org.get · now)).foldl (regStep awaiter) d) id =
-          Origin.find d id) ∧
-      ((∀ ob ∈ d.current.objects, ob.id.origin = o) →
-        ∀ ob ∈ (((actions.map (·.awaited)).map (org.get · now)).foldl (regStep awaiter) d).current.objects,
+        Origin.find (org.add (((actions.map (·.awaited)).map (org.get · now)).foldl (regStep awaiter) adds)) id =
+          Origin.find (org.add adds) id) ∧
+      ((∀ ob ∈ (org.add adds).current.objects, ob.id.origin = o) →
+        ∀ ob ∈ (org.add (((actions.map (·.awaited)).map (org.get · now)).foldl (regStep awaiter) adds)).current.objects,
           ob.id.origin = o)
-  | [], d, T, _, _, hacc => ⟨trivial, hacc, rfl, fun _ _ => rfl, fun h => h⟩
-  | a :: rest, d, T, h, hproj, hacc => by
+  | [], adds, T, _, _, hacc => ⟨trivial, hacc, rfl, fun _ _ => rfl, fun h => h⟩
+  | a :: rest, adds, T, h, hproj, hacc => by
       have ha : a.awaited.origin = o := h a (List.mem_cons_self ..)
       have hrest : ∀ b ∈ rest, b.awaited.origin = o := fun b hb => h b (List.mem_cons_of_mem _ hb)
       have hprest : ∀ b ∈ rest, ∀ ob, Origin.find org b.awaited = some ob → ob.project now = ob :=
@@ -850,7 +860,7 @@ theorem registerAwaited_sim {o : String} {org : Origin} {S : Abstract.State} (hL
       | none =>
           have hg : org.get a.awaited now = none := by rw [get_eq, hf]; rfl
           simp only [hg, Option.map_none, List.nil_append, regStep]
-          obtain ⟨i1, i2, i3, i4, i5⟩ := registerAwaited_sim hL awaiter now rest d T hrest hprest hacc
+          obtain ⟨i1, i2, i3, i4, i5⟩ := registerAwaited_sim hL awaiter now rest adds T hrest hprest hacc
           exact ⟨i1, i2, i3, fun id hid => i4 id (fun m => hid (List.mem_cons_of_mem _ m)), i5⟩
       | some ob =>
           have heq : ob.project now = ob := hproj a (List.mem_cons_self ..) ob hf
@@ -862,13 +872,13 @@ theorem registerAwaited_sim {o : String} {org : Origin} {S : Abstract.State} (hL
           have hx : ({ ob with promise := ob.promise.addCallback awaiter } : Object).id = ob.id := rfl
           have htk := hacc.task a.awaited
           rw [hf, Option.map_some] at htk
-          cases hy : Origin.find d a.awaited with
+          cases hy : Origin.find (org.add adds) a.awaited with
           | none => rw [hy] at htk; cases htk
           | some y =>
               rw [hy, Option.map_some, Option.some.injEq] at htk
               have hyid : y.id = ob.id := (find_orig hy).trans hob.symm
-              have hy' : Origin.find d ob.id = some y := by rw [hob]; exact hy
-              have hacc' : RAcc o org (d.set { ob with promise := ob.promise.addCallback awaiter })
+              have hy' : Origin.find (org.add adds) ob.id = some y := by rw [hob]; exact hy
+              have hacc' : RAcc o org ((org.add adds).set { ob with promise := ob.promise.addCallback awaiter })
                   (Abstract.applyAll T [.setPromise ob.id (ob.promise.addCallback awaiter)]) := by
                 refine ⟨Local_setPromise_from hacc.loc hido hx hy' ?_, ?_⟩
                 · cases y with
@@ -882,9 +892,11 @@ theorem registerAwaited_sim {o : String} {org : Origin} {S : Abstract.State} (hL
                   · subst e
                     rw [find_set_at hx, hob, hf]; rfl
                   · rw [find_set_other _ _ _ (hx ▸ e)]; exact hacc.task id
+              rw [← add_snoc] at hacc'
               obtain ⟨i1, i2, i3, i4, i5⟩ :=
                 registerAwaited_sim hL awaiter now rest _ _ hrest hprest hacc'
               simp only [Abstract.applyAll] at i2
+              rw [add_snoc] at i4 i5
               refine ⟨⟨hido, i1⟩, by simp only [Abstract.applyAll]; exact i2, i3, ?_,
                 fun h => i5 (set_derived h hido)⟩
               intro id hid
@@ -981,20 +993,29 @@ theorem taskSuspend_sim {o : String} {org : Origin} {S : Abstract.State} (hL : L
                               have hs := List.any_eq_false.1 a2' _ hm
                               rw [get_eq, hf', Option.map_some, Option.map_some, Option.getD_some] at hs
                               exact project_pending_ne (by simpa using hs)
+                            have hacc0 : RAcc o org (org.add []) S := by
+                              rw [add_nil]; exact ⟨hL, fun _ => rfl⟩
                             obtain ⟨i1, i2, i3, i4, i5⟩ :=
-                              registerAwaited_sim hL req.id now req.actions org S horig hproj ⟨hL, fun _ => rfl⟩
+                              registerAwaited_sim hL req.id now req.actions [] S horig hproj hacc0
+                            rw [add_nil] at i4 i5
                             have hnm : req.id ∉ req.actions.map (·.awaited) := by
                               intro hm
                               obtain ⟨a, ha, hae⟩ := List.mem_map.1 hm
                               have := List.any_eq_false.1 h2' a ha
                               simp [hae] at this
-                            have hy : Origin.find (((req.actions.map (·.awaited)).map (org.get · now)).foldl
-                                (regStep req.id) org) ob.id = some ob := by
+                            have hy : Origin.find (org.add (((req.actions.map (·.awaited)).map (org.get · now)).foldl
+                                (regStep req.id) [])) ob.id = some ob := by
                               rw [hob, i4 req.id hnm, hf]
-                            refine ⟨rfl, (Fx_append _ _ _).2 ⟨i1, hido, trivial⟩, ?_, ?_,
-                              fun h => set_derived (i5 h) hido⟩
-                            · rw [applyAll_append]
+                            have hdoc : ({ add := ((req.actions.map (·.awaited)).map (org.get · now)).foldl (regStep req.id) [] ++ [{ ob with task := some { tv with state := .suspended, pid := none, ttl := none, leaseTimeoutAt := none, retryTimeoutAt := none, resumes := [] } }],
+                                           del := tv.timers ob.id } : Commands).doc org =
+                              (org.add (((req.actions.map (·.awaited)).map (org.get · now)).foldl (regStep req.id) [])).set
+                                { ob with task := some { tv with state := .suspended, pid := none, ttl := none, leaseTimeoutAt := none, retryTimeoutAt := none, resumes := [] } } :=
+                              add_snoc org _ _
+                            refine ⟨rfl, (Fx_append _ _ _).2 ⟨i1, hido, trivial⟩, ?_, ?_, ?_⟩
+                            · rw [hdoc, applyAll_append]
                               exact Local_setTask_from i2.loc hido rfl hy rfl
                             · rw [sendsOf_append, i3]; rfl
+                            · rw [hdoc]
+                              exact fun h => set_derived (i5 h) hido
 
 end Refinement

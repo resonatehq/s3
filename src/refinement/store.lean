@@ -4,6 +4,12 @@ namespace Concrete
 
 open Protocol (Message OutboxEntry Request Response Object)
 
+def Origin.set (org : Origin) (o : Object) : Origin :=
+  org.add [o]
+
+def Commands.doc (c : Commands) (org : Origin) : Origin :=
+  org.add c.add
+
 variable {H : Hasher}
 
 theorem Cond.of_holds (b : Option Blob) : (Cond.of H b).holds b = true := by
@@ -110,17 +116,17 @@ theorem applyAll_arm (name : String) :
       obtain ⟨h1, h2⟩ := applyAll_arm name ts s'
       exact ⟨h1, by rw [h2, blob?_put_other hs (by simp)]⟩
 
-def next (cfg : Config) (parts : List (List Object)) (org : Origin) : List (List Object) :=
+def next (cfg : Config) (parts : List (List Object)) (objects : List Object) : List (List Object) :=
   if parts.tail.length < cfg.adds then
-    parts ++ [org.objects.drop (view parts).objects.length]
+    parts ++ [objects]
   else
-    [org.current.objects]
+    [((view parts).add objects).current.objects]
 
-theorem write_apply (cfg : Config) (name : String) (parts : List (List Object)) (cond : Cond H) (org : Origin)
-    {s : State} (hp : s.parts name = parts) :
-    (write H cfg name parts cond org).apply s =
+theorem write_apply (cfg : Config) (name : String) (parts : List (List Object)) (cond : Cond H)
+    (objects : List Object) {s : State} (hp : s.parts name = parts) :
+    (write H cfg name parts cond objects).apply s =
       if cond.holds (s.blob? (.origin name)) then
-        some { s with bucket := (.origin name, .origin (next cfg parts org)) :: s.bucket.filter (·.1 != .origin name) }
+        some { s with bucket := (.origin name, .origin (next cfg parts objects)) :: s.bucket.filter (·.1 != .origin name) }
       else
         none := by
   unfold write next
@@ -128,14 +134,14 @@ theorem write_apply (cfg : Config) (name : String) (parts : List (List Object)) 
   · simp only [Effect.apply, hp]
   · simp only [Effect.apply]
 
-theorem write_refused (cfg : Config) (name : String) (parts : List (List Object)) (cond : Cond H) (org : Origin)
-    {s : State} (h : cond.holds (s.blob? (.origin name)) = false) :
-    (write H cfg name parts cond org).apply s = none := by
+theorem write_refused (cfg : Config) (name : String) (parts : List (List Object)) (cond : Cond H)
+    (objects : List Object) {s : State} (h : cond.holds (s.blob? (.origin name)) = false) :
+    (write H cfg name parts cond objects).apply s = none := by
   unfold write
   split <;> simp [Effect.apply, h]
 
 theorem applyAll_accepted (cfg : Config) (s : State) (name : String) (c : Commands) :
-    (applyAll s (c.effects (write H cfg name (s.parts name) (Cond.of H (s.blob? (.origin name))) c.org))).2 = true := by
+    (applyAll s (c.effects (write H cfg name (s.parts name) (Cond.of H (s.blob? (.origin name))) c.add))).2 = true := by
   unfold Commands.effects
   obtain ⟨h1, h2⟩ := applyAll_arm (H := H) name c.arm s
   simp only [List.append_assoc, List.singleton_append]

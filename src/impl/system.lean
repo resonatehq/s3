@@ -87,12 +87,12 @@ def handle (ev : Event) (now : Nat) (org : Origin) : Reply × Commands :=
   match ev with
   | .external req =>
       let swept := sweep now org
-      let (res, c) := handleExternal req now swept.org
+      let (res, c) := handleExternal req now (org.add swept.add).current
       (.external res, swept.merge c)
   | .internal _ =>
       (.internal, sweep now org)
   | .stutter =>
-      (.stutter, { org })
+      (.stutter, {})
 
 def step (H : Hasher) (cfg : Config) (ev : Event) (now : Nat) (s : State) : Reply × State :=
   match ev with

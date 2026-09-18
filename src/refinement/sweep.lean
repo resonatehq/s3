@@ -241,53 +241,57 @@ theorem exec_internal_replies (l : List Abstract.Trigger) (now : Nat) (T : Abstr
   | nil => rfl
   | cons t l ih => simp only [List.map_cons, exec_cons, step_internal_eq, ih]
 
-structure SwInv (o : String) (S : Abstract.State) (c : Commands) (T : Abstract.State) : Prop where
-  loc   : Local o c.org T
+structure SwInv (o : String) (org : Origin) (S : Abstract.State) (c : Commands) (T : Abstract.State) : Prop where
+  loc   : Local o (c.doc org) T
   out   : T.outbox = sendsFold S.outbox c.send
   sch   : T.schedules = S.schedules
-  orig  : ∀ ob ∈ c.org.current.objects, ob.id.origin = o
-  wf    : WF c.org.current
+  orig  : ∀ ob ∈ (c.doc org).current.objects, ob.id.origin = o
+  wf    : WF (c.doc org).current
   other : ∀ id, id.origin ≠ o → find T id = find S id
 
 theorem SwInv.init {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
-    (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) : SwInv o S { org } S :=
-  ⟨hL, rfl, rfl, horig, hwf, fun _ _ => rfl⟩
+    (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) : SwInv o org S {} S :=
+  ⟨by rw [doc_empty]; exact hL, rfl, rfl, by rw [doc_empty]; exact horig, by rw [doc_empty]; exact hwf,
+   fun _ _ => rfl⟩
 
-theorem SwInv.step {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
-    (h : SwInv o S c T) (fx : List Abstract.Effect) (hfx : Fx o fx) {c' : Commands}
-    (hloc : Local o c'.org (Abstract.applyAll T fx)) (hsend : c'.send = c.send ++ sendsOf fx)
-    (horig : ∀ ob ∈ c'.org.current.objects, ob.id.origin = o)
-    (hwf : WF c'.org.current) : SwInv o S c' (Abstract.applyAll T fx) :=
+theorem SwInv.step {o : String} {org : Origin} {S : Abstract.State} {c : Commands} {T : Abstract.State}
+    (h : SwInv o org S c T) (fx : List Abstract.Effect) (hfx : Fx o fx) {c' : Commands}
+    (hloc : Local o (c'.doc org) (Abstract.applyAll T fx)) (hsend : c'.send = c.send ++ sendsOf fx)
+    (horig : ∀ ob ∈ (c'.doc org).current.objects, ob.id.origin = o)
+    (hwf : WF (c'.doc org).current) : SwInv o org S c' (Abstract.applyAll T fx) :=
   ⟨hloc, by rw [applyAll_outbox, h.out, hsend, sendsFold_append],
    by rw [applyAll_schedules T fx hfx, h.sch], horig, hwf,
    fun id hid => by rw [applyAll_find_other T fx hfx id hid, h.other id hid]⟩
 
-theorem SwInv.merge {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
-    {d : Commands} {U : Abstract.State} (h : SwInv o S c T) (hd : SwInv o T d U) :
-    SwInv o S (c.merge d) U :=
-  ⟨hd.loc, by rw [hd.out, h.out, ← sendsFold_append]; rfl, hd.sch.trans h.sch, hd.orig, hd.wf,
+theorem SwInv.merge {o : String} {org : Origin} {S : Abstract.State} {c : Commands} {T : Abstract.State}
+    {d : Commands} {U : Abstract.State} (h : SwInv o org S c T) (hd : SwInv o (c.doc org) T d U) :
+    SwInv o org S (c.merge d) U :=
+  ⟨by rw [doc_merge]; exact hd.loc, by rw [hd.out, h.out, ← sendsFold_append]; rfl, hd.sch.trans h.sch,
+   by rw [doc_merge]; exact hd.orig, by rw [doc_merge]; exact hd.wf,
    fun id hid => (hd.other id hid).trans (h.other id hid)⟩
 
-theorem SwInv.transfer {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
-    (h : SwInv o S c T) {c' : Commands} (hp : c'.org.current = c.org.current) (hs : c'.send = c.send) :
-    SwInv o S c' T :=
+theorem SwInv.transfer {o : String} {org : Origin} {S : Abstract.State} {c : Commands} {T : Abstract.State}
+    (h : SwInv o org S c T) {c' : Commands} (hp : (c'.doc org).current = (c.doc org).current)
+    (hs : c'.send = c.send) : SwInv o org S c' T :=
   ⟨fun id hid => by rw [h.loc id hid]; unfold Origin.find; rw [hp], hs ▸ h.out, h.sch,
    by rw [hp]; exact h.orig, by rw [hp]; exact h.wf, h.other⟩
 
-theorem SwInv.sends {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
-    (h : SwInv o S c T) (ms : List (String × Message)) {c' : Commands} (hput : c'.org = c.org)
+theorem SwInv.sends {o : String} {org : Origin} {S : Abstract.State} {c : Commands} {T : Abstract.State}
+    (h : SwInv o org S c T) (ms : List (String × Message)) {c' : Commands} (hput : c'.add = c.add)
     (hsend : c'.send = c.send ++ ms) :
-    SwInv o S c' (Abstract.applyAll T (ms.map fun (a, m) => Abstract.Effect.setMessage a m)) := by
-  refine h.step _ (Fx_sends ms) ?_ (by rw [hsend, sendsOf_sends]) (hput ▸ h.orig) (hput ▸ h.wf)
+    SwInv o org S c' (Abstract.applyAll T (ms.map fun (a, m) => Abstract.Effect.setMessage a m)) := by
+  have hd : c'.doc org = c.doc org := by unfold Commands.doc; rw [hput]
+  refine h.step (c' := c') _ (Fx_sends ms) ?_ (by rw [hsend, sendsOf_sends]) (by rw [hd]; exact h.orig)
+    (by rw [hd]; exact h.wf)
   intro id hid
-  rw [find_applyAll_sends, hput, h.loc id hid]
+  rw [find_applyAll_sends, hd, h.loc id hid]
 
-theorem SwInv.set_proj {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
-    (h : SwInv o S c T) {w : Ident} (hw : w.origin = o) {X : Object} (hX : Origin.find c.org w = some X)
-    (now : Nat) {c' : Commands} (hput : c'.org = c.org.set (X.project now)) (hsend : c'.send = c.send) :
-    SwInv o S c' (Abstract.applyAll T (materialiseFx w X (X.project now))) := by
+theorem SwInv.set_proj {o : String} {org : Origin} {S : Abstract.State} {c : Commands} {T : Abstract.State}
+    (h : SwInv o org S c T) {w : Ident} (hw : w.origin = o) {X : Object} (hX : Origin.find (c.doc org) w = some X)
+    (now : Nat) {c' : Commands} (hput : c'.doc org = (c.doc org).set (X.project now)) (hsend : c'.send = c.send) :
+    SwInv o org S c' (Abstract.applyAll T (materialiseFx w X (X.project now))) := by
   have hXw : X.id = w := (find_mem hX).2
-  have hmem : X ∈ c.org.current.objects := (find_mem hX).1
+  have hmem : X ∈ (c.doc org).current.objects := (find_mem hX).1
   have hT : find T w = some X := (h.loc w hw).trans hX
   have hx : (X.project now).id = w := hXw
   refine h.step (c' := c') (materialiseFx w X (X.project now)) (Fx_of_onlyOn (materialiseFx_onlyOn ..) hw) ?_
@@ -301,13 +305,13 @@ theorem SwInv.set_proj {o : String} {S : Abstract.State} {c : Commands} {T : Abs
   · have hne : id ≠ (X.project now).id := fun e' => e (e'.trans hx)
     rw [find_set_other _ _ _ hne, find_applyAll_onlyOn (materialiseFx_onlyOn ..) e, h.loc id hid]
 
-theorem SwInv.set_task {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
-    (h : SwInv o S c T) {w : Ident} (hw : w.origin = o) {X : Object} (hX : Origin.find c.org w = some X)
+theorem SwInv.set_task {o : String} {org : Origin} {S : Abstract.State} {c : Commands} {T : Abstract.State}
+    (h : SwInv o org S c T) {w : Ident} (hw : w.origin = o) {X : Object} (hX : Origin.find (c.doc org) w = some X)
     (now : Nat) (t : TaskObject) {c' : Commands}
-    (hput : c'.org = c.org.set { X.project now with task := some t }) (hsend : c'.send = c.send) :
-    SwInv o S c' (Abstract.applyAll T (materialiseFx w X (X.project now) ++ [.setTask w t])) := by
+    (hput : c'.doc org = (c.doc org).set { X.project now with task := some t }) (hsend : c'.send = c.send) :
+    SwInv o org S c' (Abstract.applyAll T (materialiseFx w X (X.project now) ++ [.setTask w t])) := by
   have hXw : X.id = w := (find_mem hX).2
-  have hmem : X ∈ c.org.current.objects := (find_mem hX).1
+  have hmem : X ∈ (c.doc org).current.objects := (find_mem hX).1
   have hT : find T w = some X := (h.loc w hw).trans hX
   have hx : ({ X.project now with task := some t } : Object).id = w := hXw
   refine h.step (c' := c') (materialiseFx w X (X.project now) ++ [.setTask w t])
@@ -326,14 +330,14 @@ theorem SwInv.set_task {o : String} {S : Abstract.State} {c : Commands} {T : Abs
     simp only [Abstract.applyAll, find_setTask, if_neg e]
     rw [find_applyAll_onlyOn (materialiseFx_onlyOn ..) e, h.loc id hid]
 
-theorem SwInv.set_promise {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
-    (h : SwInv o S c T) {w : Ident} (hw : w.origin = o) {X : Object} (hX : Origin.find c.org w = some X)
+theorem SwInv.set_promise {o : String} {org : Origin} {S : Abstract.State} {c : Commands} {T : Abstract.State}
+    (h : SwInv o org S c T) {w : Ident} (hw : w.origin = o) {X : Object} (hX : Origin.find (c.doc org) w = some X)
     (now : Nat) (p : PromiseObject) (hcb : p.callbacks <+ X.promise.callbacks)
     (hls : p.listeners <+ X.promise.listeners) {c' : Commands}
-    (hput : c'.org = c.org.set { X.project now with promise := p }) (hsend : c'.send = c.send) :
-    SwInv o S c' (Abstract.applyAll T (materialiseFx w X (X.project now) ++ [.setPromise w p])) := by
+    (hput : c'.doc org = (c.doc org).set { X.project now with promise := p }) (hsend : c'.send = c.send) :
+    SwInv o org S c' (Abstract.applyAll T (materialiseFx w X (X.project now) ++ [.setPromise w p])) := by
   have hXw : X.id = w := (find_mem hX).2
-  have hmem : X ∈ c.org.current.objects := (find_mem hX).1
+  have hmem : X ∈ (c.doc org).current.objects := (find_mem hX).1
   have hT : find T w = some X := (h.loc w hw).trans hX
   have hx : ({ X.project now with promise := p } : Object).id = w := hXw
   refine h.step (c' := c') (materialiseFx w X (X.project now) ++ [.setPromise w p])
@@ -352,13 +356,13 @@ theorem SwInv.set_promise {o : String} {S : Abstract.State} {c : Commands} {T : 
     simp only [Abstract.applyAll]
     rw [find_setPromise_other _ _ _ _ e, find_applyAll_onlyOn (materialiseFx_onlyOn ..) e, h.loc id hid]
 
-theorem SwInv.set_task_plain {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
-    (h : SwInv o S c T) {w : Ident} (hw : w.origin = o) {X : Object} (hX : Origin.find c.org w = some X)
-    (t : TaskObject) {c' : Commands} (hput : c'.org = c.org.set { X with task := some t })
+theorem SwInv.set_task_plain {o : String} {org : Origin} {S : Abstract.State} {c : Commands} {T : Abstract.State}
+    (h : SwInv o org S c T) {w : Ident} (hw : w.origin = o) {X : Object} (hX : Origin.find (c.doc org) w = some X)
+    (t : TaskObject) {c' : Commands} (hput : c'.doc org = (c.doc org).set { X with task := some t })
     (hsend : c'.send = c.send) :
-    SwInv o S c' (Abstract.applyAll T [.setTask w t]) := by
+    SwInv o org S c' (Abstract.applyAll T [.setTask w t]) := by
   have hXw : X.id = w := (find_mem hX).2
-  have hmem : X ∈ c.org.current.objects := (find_mem hX).1
+  have hmem : X ∈ (c.doc org).current.objects := (find_mem hX).1
   have hT : find T w = some X := (h.loc w hw).trans hX
   have hx : ({ X with task := some t } : Object).id = w := hXw
   refine h.step (c' := c') [.setTask w t] ⟨hw, trivial⟩ ?_ (by simp [hsend, sendsOf])
@@ -377,7 +381,7 @@ theorem SwInv.set_task_plain {o : String} {S : Abstract.State} {c : Commands} {T
 
 def ptStep (now : Nat) (c : Commands) (o : Object) : Commands :=
   if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now then
-    { c with org := c.org.set (o.project now), del := c.del ++ o.timers }
+    { c with add := c.add ++ [o.project now], del := c.del ++ o.timers }
   else
     c
 
@@ -388,7 +392,7 @@ def ptTrig (now : Nat) (o : Object) : Option Abstract.Trigger :=
     none
 
 theorem promiseTimeouts_eq (now : Nat) (org : Origin) :
-    Chain.promiseTimeouts now org = org.current.objects.foldl (ptStep now) { org } := rfl
+    Chain.promiseTimeouts now org = org.current.objects.foldl (ptStep now) {} := rfl
 
 theorem promiseTimeoutTriggers_eq (now : Nat) (org : Origin) :
     Chain.promiseTimeoutTriggers now org = org.current.objects.filterMap (ptTrig now) := rfl
@@ -402,27 +406,27 @@ theorem processPromiseTimeout_fx (id : Ident) (now : Nat) (T : Abstract.State) :
     touchObject_apply]
   cases find T id <;> simp
 
-theorem promiseTimeouts_sim {o : String} {S : Abstract.State} (now : Nat) :
-    ∀ (l : List Object) (c : Commands) (T : Abstract.State), SwInv o S c T →
-      (∀ ob ∈ l, Origin.find c.org ob.id = some ob) → (l.map (·.id)).Nodup →
-      SwInv o S (l.foldl (ptStep now) c) (execI (l.filterMap (ptTrig now)) now T)
+theorem promiseTimeouts_sim {o : String} {org : Origin} {S : Abstract.State} (now : Nat) :
+    ∀ (l : List Object) (c : Commands) (T : Abstract.State), SwInv o org S c T →
+      (∀ ob ∈ l, Origin.find (c.doc org) ob.id = some ob) → (l.map (·.id)).Nodup →
+      SwInv o org S (l.foldl (ptStep now) c) (execI (l.filterMap (ptTrig now)) now T)
   | [], _, _, h, _, _ => h
   | ob :: l, c, T, h, hfind, hnd => by
-      have hob : Origin.find c.org ob.id = some ob := hfind ob (List.mem_cons_self ..)
+      have hob : Origin.find (c.doc org) ob.id = some ob := hfind ob (List.mem_cons_self ..)
       have hido : ob.id.origin = o := h.orig ob (find_mem hob).1
       simp only [List.map_cons, List.nodup_cons] at hnd
       simp only [List.foldl_cons]
       by_cases hc : (ob.promise.state == PromiseState.pending) = true ∧ ob.promise.timeoutAt ≤ now
-      · have hstep : ptStep now c ob = { c with org := c.org.set (ob.project now), del := c.del ++ ob.timers } := by
+      · have hstep : ptStep now c ob = { c with add := c.add ++ [ob.project now], del := c.del ++ ob.timers } := by
           unfold ptStep; rw [if_pos hc]
         have htrig : ptTrig now ob = some (.promiseTimeout ⟨ob.id⟩) := by
           unfold ptTrig; rw [if_pos hc]
         rw [hstep, List.filterMap_cons_some htrig, execI_cons, processPromiseTimeout_fx, h.loc ob.id hido, hob]
-        refine promiseTimeouts_sim now l _ _ (h.set_proj hido hob now rfl rfl) ?_ hnd.2
+        refine promiseTimeouts_sim now l _ _ (h.set_proj hido hob now (add_snoc org c.add _) rfl) ?_ hnd.2
         intro ob' hob'
         have hne : ob'.id ≠ (ob.project now).id := fun e => hnd.1 (e ▸ List.mem_map_of_mem hob')
-        show Origin.find (c.org.set (ob.project now)) ob'.id = some ob'
-        rw [find_set_other _ _ _ hne]
+        show Origin.find (org.add (c.add ++ [ob.project now])) ob'.id = some ob'
+        rw [add_snoc, find_set_other _ _ _ hne]
         exact hfind ob' (List.mem_cons_of_mem _ hob')
       · have hstep : ptStep now c ob = c := by
           unfold ptStep; rw [if_neg hc]
@@ -432,23 +436,23 @@ theorem promiseTimeouts_sim {o : String} {S : Abstract.State} (now : Nat) :
         exact promiseTimeouts_sim now l c T h (fun ob' h' => hfind ob' (List.mem_cons_of_mem _ h')) hnd.2
 
 
-def lsStep (now : Nat) (id : Ident) (c : Commands) (address : String) : Commands :=
-  match c.org.get id now with
+def lsStep (now : Nat) (org : Origin) (id : Ident) (c : Commands) (address : String) : Commands :=
+  match (c.doc org).get id now with
   | some cur =>
       if cur.promise.state != .pending ∧ cur.promise.listeners.contains address then
         { c with
-          org := c.org.set { cur with promise :=
-            { cur.promise with listeners := cur.promise.listeners.filter (· != address) } },
+          add := c.add ++ [{ cur with promise :=
+            { cur.promise with listeners := cur.promise.listeners.filter (· != address) } }],
           send := c.send ++ [(address, .unblock (cur.promise.toRecord cur.id))] }
       else
-        { c with org := c.org.set cur }
+        { c with add := c.add ++ [cur] }
   | none =>
       c
 
-def lsOuter (now : Nat) (c : Commands) (o : Object) : Commands :=
+def lsOuter (now : Nat) (org : Origin) (c : Commands) (o : Object) : Commands :=
   let o := o.project now
   if o.promise.state != .pending then
-    o.promise.listeners.foldl (lsStep now o.id) c
+    o.promise.listeners.foldl (lsStep now org o.id) c
   else
     c
 
@@ -476,13 +480,13 @@ def lsBulk (now : Nat) (c : Commands) (o : Object) : Commands :=
   let o := o.project now
   if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
     { c with
-      org := c.org.set { o with promise := { o.promise with listeners := [] } },
+      add := c.add ++ [{ o with promise := { o.promise with listeners := [] } }],
       send := c.send ++ o.promise.listeners.map fun a => (a, .unblock (o.promise.toRecord o.id)) }
   else
     c
 
 theorem listeners_eq (now : Nat) (org : Origin) :
-    Chain.listeners now org = org.current.objects.foldl (lsBulk now) { org } := rfl
+    Chain.listeners now org = org.current.objects.foldl (lsBulk now) {} := rfl
 
 theorem listenerTriggers_eq (now : Nat) (org : Origin) :
     Chain.listenerTriggers now org = org.current.objects.flatMap (lsTrig now) := rfl
@@ -518,20 +522,20 @@ theorem processListener_fx (id : Ident) (a : String) (now : Nat) (T : Abstract.S
         · have h2' : (X.project now).promise.listeners.contains a = false := by simpa using h2
           simp only [h2', Bool.false_eq_true, ↓reduceIte, pure_apply, List.append_nil]
 
-theorem lsStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (hido : id.origin = o) :
-    ∀ (as : List String) (c : Commands) (T : Abstract.State), SwInv o S c T →
-      SwInv o S (as.foldl (lsStep now id) c) (execI (as.map fun a => .listener ⟨id, a⟩) now T)
+theorem lsStep_sim {o : String} {org : Origin} {S : Abstract.State} (now : Nat) (id : Ident) (hido : id.origin = o) :
+    ∀ (as : List String) (c : Commands) (T : Abstract.State), SwInv o org S c T →
+      SwInv o org S (as.foldl (lsStep now org id) c) (execI (as.map fun a => .listener ⟨id, a⟩) now T)
   | [], _, _, h => h
   | a :: as, c, T, h => by
       simp only [List.foldl_cons, List.map_cons, execI_cons, processListener_fx, h.loc id hido]
-      cases hX : Origin.find c.org id with
+      cases hX : Origin.find (c.doc org) id with
       | none =>
-          have hg : c.org.get id now = none := by rw [get_eq, hX]; rfl
-          have hstep : lsStep now id c a = c := by unfold lsStep; rw [hg]
+          have hg : (c.doc org).get id now = none := by rw [get_eq, hX]; rfl
+          have hstep : lsStep now org id c a = c := by unfold lsStep; rw [hg]
           rw [hstep]
           exact lsStep_sim now id hido as c T h
       | some X =>
-          have hg : c.org.get id now = some (X.project now) := by rw [get_eq, hX]; rfl
+          have hg : (c.doc org).get id now = some (X.project now) := by rw [get_eq, hX]; rfl
           have hXid : (X.project now).id = id := (find_mem hX).2
           simp only
           rw [hXid]
@@ -539,11 +543,11 @@ theorem lsStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
               ∧ (X.project now).promise.listeners.contains a = true
           · have h1a : ((X.project now).promise.state == PromiseState.pending) = false := by
               simpa using h1.1
-            have hstep : lsStep now id c a =
+            have hstep : lsStep now org id c a =
                 { c with
-                  org := c.org.set { X.project now with promise :=
+                  add := c.add ++ [{ X.project now with promise :=
                     { (X.project now).promise with
-                      listeners := (X.project now).promise.listeners.filter (· != a) } },
+                      listeners := (X.project now).promise.listeners.filter (· != a) } }],
                   send := c.send ++ [(a, .unblock ((X.project now).promise.toRecord id))] } := by
               unfold lsStep; rw [hg]; simp only [h1, and_self, ↓reduceIte, hXid]
             rw [hstep]
@@ -555,11 +559,12 @@ theorem lsStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
                 listeners := (X.project now).promise.listeners.filter (· != a) } (callbacks_sub X now)
               (by show ((X.promise.project now).listeners.filter _) <+ X.promise.listeners
                   rw [project_listeners]; exact List.filter_sublist)
-              (c' := { c with org := c.org.set { X.project now with promise :=
+              (c' := { c with add := c.add ++ [{ X.project now with promise :=
                     { (X.project now).promise with
-                      listeners := (X.project now).promise.listeners.filter (· != a) } } }) rfl rfl).sends
+                      listeners := (X.project now).promise.listeners.filter (· != a) } }] })
+              (add_snoc org c.add _) rfl).sends
               [(a, .unblock ((X.project now).promise.toRecord id))] rfl rfl
-          · have hstep : lsStep now id c a = { c with org := c.org.set (X.project now) } := by
+          · have hstep : lsStep now org id c a = { c with add := c.add ++ [X.project now] } := by
               unfold lsStep; rw [hg]; simp only [h1, ↓reduceIte]
             rw [hstep]
             have hpc : ∀ (M R : List Abstract.Effect),
@@ -576,18 +581,18 @@ theorem lsStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
                 rw [if_neg hp, hc]
                 simp
             rw [hpc]
-            exact lsStep_sim now id hido as _ _ (h.set_proj hido hX now rfl rfl)
+            exact lsStep_sim now id hido as _ _ (h.set_proj hido hX now (add_snoc org c.add _) rfl)
 
-theorem lsOuter_step {o : String} {S : Abstract.State} (now : Nat) (c : Commands) (T : Abstract.State)
-    (h : SwInv o S c T) (ob : Object) (hob : ob.id.origin = o) :
-    SwInv o S (lsOuter now c ob) (execI (lsTrig now ob) now T) := by
+theorem lsOuter_step {o : String} {org : Origin} {S : Abstract.State} (now : Nat) (c : Commands) (T : Abstract.State)
+    (h : SwInv o org S c T) (ob : Object) (hob : ob.id.origin = o) :
+    SwInv o org S (lsOuter now org c ob) (execI (lsTrig now ob) now T) := by
   rw [lsTrig_eq]
   by_cases hc : ((ob.project now).promise.state != PromiseState.pending) = true
-  · have hstep : lsOuter now c ob = (ob.project now).promise.listeners.foldl (lsStep now (ob.project now).id) c := by
+  · have hstep : lsOuter now org c ob = (ob.project now).promise.listeners.foldl (lsStep now org (ob.project now).id) c := by
       unfold lsOuter; simp only [hc, ↓reduceIte]
     rw [hstep, if_pos hc]
     exact lsStep_sim now (ob.project now).id hob _ c T h
-  · have hstep : lsOuter now c ob = c := by
+  · have hstep : lsOuter now org c ob = c := by
       unfold lsOuter; simp only [hc, Bool.false_eq_true, ↓reduceIte]
     rw [hstep, if_neg hc, execI_nil]
     exact h
@@ -687,13 +692,13 @@ theorem set_set_current {d : Origin} {x y : Object} (h : x.id = y.id) :
     ((d.set x).set y).current = (d.set y).current := by
   rw [current_set, current_set, current_set, replace_replace h]
 
-theorem lsFold_eq (now : Nat) (o : Object) (hst : o.project now = o)
+theorem lsFold_eq (now : Nat) (org : Origin) (o : Object) (hst : o.project now = o)
     (hnp : (o.promise.state != PromiseState.pending) = true) :
     ∀ (a : String) (as : List String) (c : Commands), (a :: as).Nodup →
-      c.org.get o.id now = some { o with promise := { o.promise with listeners := a :: as } } →
-      ((a :: as).foldl (lsStep now o.id) c).org.current =
-        (c.org.set { o with promise := { o.promise with listeners := [] } }).current ∧
-      ((a :: as).foldl (lsStep now o.id) c).send =
+      (c.doc org).get o.id now = some { o with promise := { o.promise with listeners := a :: as } } →
+      (((a :: as).foldl (lsStep now org o.id) c).doc org).current =
+        ((c.doc org).set { o with promise := { o.promise with listeners := [] } }).current ∧
+      ((a :: as).foldl (lsStep now org o.id) c).send =
         c.send ++ (a :: as).map fun b => (b, .unblock (o.promise.toRecord o.id))
   | a, [], c, _, hg => by
       simp only [List.foldl_cons, List.foldl_nil, lsStep, hg]
@@ -702,12 +707,15 @@ theorem lsFold_eq (now : Nat) (o : Object) (hst : o.project now = o)
       have h2 : ({ o with promise := { o.promise with listeners := [a] } } : Object).promise.listeners.contains a
           = true := by simp
       simp only [h1, h2, and_self, ↓reduceIte]
-      simp [toRecord_set_listeners]
+      refine ⟨?_, by simp [toRecord_set_listeners]⟩
+      dsimp only [Commands.doc]
+      rw [add_snoc]
+      simp
   | a, b :: as, c, hnd, hg => by
       have hnd' := List.nodup_cons.1 hnd
       rw [List.foldl_cons]
-      have hstep : lsStep now o.id c a =
-          { c with org := c.org.set { o with promise := { o.promise with listeners := b :: as } },
+      have hstep : lsStep now org o.id c a =
+          { c with add := c.add ++ [{ o with promise := { o.promise with listeners := b :: as } }],
                    send := c.send ++ [(a, .unblock (o.promise.toRecord o.id))] } := by
         unfold lsStep
         rw [hg]
@@ -718,22 +726,24 @@ theorem lsFold_eq (now : Nat) (o : Object) (hst : o.project now = o)
         simp only [h1, h2, and_self, ↓reduceIte]
         simp [filter_cons_ne_self hnd'.1, toRecord_set_listeners]
       rw [hstep]
-      have hg' : ({ c with org := c.org.set { o with promise := { o.promise with listeners := b :: as } },
-                            send := c.send ++ [(a, .unblock (o.promise.toRecord o.id))] } : Commands).org.get o.id now =
+      have hg' : (({ c with add := c.add ++ [{ o with promise := { o.promise with listeners := b :: as } }],
+                            send := c.send ++ [(a, .unblock (o.promise.toRecord o.id))] } : Commands).doc org).get o.id now =
           some { o with promise := { o.promise with listeners := b :: as } } := by
-        show (c.org.set _).get o.id now = _
-        rw [get_eq, find_set_at rfl, Option.map_some, Object.project_set_listeners, hst]
-      obtain ⟨hf1, hf2⟩ := lsFold_eq now o hst hnp b as _ hnd'.2 hg'
+        show (org.add (c.add ++ [_])).get o.id now = _
+        rw [add_snoc, get_eq, find_set_at rfl, Option.map_some, Object.project_set_listeners, hst]
+      obtain ⟨hf1, hf2⟩ := lsFold_eq now org o hst hnp b as _ hnd'.2 hg'
       refine ⟨?_, ?_⟩
       · rw [hf1]
+        dsimp only [Commands.doc]
+        rw [add_snoc]
         exact set_set_current rfl
       · rw [hf2]
         simp only [List.map_cons, List.append_assoc, List.singleton_append]
 
-theorem lsBulk_eq {c : Commands} {ob : Object} (now : Nat) (hob : Origin.find c.org ob.id = some ob)
+theorem lsBulk_eq {org : Origin} {c : Commands} {ob : Object} (now : Nat) (hob : Origin.find (c.doc org) ob.id = some ob)
     (hnd : ob.promise.listeners.Nodup) :
-    (lsBulk now c ob).org.current = (lsOuter now c ob).org.current ∧
-    (lsBulk now c ob).send = (lsOuter now c ob).send := by
+    ((lsBulk now c ob).doc org).current = ((lsOuter now org c ob).doc org).current ∧
+    (lsBulk now c ob).send = (lsOuter now org c ob).send := by
   unfold lsBulk lsOuter
   by_cases hc : ((ob.project now).promise.state != PromiseState.pending) = true
   · cases hl : (ob.project now).promise.listeners with
@@ -743,28 +753,33 @@ theorem lsBulk_eq {c : Commands} {ob : Object} (now : Nat) (hob : Origin.find c.
           rw [← hl]
           show (ob.promise.project now).listeners.Nodup
           rw [project_listeners]; exact hnd
-        have hg : c.org.get ob.id now =
+        have hg : (c.doc org).get ob.id now =
             some { ob.project now with promise := { (ob.project now).promise with listeners := a :: as } } := by
           rw [get_eq, hob, Option.map_some, ← hl]
         simp only [hc, hl, List.isEmpty_cons, Bool.not_false, and_self, ↓reduceIte]
-        obtain ⟨h1, h2⟩ := lsFold_eq now (ob.project now) (Object.project_idem ob now) hc a as c hnd' hg
-        exact ⟨h1.symm, h2.symm⟩
+        obtain ⟨h1, h2⟩ := lsFold_eq now org (ob.project now) (Object.project_idem ob now) hc a as c hnd' hg
+        refine ⟨?_, h2.symm⟩
+        rw [h1]
+        dsimp only [Commands.doc]
+        rw [add_snoc]
   · simp [hc]
 
-theorem lsBulk_find_other {c : Commands} {ob : Object} (now : Nat) {id : Ident} (hne : id ≠ ob.id) :
-    Origin.find (lsBulk now c ob).org id = Origin.find c.org id := by
+theorem lsBulk_find_other {org : Origin} {c : Commands} {ob : Object} (now : Nat) {id : Ident} (hne : id ≠ ob.id) :
+    Origin.find ((lsBulk now c ob).doc org) id = Origin.find (c.doc org) id := by
   simp only [lsBulk]
   split
-  · exact find_set_other _ _ _ hne
+  · dsimp only [Commands.doc]
+    rw [add_snoc]
+    exact find_set_other _ _ _ hne
   · rfl
 
-theorem lsBulk_sim {o : String} {S : Abstract.State} (now : Nat) :
-    ∀ (l : List Object) (c : Commands) (T : Abstract.State), SwInv o S c T →
-      (∀ ob ∈ l, Origin.find c.org ob.id = some ob) → (l.map (·.id)).Nodup →
-      SwInv o S (l.foldl (lsBulk now) c) (execI (l.flatMap (lsTrig now)) now T)
+theorem lsBulk_sim {o : String} {org : Origin} {S : Abstract.State} (now : Nat) :
+    ∀ (l : List Object) (c : Commands) (T : Abstract.State), SwInv o org S c T →
+      (∀ ob ∈ l, Origin.find (c.doc org) ob.id = some ob) → (l.map (·.id)).Nodup →
+      SwInv o org S (l.foldl (lsBulk now) c) (execI (l.flatMap (lsTrig now)) now T)
   | [], _, _, h, _, _ => h
   | ob :: l, c, T, h, hfind, hnd => by
-      have hob : Origin.find c.org ob.id = some ob := hfind ob (List.mem_cons_self ..)
+      have hob : Origin.find (c.doc org) ob.id = some ob := hfind ob (List.mem_cons_self ..)
       have hido : ob.id.origin = o := h.orig ob (find_mem hob).1
       simp only [List.map_cons, List.nodup_cons] at hnd
       simp only [List.foldl_cons, List.flatMap_cons, execI_append]
@@ -776,23 +791,23 @@ theorem lsBulk_sim {o : String} {S : Abstract.State} (now : Nat) :
       rw [lsBulk_find_other now hne]
       exact hfind ob' (List.mem_cons_of_mem _ hob')
 
-def cbStep (now : Nat) (id : Ident) (c : Commands) (awaiter : Ident) : Commands :=
-  match c.org.get id now with
+def cbStep (now : Nat) (org : Origin) (id : Ident) (c : Commands) (awaiter : Ident) : Commands :=
+  match (c.doc org).get id now with
   | some cur =>
       if cur.promise.state != .pending ∧ cur.promise.callbacks.contains awaiter then
-        Chain.resumeOne now id
-          { c with org := c.org.set { cur with promise :=
-              { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } } }
+        Chain.resumeOne now id org
+          { c with add := c.add ++ [{ cur with promise :=
+              { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } }] }
           awaiter
       else
-        { c with org := c.org.set cur }
+        { c with add := c.add ++ [cur] }
   | none =>
       c
 
-def cbOuter (now : Nat) (c : Commands) (o : Object) : Commands :=
+def cbOuter (now : Nat) (org : Origin) (c : Commands) (o : Object) : Commands :=
   let o := o.project now
   if o.promise.state != .pending then
-    o.promise.callbacks.foldl (cbStep now o.id) c
+    o.promise.callbacks.foldl (cbStep now org o.id) c
   else
     c
 
@@ -803,25 +818,25 @@ def cbTrig (now : Nat) (o : Object) : List Abstract.Trigger :=
   else
     []
 
-def cbStepOld (now : Nat) (id : Ident) (c : Commands) (awaiter : Ident) : Commands :=
-  match c.org.get id now with
+def cbStepOld (now : Nat) (org : Origin) (id : Ident) (c : Commands) (awaiter : Ident) : Commands :=
+  match (c.doc org).get id now with
   | some cur =>
-      Chain.resumeOne now id
-        { c with org := c.org.set { cur with promise :=
-            { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } } }
+      Chain.resumeOne now id org
+        { c with add := c.add ++ [{ cur with promise :=
+            { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } }] }
         awaiter
   | none =>
       c
 
-def cbOuterOld (now : Nat) (c : Commands) (o : Object) : Commands :=
+def cbOuterOld (now : Nat) (org : Origin) (c : Commands) (o : Object) : Commands :=
   let o := o.project now
   if o.promise.state != .pending then
-    o.promise.callbacks.foldl (cbStepOld now o.id) c
+    o.promise.callbacks.foldl (cbStepOld now org o.id) c
   else
     c
 
 theorem callbacks_eq (now : Nat) (org : Origin) :
-    Chain.callbacks now org = org.current.objects.foldl (cbOuterOld now) { org } := rfl
+    Chain.callbacks now org = org.current.objects.foldl (cbOuterOld now org) {} := rfl
 
 theorem callbackTriggers_eq (now : Nat) (org : Origin) :
     Chain.callbackTriggers now org = org.current.objects.flatMap (cbTrig now) := rfl
@@ -900,18 +915,18 @@ theorem processCallback_fx (id w : Ident) (now : Nat) (T : Abstract.State) :
         · have h2' : (X.project now).promise.callbacks.contains w = false := by simpa using h2
           simp only [h2', Bool.false_eq_true, ↓reduceIte, pure_apply, List.append_nil]
 
-theorem resume_sim {o : String} {S : Abstract.State} (now : Nat) (awaited w : Ident) (hw : w.origin = o)
-    (c : Commands) (T : Abstract.State) (h : SwInv o S c T) :
-    SwInv o S (Chain.resumeOne now awaited c w) (Abstract.applyAll T (resumeFx awaited w now T)) := by
+theorem resume_sim {o : String} {org : Origin} {S : Abstract.State} (now : Nat) (awaited w : Ident) (hw : w.origin = o)
+    (c : Commands) (T : Abstract.State) (h : SwInv o org S c T) :
+    SwInv o org S (Chain.resumeOne now awaited org c w) (Abstract.applyAll T (resumeFx awaited w now T)) := by
   unfold Chain.resumeOne resumeFx
   rw [h.loc w hw]
-  cases hY : Origin.find c.org w with
+  cases hY : Origin.find (c.doc org) w with
   | none =>
-      have hg : c.org.get w now = none := by rw [get_eq, hY]; rfl
+      have hg : (c.doc org).get w now = none := by rw [get_eq, hY]; rfl
       simp only [hg, Option.bind_none, Abstract.applyAll]
       exact h
   | some Y =>
-      have hg : c.org.get w now = some (Y.project now) := by rw [get_eq, hY]; rfl
+      have hg : (c.doc org).get w now = some (Y.project now) := by rw [get_eq, hY]; rfl
       have hYid : (Y.project now).id = w := (find_mem hY).2
       simp only [hg, Option.bind_some, hYid]
       cases ht : Y.task with
@@ -927,35 +942,35 @@ theorem resume_sim {o : String} {S : Abstract.State} (now : Nat) (awaited w : Id
           cases hs : tv.state
           case suspended =>
             simp only
-            exact h.set_task hw hY now _ rfl rfl
+            exact h.set_task hw hY now _ (add_snoc org c.add _) rfl
           case fulfilled =>
             simp only [List.append_nil]
-            exact h.set_proj hw hY now rfl rfl
+            exact h.set_proj hw hY now (add_snoc org c.add _) rfl
           all_goals
             simp only
             by_cases hc : tv.resumes.contains awaited = true
             · simp only [hc, Bool.not_true, Bool.false_eq_true, ↓reduceIte, List.append_nil]
-              exact h.set_proj hw hY now rfl rfl
+              exact h.set_proj hw hY now (add_snoc org c.add _) rfl
             · have hc' : tv.resumes.contains awaited = false := by simpa using hc
               simp only [hc', Bool.not_false, ↓reduceIte]
-              exact h.set_task hw hY now _ rfl rfl
+              exact h.set_task hw hY now _ (add_snoc org c.add _) rfl
 
-theorem cbStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (hido : id.origin = o) :
-    ∀ (ws : List Ident) (c : Commands) (T : Abstract.State), SwInv o S c T →
-      SwInv o S (ws.foldl (cbStep now id) c) (execI (ws.map fun w => .callback ⟨id, w⟩) now T)
+theorem cbStep_sim {o : String} {org : Origin} {S : Abstract.State} (now : Nat) (id : Ident) (hido : id.origin = o) :
+    ∀ (ws : List Ident) (c : Commands) (T : Abstract.State), SwInv o org S c T →
+      SwInv o org S (ws.foldl (cbStep now org id) c) (execI (ws.map fun w => .callback ⟨id, w⟩) now T)
   | [], _, _, h => h
   | w :: ws, c, T, h => by
       simp only [List.foldl_cons, List.map_cons, execI_cons, processCallback_fx, h.loc id hido]
-      cases hX : Origin.find c.org id with
+      cases hX : Origin.find (c.doc org) id with
       | none =>
-          have hg : c.org.get id now = none := by rw [get_eq, hX]; rfl
-          have hstep : cbStep now id c w = c := by unfold cbStep; rw [hg]
+          have hg : (c.doc org).get id now = none := by rw [get_eq, hX]; rfl
+          have hstep : cbStep now org id c w = c := by unfold cbStep; rw [hg]
           rw [hstep]
           exact cbStep_sim now id hido ws c T h
       | some X =>
-          have hg : c.org.get id now = some (X.project now) := by rw [get_eq, hX]; rfl
+          have hg : (c.doc org).get id now = some (X.project now) := by rw [get_eq, hX]; rfl
           have hXid : (X.project now).id = id := (find_mem hX).2
-          have hmem : X ∈ c.org.current.objects := (find_mem hX).1
+          have hmem : X ∈ (c.doc org).current.objects := (find_mem hX).1
           simp only
           rw [hXid]
           by_cases h1 : ((X.project now).promise.state != PromiseState.pending) = true
@@ -969,11 +984,11 @@ theorem cbStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
             obtain ⟨hne, hwo⟩ := (h.wf X hmem).2.2 w hwmem
             have hne' : w ≠ id := fun e => hne (e.trans hXid.symm)
             have hwo' : w.origin = o := hwo.trans (hXid ▸ hido)
-            have hstep : cbStep now id c w =
-                Chain.resumeOne now id
-                  { c with org := c.org.set { X.project now with promise :=
+            have hstep : cbStep now org id c w =
+                Chain.resumeOne now id org
+                  { c with add := c.add ++ [{ X.project now with promise :=
                       { (X.project now).promise with
-                        callbacks := (X.project now).promise.callbacks.filter (· != w) } } }
+                        callbacks := (X.project now).promise.callbacks.filter (· != w) } }] }
                   w := by
               unfold cbStep; rw [hg]; simp only [h1, and_self, ↓reduceIte]
             rw [hstep]
@@ -985,9 +1000,10 @@ theorem cbStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
                 callbacks := (X.project now).promise.callbacks.filter (· != w) }
               (by show ((X.promise.project now).callbacks.filter _) <+ X.promise.callbacks
                   rw [project_callbacks]; exact List.filter_sublist) (listeners_sub X now)
-              (c' := { c with org := c.org.set { X.project now with promise :=
+              (c' := { c with add := c.add ++ [{ X.project now with promise :=
                       { (X.project now).promise with
-                        callbacks := (X.project now).promise.callbacks.filter (· != w) } } }) rfl rfl
+                        callbacks := (X.project now).promise.callbacks.filter (· != w) } }] })
+              (add_snoc org c.add _) rfl
             have hfind : find T w = find (Abstract.applyAll T
                 (materialiseFx id X (X.project now) ++
                   [.setPromise id { (X.project now).promise with
@@ -997,7 +1013,7 @@ theorem cbStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
               rw [find_setPromise_other _ _ _ _ hne', find_applyAll_onlyOn (materialiseFx_onlyOn ..) hne']
             rw [resumeFx_congr hfind]
             exact resume_sim now id w hwo' _ _ h2
-          · have hstep : cbStep now id c w = { c with org := c.org.set (X.project now) } := by
+          · have hstep : cbStep now org id c w = { c with add := c.add ++ [X.project now] } := by
               unfold cbStep; rw [hg]; simp only [h1, ↓reduceIte]
             rw [hstep]
             have hpc : ∀ (M R : List Abstract.Effect),
@@ -1014,21 +1030,21 @@ theorem cbStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
                 rw [if_neg hp, hc]
                 simp
             rw [hpc]
-            exact cbStep_sim now id hido ws _ _ (h.set_proj hido hX now rfl rfl)
+            exact cbStep_sim now id hido ws _ _ (h.set_proj hido hX now (add_snoc org c.add _) rfl)
 
-theorem cbOuter_step {o : String} {S : Abstract.State} (now : Nat) (c : Commands) (T : Abstract.State)
-    (h : SwInv o S c T) (ob : Object) (hob : ob.id.origin = o) :
-    SwInv o S (cbOuter now c ob) (execI (cbTrig now ob) now T) := by
+theorem cbOuter_step {o : String} {org : Origin} {S : Abstract.State} (now : Nat) (c : Commands) (T : Abstract.State)
+    (h : SwInv o org S c T) (ob : Object) (hob : ob.id.origin = o) :
+    SwInv o org S (cbOuter now org c ob) (execI (cbTrig now ob) now T) := by
   by_cases hc : ((ob.project now).promise.state != PromiseState.pending) = true
-  · have hstep : cbOuter now c ob =
-        (ob.project now).promise.callbacks.foldl (cbStep now (ob.project now).id) c := by
+  · have hstep : cbOuter now org c ob =
+        (ob.project now).promise.callbacks.foldl (cbStep now org (ob.project now).id) c := by
       unfold cbOuter; simp only [hc, ↓reduceIte]
     have htrig : cbTrig now ob =
         (ob.project now).promise.callbacks.map fun w => .callback ⟨(ob.project now).id, w⟩ := by
       unfold cbTrig; simp only [hc, ↓reduceIte]
     rw [hstep, htrig]
     exact cbStep_sim now (ob.project now).id hob _ c T h
-  · have hstep : cbOuter now c ob = c := by
+  · have hstep : cbOuter now org c ob = c := by
       unfold cbOuter; simp only [hc, Bool.false_eq_true, ↓reduceIte]
     have htrig : cbTrig now ob = [] := by
       unfold cbTrig; simp only [hc, Bool.false_eq_true, ↓reduceIte]
@@ -1040,10 +1056,15 @@ theorem get_id {org : Origin} {id : Ident} {now : Nat} {o : Object} (hf : org.ge
   obtain ⟨ob, hfind, rfl⟩ := get_some hf
   exact (find_mem hfind).2
 
-theorem resume_find_other (now : Nat) (awaited : Ident) (c : Commands) (w id : Ident) (h : id ≠ w) :
-    Origin.find (Chain.resumeOne now awaited c w).org id = Origin.find c.org id := by
+theorem find_doc_snoc (org : Origin) (c : Commands) (x : Object) (id : Ident) :
+    Origin.find (({ c with add := c.add ++ [x] } : Commands).doc org) id = Origin.find ((c.doc org).set x) id := by
+  dsimp only [Commands.doc]
+  rw [add_snoc]
+
+theorem resume_find_other (now : Nat) (awaited : Ident) (org : Origin) (c : Commands) (w id : Ident) (h : id ≠ w) :
+    Origin.find ((Chain.resumeOne now awaited org c w).doc org) id = Origin.find (c.doc org) id := by
   unfold Chain.resumeOne
-  cases hg : c.org.get w now with
+  cases hg : (c.doc org).get w now with
   | none => rfl
   | some Y =>
       have hY : Y.id = w := get_id hg
@@ -1058,15 +1079,15 @@ theorem resume_find_other (now : Nat) (awaited : Ident) (c : Commands) (w id : I
               (try simp only [hr, Bool.false_eq_true, ↓reduceIte]) <;>
               first
                 | rfl
-                | exact find_set_other _ _ _ (fun e => h (e.trans hY)))
+                | (dsimp only [Commands.doc]; rw [add_snoc]; exact find_set_other _ _ _ (fun e => h (e.trans hY))))
 
-theorem resume_proj (now : Nat) (awaited : Ident) (c : Commands) (w id : Ident) :
-    (Origin.find (Chain.resumeOne now awaited c w).org id).map (fun cur => cur.promise.project now) =
-      (Origin.find c.org id).map (fun cur => cur.promise.project now) := by
+theorem resume_proj (now : Nat) (awaited : Ident) (org : Origin) (c : Commands) (w id : Ident) :
+    (Origin.find ((Chain.resumeOne now awaited org c w).doc org) id).map (fun cur => cur.promise.project now) =
+      (Origin.find (c.doc org) id).map (fun cur => cur.promise.project now) := by
   by_cases h : id = w
   · subst h
     unfold Chain.resumeOne
-    cases hg : c.org.get id now with
+    cases hg : (c.doc org).get id now with
     | none => rfl
     | some Y =>
         obtain ⟨X, hX, rfl⟩ := get_some hg
@@ -1077,10 +1098,11 @@ theorem resume_proj (now : Nat) (awaited : Ident) (c : Commands) (w id : Ident) 
         | some t =>
             simp only [Option.map_some]
             have key : ∀ x : Object, x.id = id → x.promise = (X.project now).promise →
-                (Origin.find (c.org.set x) id).map (fun cur => cur.promise.project now) =
-                  (Origin.find c.org id).map (fun cur => cur.promise.project now) := by
+                (Origin.find (({ c with add := c.add ++ [x] } : Commands).doc org) id).map (fun cur => cur.promise.project now) =
+                  (Origin.find (c.doc org) id).map (fun cur => cur.promise.project now) := by
               intro x hx hp
-              rw [find_set_at hx, hX, Option.map_some, Option.map_some, hp, project_promise,
+              dsimp only [Commands.doc] at hX ⊢
+              rw [add_snoc, find_set_at hx, hX, Option.map_some, Option.map_some, hp, project_promise,
                 PromiseObject.project_idem]
             cases t.state
             all_goals
@@ -1089,13 +1111,13 @@ theorem resume_proj (now : Nat) (awaited : Ident) (c : Commands) (w id : Ident) 
                 first
                   | rfl
                   | exact key _ hXid rfl)
-  · rw [resume_find_other now awaited c w id h]
+  · rw [resume_find_other now awaited org c w id h]
 
-theorem cbStep_proj {c : Commands} {id : Ident} {w : Ident} (now : Nat) {id' : Ident} (hne : id' ≠ id) :
-    (Origin.find (cbStep now id c w).org id').map (fun cur => cur.promise.project now) =
-      (Origin.find c.org id').map (fun cur => cur.promise.project now) := by
+theorem cbStep_proj {org : Origin} {c : Commands} {id : Ident} {w : Ident} (now : Nat) {id' : Ident} (hne : id' ≠ id) :
+    (Origin.find ((cbStep now org id c w).doc org) id').map (fun cur => cur.promise.project now) =
+      (Origin.find (c.doc org) id').map (fun cur => cur.promise.project now) := by
   unfold cbStep
-  cases hg : c.org.get id now with
+  cases hg : (c.doc org).get id now with
   | none => rfl
   | some cur =>
       have hc : cur.id = id := get_id hg
@@ -1103,54 +1125,58 @@ theorem cbStep_proj {c : Commands} {id : Ident} {w : Ident} (now : Nat) {id' : I
       have hne' : id' ≠ ({ cur with promise := { cur.promise with callbacks := cur.promise.callbacks.filter (· != w) } } : Object).id :=
         fun e => hne (e.trans hc)
       split
-      · rw [resume_proj, find_set_other _ _ _ hne']
-      · rw [find_set_other _ _ _ (fun e => hne (e.trans hc))]
+      · rw [resume_proj]
+        dsimp only [Commands.doc]
+        rw [add_snoc, find_set_other _ _ _ hne']
+      · dsimp only [Commands.doc]
+        rw [add_snoc, find_set_other _ _ _ (fun e => hne (e.trans hc))]
 
-theorem cbFold_proj (now : Nat) (id : Ident) : ∀ (ws : List Ident) (c : Commands) {id' : Ident}, id' ≠ id →
-    (Origin.find (ws.foldl (cbStep now id) c).org id').map (fun cur => cur.promise.project now) =
-      (Origin.find c.org id').map (fun cur => cur.promise.project now)
+theorem cbFold_proj (now : Nat) (org : Origin) (id : Ident) : ∀ (ws : List Ident) (c : Commands) {id' : Ident}, id' ≠ id →
+    (Origin.find ((ws.foldl (cbStep now org id) c).doc org) id').map (fun cur => cur.promise.project now) =
+      (Origin.find (c.doc org) id').map (fun cur => cur.promise.project now)
   | [], _, _, _ => rfl
   | w :: ws, c, id', hne => by
-      rw [List.foldl_cons, cbFold_proj now id ws _ hne, cbStep_proj now hne]
+      rw [List.foldl_cons, cbFold_proj now org id ws _ hne, cbStep_proj now hne]
 
-theorem cbOuter_proj {c : Commands} {ob : Object} (now : Nat) {id : Ident} (hne : id ≠ ob.id) :
-    (Origin.find (cbOuter now c ob).org id).map (fun cur => cur.promise.project now) =
-      (Origin.find c.org id).map (fun cur => cur.promise.project now) := by
+theorem cbOuter_proj {org : Origin} {c : Commands} {ob : Object} (now : Nat) {id : Ident} (hne : id ≠ ob.id) :
+    (Origin.find ((cbOuter now org c ob).doc org) id).map (fun cur => cur.promise.project now) =
+      (Origin.find (c.doc org) id).map (fun cur => cur.promise.project now) := by
   simp only [cbOuter]
   split
-  · exact cbFold_proj now _ _ c hne
+  · exact cbFold_proj now org _ _ c hne
   · rfl
 
-theorem cbFold_eq (now : Nat) (id : Ident) (p : PromiseObject) (hp : p.project now = p)
+theorem cbFold_eq (now : Nat) (org : Origin) (id : Ident) (p : PromiseObject) (hp : p.project now = p)
     (hnp : (p.state != PromiseState.pending) = true) :
     ∀ (ws : List Ident) (c : Commands), ws.Nodup → (∀ w ∈ ws, w ≠ id) →
-      (Origin.find c.org id).map (fun cur => cur.promise.project now) = some { p with callbacks := ws } →
-      ws.foldl (cbStepOld now id) c = ws.foldl (cbStep now id) c
+      (Origin.find (c.doc org) id).map (fun cur => cur.promise.project now) = some { p with callbacks := ws } →
+      ws.foldl (cbStepOld now org id) c = ws.foldl (cbStep now org id) c
   | [], _, _, _, _ => rfl
   | w :: ws, c, hnd, hne, hcur => by
       have hnd' := List.nodup_cons.1 hnd
-      cases hf : Origin.find c.org id with
+      cases hf : Origin.find (c.doc org) id with
       | none => rw [hf] at hcur; cases hcur
       | some X =>
           rw [hf, Option.map_some, Option.some.injEq] at hcur
-          have hg : c.org.get id now = some (X.project now) := by rw [get_eq, hf]; rfl
+          have hg : (c.doc org).get id now = some (X.project now) := by rw [get_eq, hf]; rfl
           have hcurp : (X.project now).promise = { p with callbacks := w :: ws } := hcur
           have hXid : X.id = id := (find_mem hf).2
           have hguard : ((X.project now).promise.state != PromiseState.pending) = true
               ∧ (X.project now).promise.callbacks.contains w = true := by
             rw [hcurp]; exact ⟨hnp, by simp⟩
           rw [List.foldl_cons, List.foldl_cons]
-          have hstep : cbStepOld now id c w = cbStep now id c w := by
+          have hstep : cbStepOld now org id c w = cbStep now org id c w := by
             unfold cbStepOld cbStep; rw [hg]; simp only [hguard, and_self, ↓reduceIte]
           rw [hstep]
-          apply cbFold_eq now id p hp hnp ws _ hnd'.2 (fun v hv => hne v (List.mem_cons_of_mem _ hv))
+          apply cbFold_eq now org id p hp hnp ws _ hnd'.2 (fun v hv => hne v (List.mem_cons_of_mem _ hv))
           unfold cbStep
           rw [hg]
           simp only [hguard, and_self, ↓reduceIte]
-          rw [resume_find_other _ _ _ _ _ (hne w (List.mem_cons_self ..)).symm]
+          rw [resume_find_other _ _ _ _ _ _ (hne w (List.mem_cons_self ..)).symm]
           have hx : ({ X.project now with promise := { (X.project now).promise with
               callbacks := (X.project now).promise.callbacks.filter (· != w) } } : Object).id = id := hXid
-          rw [find_set_at hx, Option.map_some]
+          dsimp only [Commands.doc]
+          rw [add_snoc, find_set_at hx, Option.map_some]
           refine congrArg some ?_
           show ({ (X.project now).promise with
               callbacks := (X.project now).promise.callbacks.filter (· != w) } : PromiseObject).project now = _
@@ -1165,14 +1191,14 @@ theorem cbFold_eq (now : Nat) (id : Ident) (p : PromiseObject) (hp : p.project n
           show ({ p with callbacks := ws } : PromiseObject).project now = _
           rw [PromiseObject.project_set_callbacks, hp]
 
-theorem cbOuterOld_eq (now : Nat) (c : Commands) (ob : Object)
-    (hcur : (Origin.find c.org ob.id).map (fun cur => cur.promise.project now) = some (ob.promise.project now))
+theorem cbOuterOld_eq (now : Nat) (org : Origin) (c : Commands) (ob : Object)
+    (hcur : (Origin.find (c.doc org) ob.id).map (fun cur => cur.promise.project now) = some (ob.promise.project now))
     (hnd : ob.promise.callbacks.Nodup) (hne : ∀ w ∈ ob.promise.callbacks, w ≠ ob.id) :
-    cbOuterOld now c ob = cbOuter now c ob := by
+    cbOuterOld now org c ob = cbOuter now org c ob := by
   unfold cbOuterOld cbOuter
   by_cases hc : ((ob.project now).promise.state != PromiseState.pending) = true
   · simp only [hc, ↓reduceIte]
-    apply cbFold_eq now (ob.project now).id (ob.promise.project now) (PromiseObject.project_idem _ _) hc
+    apply cbFold_eq now org (ob.project now).id (ob.promise.project now) (PromiseObject.project_idem _ _) hc
     · show (ob.promise.project now).callbacks.Nodup
       rw [project_callbacks]; exact hnd
     · intro w hw
@@ -1183,11 +1209,11 @@ theorem cbOuterOld_eq (now : Nat) (c : Commands) (ob : Object)
   · simp only [hc, Bool.false_eq_true, ↓reduceIte]
 
 theorem cbOld_sim {o : String} {S : Abstract.State} {org : Origin} (hwf : WF org.current) (now : Nat) :
-    ∀ (l : List Object) (c : Commands) (T : Abstract.State), SwInv o S c T →
+    ∀ (l : List Object) (c : Commands) (T : Abstract.State), SwInv o org S c T →
       (∀ ob ∈ l, ob ∈ org.current.objects) → (l.map (·.id)).Nodup →
-      (∀ ob ∈ l, (Origin.find c.org ob.id).map (fun cur => cur.promise.project now) =
+      (∀ ob ∈ l, (Origin.find (c.doc org) ob.id).map (fun cur => cur.promise.project now) =
         some (ob.promise.project now)) →
-      SwInv o S (l.foldl (cbOuterOld now) c) (execI (l.flatMap (cbTrig now)) now T)
+      SwInv o org S (l.foldl (cbOuterOld now org) c) (execI (l.flatMap (cbTrig now)) now T)
   | [], _, _, h, _, _, _ => h
   | ob :: l, c, T, h, hmem, hnd, hcur => by
       simp only [List.map_cons, List.nodup_cons] at hnd
@@ -1196,13 +1222,13 @@ theorem cbOld_sim {o : String} {S : Abstract.State} {org : Origin} (hwf : WF org
       obtain ⟨_, hcbnd, hwfo⟩ := hwf ob hob
       have hcur0 := hcur ob (List.mem_cons_self ..)
       have hido : ob.id.origin = o := by
-        cases hf : Origin.find c.org ob.id with
+        cases hf : Origin.find (c.doc org) ob.id with
         | none => rw [hf] at hcur0; cases hcur0
         | some cur =>
             have := h.orig cur (find_mem hf).1
             rw [(find_mem hf).2] at this
             exact this
-      rw [cbOuterOld_eq now c ob hcur0 hcbnd (fun w hw => (hwfo w hw).1)]
+      rw [cbOuterOld_eq now org c ob hcur0 hcbnd (fun w hw => (hwfo w hw).1)]
       refine cbOld_sim hwf now l _ _ (cbOuter_step now c T h ob hido)
         (fun x hx => hmem x (List.mem_cons_of_mem _ hx)) hnd.2 ?_
       intro ob' hob'
@@ -1218,9 +1244,9 @@ def ltStep (now : Nat) (c : Commands) (o : Object) : Commands :=
           ∧ o.promise.state == .pending then
         { c with
           arm := c.arm ++ [⟨now, o.id, .taskRetryTimeout⟩],
-          org := c.org.set { o with task := some { t with state := .pending, pid := none, ttl := none,
-                                                            leaseTimeoutAt := none,
-                                                            retryTimeoutAt := some now } },
+          add := c.add ++ [{ o with task := some { t with state := .pending, pid := none, ttl := none,
+                                                              leaseTimeoutAt := none,
+                                                              retryTimeoutAt := some now } }],
           del := c.del ++ t.timers o.id }
       else
         c
@@ -1239,7 +1265,7 @@ def ltTrig (now : Nat) (o : Object) : Option Abstract.Trigger :=
       none
 
 theorem leaseTimeouts_eq (now : Nat) (org : Origin) :
-    Chain.leaseTimeouts now org = org.current.objects.foldl (ltStep now) { org } := rfl
+    Chain.leaseTimeouts now org = org.current.objects.foldl (ltStep now) {} := rfl
 
 theorem leaseTimeoutTriggers_eq (now : Nat) (org : Origin) :
     Chain.leaseTimeoutTriggers now org = org.current.objects.filterMap (ltTrig now) := rfl
@@ -1284,17 +1310,17 @@ theorem processLeaseTimeout_fx (id : Ident) (now : Nat) (T : Abstract.State) :
                 · simp only [h2, Bool.false_eq_true, ↓reduceIte, pure_apply, List.nil_append]
               · simp only [h1, ↓reduceIte, pure_apply, List.nil_append]
 
-theorem leaseTimeouts_sim {o : String} {S : Abstract.State} (now : Nat) :
-    ∀ (l : List Object) (c : Commands) (T : Abstract.State), SwInv o S c T →
-      (∀ ob ∈ l, Origin.find c.org ob.id = some ob) → (l.map (·.id)).Nodup →
-      SwInv o S (l.foldl (ltStep now) c) (execI (l.filterMap (ltTrig now)) now T)
+theorem leaseTimeouts_sim {o : String} {org : Origin} {S : Abstract.State} (now : Nat) :
+    ∀ (l : List Object) (c : Commands) (T : Abstract.State), SwInv o org S c T →
+      (∀ ob ∈ l, Origin.find (c.doc org) ob.id = some ob) → (l.map (·.id)).Nodup →
+      SwInv o org S (l.foldl (ltStep now) c) (execI (l.filterMap (ltTrig now)) now T)
   | [], _, _, h, _, _ => h
   | ob :: l, c, T, h, hfind, hnd => by
-      have hob : Origin.find c.org ob.id = some ob := hfind ob (List.mem_cons_self ..)
+      have hob : Origin.find (c.doc org) ob.id = some ob := hfind ob (List.mem_cons_self ..)
       have hido : ob.id.origin = o := h.orig ob (find_mem hob).1
       have hT : find T ob.id = some ob := (h.loc ob.id hido).trans hob
       simp only [List.map_cons, List.nodup_cons] at hnd
-      have hrest : ∀ ob' ∈ l, Origin.find c.org ob'.id = some ob' :=
+      have hrest : ∀ ob' ∈ l, Origin.find (c.doc org) ob'.id = some ob' :=
         fun ob' h' => hfind ob' (List.mem_cons_of_mem _ h')
       simp only [List.foldl_cons]
       cases ht : ob.task with
@@ -1321,12 +1347,13 @@ theorem leaseTimeouts_sim {o : String} {S : Abstract.State} (now : Nat) :
                   rw [hdl, Option.any_some] at this
                   exact of_decide_eq_true this
                 simp only [hdln, and_self, ↓reduceIte]
-                refine leaseTimeouts_sim now l _ _ (h.set_task_plain hido hob _ rfl rfl) ?_ hnd.2
+                refine leaseTimeouts_sim now l _ _ (h.set_task_plain hido hob _ (add_snoc org c.add _) rfl) ?_ hnd.2
                 intro ob' hob'
                 have hne : ob'.id ≠ ob.id := fun e => hnd.1 (e ▸ List.mem_map_of_mem hob')
-                have key : ∀ x : Object, x.id = ob.id → Origin.find (c.org.set x) ob'.id = some ob' := by
+                have key : ∀ x : Object, x.id = ob.id →
+                    Origin.find (({ c with add := c.add ++ [x] } : Commands).doc org) ob'.id = some ob' := by
                   intro x hx
-                  rw [find_set_other _ _ _ (fun e => hne (e.trans hx))]
+                  rw [find_doc_snoc, find_set_other _ _ _ (fun e => hne (e.trans hx))]
                   exact hrest ob' hob'
                 exact key _ rfl
           · have hstep : ltStep now c ob = c := by
@@ -1344,7 +1371,7 @@ def rtStep (now : Nat) (c : Commands) (o : Object) : Commands :=
           ∧ o.promise.state == .pending then
         { c with
           arm := c.arm ++ [⟨now + Concrete.retryDelay, o.id, .taskRetryTimeout⟩],
-          org := c.org.set { o with task := some { t with retryTimeoutAt := some (now + Concrete.retryDelay) } },
+          add := c.add ++ [{ o with task := some { t with retryTimeoutAt := some (now + Concrete.retryDelay) } }],
           del := c.del ++ t.timers o.id,
           send := c.send ++ [(target, .execute o.id t.version)] }
       else
@@ -1364,7 +1391,7 @@ def rtTrig (now : Nat) (o : Object) : Option Abstract.Trigger :=
       none
 
 theorem retryTimeouts_eq (now : Nat) (org : Origin) :
-    Chain.retryTimeouts now org = org.current.objects.foldl (rtStep now) { org } := rfl
+    Chain.retryTimeouts now org = org.current.objects.foldl (rtStep now) {} := rfl
 
 theorem retryTimeoutTriggers_eq (now : Nat) (org : Origin) :
     Chain.retryTimeoutTriggers now org = org.current.objects.filterMap (rtTrig now) := rfl
@@ -1415,17 +1442,17 @@ theorem processRetryTimeout_fx (id : Ident) (now : Nat) (T : Abstract.State) :
                 · simp only [h2, Bool.false_eq_true, ↓reduceIte, pure_apply, List.nil_append]
               · simp only [h1, ↓reduceIte, pure_apply, List.nil_append]
 
-theorem retryTimeouts_sim {o : String} {S : Abstract.State} (now : Nat) :
-    ∀ (l : List Object) (c : Commands) (T : Abstract.State), SwInv o S c T →
-      (∀ ob ∈ l, Origin.find c.org ob.id = some ob) → (l.map (·.id)).Nodup →
-      SwInv o S (l.foldl (rtStep now) c) (execI (l.filterMap (rtTrig now)) now T)
+theorem retryTimeouts_sim {o : String} {org : Origin} {S : Abstract.State} (now : Nat) :
+    ∀ (l : List Object) (c : Commands) (T : Abstract.State), SwInv o org S c T →
+      (∀ ob ∈ l, Origin.find (c.doc org) ob.id = some ob) → (l.map (·.id)).Nodup →
+      SwInv o org S (l.foldl (rtStep now) c) (execI (l.filterMap (rtTrig now)) now T)
   | [], _, _, h, _, _ => h
   | ob :: l, c, T, h, hfind, hnd => by
-      have hob : Origin.find c.org ob.id = some ob := hfind ob (List.mem_cons_self ..)
+      have hob : Origin.find (c.doc org) ob.id = some ob := hfind ob (List.mem_cons_self ..)
       have hido : ob.id.origin = o := h.orig ob (find_mem hob).1
       have hT : find T ob.id = some ob := (h.loc ob.id hido).trans hob
       simp only [List.map_cons, List.nodup_cons] at hnd
-      have hrest : ∀ ob' ∈ l, Origin.find c.org ob'.id = some ob' :=
+      have hrest : ∀ ob' ∈ l, Origin.find (c.doc org) ob'.id = some ob' :=
         fun ob' h' => hfind ob' (List.mem_cons_of_mem _ h')
       simp only [List.foldl_cons]
       cases ht : ob.task with
@@ -1463,13 +1490,14 @@ theorem retryTimeouts_sim {o : String} {S : Abstract.State} (now : Nat) :
                       ((h.set_task_plain hido hob _
                         (c' := { c with
                           arm := c.arm ++ [⟨now + Concrete.retryDelay, ob.id, .taskRetryTimeout⟩],
-                          org := c.org.set { ob with task := some { tv with retryTimeoutAt := some (now + Concrete.retryDelay) } },
-                          del := c.del ++ tv.timers ob.id }) rfl rfl).sends _ rfl rfl) ?_ hnd.2
+                          add := c.add ++ [{ ob with task := some { tv with retryTimeoutAt := some (now + Concrete.retryDelay) } }],
+                          del := c.del ++ tv.timers ob.id }) (add_snoc org c.add _) rfl).sends _ rfl rfl) ?_ hnd.2
                     intro ob' hob'
                     have hne : ob'.id ≠ ob.id := fun e => hnd.1 (e ▸ List.mem_map_of_mem hob')
-                    have key : ∀ x : Object, x.id = ob.id → Origin.find (c.org.set x) ob'.id = some ob' := by
+                    have key : ∀ x : Object, x.id = ob.id →
+                        Origin.find (({ c with add := c.add ++ [x] } : Commands).doc org) ob'.id = some ob' := by
                       intro x hx
-                      rw [find_set_other _ _ _ (fun e => hne (e.trans hx))]
+                      rw [find_doc_snoc, find_set_other _ _ _ (fun e => hne (e.trans hx))]
                       exact hrest ob' hob'
                     exact key _ rfl
               · have hstep : rtStep now c ob = c := by
@@ -1486,24 +1514,25 @@ theorem retryTimeouts_sim {o : String} {S : Abstract.State} (now : Nat) :
 
 theorem promiseTimeouts_pass {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) (now : Nat) :
-    SwInv o S (Chain.promiseTimeouts now org) (execI (Chain.promiseTimeoutTriggers now org) now S) := by
+    SwInv o org S (Chain.promiseTimeouts now org) (execI (Chain.promiseTimeoutTriggers now org) now S) := by
   rw [promiseTimeouts_eq, promiseTimeoutTriggers_eq]
   exact promiseTimeouts_sim now org.current.objects _ S (SwInv.init hL horig hwf)
-    (fun ob hob => find_self_of_nodup (current_nodup org) hob) (current_nodup org)
+    (fun ob hob => by rw [doc_empty]; exact find_self_of_nodup (current_nodup org) hob) (current_nodup org)
 
 theorem listeners_pass {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) (now : Nat) :
-    SwInv o S (Chain.listeners now org) (execI (Chain.listenerTriggers now org) now S) := by
+    SwInv o org S (Chain.listeners now org) (execI (Chain.listenerTriggers now org) now S) := by
   rw [listeners_eq, listenerTriggers_eq]
   exact lsBulk_sim now org.current.objects _ S (SwInv.init hL horig hwf)
-    (fun ob hob => find_self_of_nodup (current_nodup org) hob) (current_nodup org)
+    (fun ob hob => by rw [doc_empty]; exact find_self_of_nodup (current_nodup org) hob) (current_nodup org)
 
 theorem callbacks_pass {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) (now : Nat) :
-    SwInv o S (Chain.callbacks now org) (execI (Chain.callbackTriggers now org) now S) := by
+    SwInv o org S (Chain.callbacks now org) (execI (Chain.callbackTriggers now org) now S) := by
   rw [callbacks_eq, callbackTriggers_eq]
   exact cbOld_sim hwf now org.current.objects _ S (SwInv.init hL horig hwf) (fun _ h => h) (current_nodup org)
     (fun ob hob => by
+      rw [doc_empty]
       show (Origin.find org ob.id).map _ = _
       unfold Origin.find
       rw [find_self_of_nodup (current_nodup org) hob]
@@ -1511,21 +1540,21 @@ theorem callbacks_pass {o : String} {org : Origin} {S : Abstract.State} (hL : Lo
 
 theorem leaseTimeouts_pass {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) (now : Nat) :
-    SwInv o S (Chain.leaseTimeouts now org) (execI (Chain.leaseTimeoutTriggers now org) now S) := by
+    SwInv o org S (Chain.leaseTimeouts now org) (execI (Chain.leaseTimeoutTriggers now org) now S) := by
   rw [leaseTimeouts_eq, leaseTimeoutTriggers_eq]
   exact leaseTimeouts_sim now org.current.objects _ S (SwInv.init hL horig hwf)
-    (fun ob hob => find_self_of_nodup (current_nodup org) hob) (current_nodup org)
+    (fun ob hob => by rw [doc_empty]; exact find_self_of_nodup (current_nodup org) hob) (current_nodup org)
 
 theorem retryTimeouts_pass {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) (now : Nat) :
-    SwInv o S (Chain.retryTimeouts now org) (execI (Chain.retryTimeoutTriggers now org) now S) := by
+    SwInv o org S (Chain.retryTimeouts now org) (execI (Chain.retryTimeoutTriggers now org) now S) := by
   rw [retryTimeouts_eq, retryTimeoutTriggers_eq]
   exact retryTimeouts_sim now org.current.objects _ S (SwInv.init hL horig hwf)
-    (fun ob hob => find_self_of_nodup (current_nodup org) hob) (current_nodup org)
+    (fun ob hob => by rw [doc_empty]; exact find_self_of_nodup (current_nodup org) hob) (current_nodup org)
 
 theorem chain_sweep_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) (now : Nat) :
-    SwInv o S (Chain.sweep now org) (execI (Chain.sweepTriggers now org) now S) := by
+    SwInv o org S (Chain.sweep now org) (execI (Chain.sweepTriggers now org) now S) := by
   simp only [Chain.sweep, Chain.sweepTriggers, execI_append]
   have h1 := promiseTimeouts_pass hL horig hwf now
   have h2 := h1.merge (listeners_pass h1.loc h1.orig h1.wf now)

@@ -3,7 +3,7 @@ import refinement.relation
 namespace Refinement
 
 open Protocol (Ident Message OutboxEntry Object PromiseObject TaskObject PromiseState TaskState)
-open Concrete (Origin)
+open Concrete (Origin Commands)
 
 theorem bind_apply {α β : Type} (x : Abstract.H α) (f : α → Abstract.H β) (e : Abstract.Env) :
     (x >>= f) e = ((f (x e).1 e).1, (x e).2 ++ (f (x e).1 e).2) := rfl
@@ -469,6 +469,35 @@ theorem current_append_current (org : Origin) (m : List Object) :
   rw [current_append, current_append]
   congr 2
   exact congrArg Origin.objects (current_current org)
+
+theorem add_nil (org : Origin) : org.add [] = org := by
+  show (⟨org.objects ++ []⟩ : Origin) = org
+  rw [List.append_nil]
+
+theorem add_add (org : Origin) (a b : List Object) : (org.add a).add b = org.add (a ++ b) := by
+  show (⟨(org.objects ++ a) ++ b⟩ : Origin) = ⟨org.objects ++ (a ++ b)⟩
+  rw [List.append_assoc]
+
+theorem add_snoc (org : Origin) (l : List Object) (x : Object) : org.add (l ++ [x]) = (org.add l).set x :=
+  (add_add org l [x]).symm
+
+theorem doc_empty (org : Origin) : ({} : Commands).doc org = org := add_nil org
+
+theorem doc_merge (c d : Commands) (org : Origin) : (c.merge d).doc org = d.doc (c.doc org) :=
+  (add_add org c.add d.add).symm
+
+theorem current_add_current (org : Origin) (l : List Object) : (org.current.add l).current = (org.add l).current :=
+  current_append_current org l
+
+theorem find_add_current (org : Origin) (l : List Object) (id : Ident) :
+    Origin.find (org.current.add l) id = Origin.find (org.add l) id := by
+  unfold Origin.find
+  rw [current_add_current]
+
+theorem Local_add_current {o : String} {org : Origin} {l : List Object} {S : Abstract.State} :
+    Local o (org.current.add l) S ↔ Local o (org.add l) S := by
+  unfold Local
+  simp only [find_add_current]
 
 theorem project_id (o : Object) (n : Nat) : (o.project n).id = o.id := rfl
 

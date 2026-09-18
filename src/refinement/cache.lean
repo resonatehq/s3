@@ -116,7 +116,7 @@ theorem run_snd {α : Type} (H : Hasher) (cfg : Config) (name : String) (f : Ori
     (s : Concrete.State) :
     (Concrete.run H cfg name f s).2.1 =
       (Concrete.applyAll s ((f (s.origin name)).2.effects (Concrete.write H cfg name (s.parts name)
-        (Concrete.Cond.of H (s.blob? (.origin name))) (f (s.origin name)).2.org))).1 := by
+        (Concrete.Cond.of H (s.blob? (.origin name))) (f (s.origin name)).2.add))).1 := by
   simp only [Concrete.run]
 
 theorem attempt_of_read {α : Type} (H : Hasher) (cfg : Config) (name : String) (f : Origin → α × Commands)
@@ -124,8 +124,8 @@ theorem attempt_of_read {α : Type} (H : Hasher) (cfg : Config) (name : String) 
     (attempt H cfg name f cs).1 = (Concrete.run H cfg name f cs.state).1 ∧
     (attempt H cfg name f cs).2.1 =
       { state := (Concrete.run H cfg name f cs.state).2.1,
-        cache := (name, Concrete.next cfg (cs.state.parts name) (f (cs.state.origin name)).2.org,
-                  H.hash (.origin (Concrete.next cfg (cs.state.parts name) (f (cs.state.origin name)).2.org))) ::
+        cache := (name, Concrete.next cfg (cs.state.parts name) (f (cs.state.origin name)).2.add,
+                  H.hash (.origin (Concrete.next cfg (cs.state.parts name) (f (cs.state.origin name)).2.add))) ::
           cs.forget name } ∧
     (attempt H cfg name f cs).2.2 = true := by
   unfold Agree at hr
@@ -134,7 +134,7 @@ theorem attempt_of_read {α : Type} (H : Hasher) (cfg : Config) (name : String) 
   have hok := Concrete.applyAll_accepted (H := H) cfg cs.state name c
   obtain ⟨-, -, -, -, -, hblob⟩ := run_state H cfg name c cs.state
   rcases hA : Concrete.applyAll cs.state (c.effects (Concrete.write H cfg name (cs.state.parts name)
-    (Concrete.Cond.of H (cs.state.blob? (.origin name))) c.org)) with ⟨s', ok⟩
+    (Concrete.Cond.of H (cs.state.blob? (.origin name))) c.add)) with ⟨s', ok⟩
   rw [hA] at hok hblob
   simp only at hok hblob
   subst hok
@@ -170,8 +170,8 @@ theorem applyAll_cons_refused {H : Hasher} (s : Concrete.State) (e : Concrete.Ef
 theorem applyAll_refused (H : Hasher) (cfg : Config) (s : Concrete.State) (name : String)
     (parts : List (List Object)) (c : Commands) (cond : Concrete.Cond H)
     (h : cond.holds (s.blob? (.origin name)) = false) :
-    (Concrete.applyAll s (c.effects (Concrete.write H cfg name parts cond c.org))).2 = false ∧
-    Same s (Concrete.applyAll s (c.effects (Concrete.write H cfg name parts cond c.org))).1 := by
+    (Concrete.applyAll s (c.effects (Concrete.write H cfg name parts cond c.add))).2 = false ∧
+    Same s (Concrete.applyAll s (c.effects (Concrete.write H cfg name parts cond c.add))).1 := by
   unfold Commands.effects
   obtain ⟨hA, sameA⟩ := timers_phase (H := H) (c.arm.map fun t => .put (.timer t) .timer .any) s
     (by intro e he; simp only [List.mem_map] at he; obtain ⟨t, _, rfl⟩ := he; trivial)
@@ -183,7 +183,7 @@ theorem applyAll_refused (H : Hasher) (cfg : Config) (s : Concrete.State) (name 
   rw [Concrete.applyAll_append, hs1, if_pos rfl]
   have hh : cond.holds (s1.blob? (.origin name)) = false := by rw [sameA.blob, h]
   show (Concrete.applyAll s1 _).2 = false ∧ Same s (Concrete.applyAll s1 _).1
-  rw [List.cons_append, applyAll_cons_refused s1 _ _ (Concrete.write_refused cfg name parts cond c.org hh)]
+  rw [List.cons_append, applyAll_cons_refused s1 _ _ (Concrete.write_refused cfg name parts cond c.add hh)]
   exact ⟨rfl, sameA⟩
 
 theorem attempt_miss {α : Type} (H : Hasher) (cfg : Config) (name : String) (f : Origin → α × Commands)
@@ -195,7 +195,7 @@ theorem attempt_miss {α : Type} (H : Hasher) (cfg : Config) (name : String) (f 
   simp only [attempt, hr]
   rcases hf : f (Concrete.view parts) with ⟨a, c⟩
   obtain ⟨hA, same⟩ := applyAll_refused H cfg cs.state name parts c (.hash etag) hh
-  rcases hAA : Concrete.applyAll cs.state (c.effects (Concrete.write H cfg name parts (.hash etag) c.org)) with ⟨s', ok⟩
+  rcases hAA : Concrete.applyAll cs.state (c.effects (Concrete.write H cfg name parts (.hash etag) c.add)) with ⟨s', ok⟩
   rw [hAA] at hA same
   simp only at hA same
   subst hA
@@ -262,14 +262,14 @@ theorem parts_of_blob {s : Concrete.State} {name : String} {parts : List (List O
 theorem agree_after {α : Type} (H : Hasher) (cfg : Config) (name : String) (f : Origin → α × Commands)
     (s : Concrete.State) (rest : List (String × List (List Object) × H.Hash)) :
     Agree ({ state := (Concrete.run H cfg name f s).2.1,
-             cache := (name, Concrete.next cfg (s.parts name) (f (s.origin name)).2.org,
-                       H.hash (.origin (Concrete.next cfg (s.parts name) (f (s.origin name)).2.org))) :: rest } : Cached H)
+             cache := (name, Concrete.next cfg (s.parts name) (f (s.origin name)).2.add,
+                       H.hash (.origin (Concrete.next cfg (s.parts name) (f (s.origin name)).2.add))) :: rest } : Cached H)
       name := by
   unfold Agree Cached.read
   simp only [List.find?_cons, beq_self_eq_true]
   obtain ⟨-, -, -, -, -, h1⟩ := run_state H cfg name (f (s.origin name)).2 s
-  show (Concrete.next cfg (s.parts name) (f (s.origin name)).2.org,
-      Concrete.Cond.hash (H.hash (.origin (Concrete.next cfg (s.parts name) (f (s.origin name)).2.org)))) =
+  show (Concrete.next cfg (s.parts name) (f (s.origin name)).2.add,
+      Concrete.Cond.hash (H.hash (.origin (Concrete.next cfg (s.parts name) (f (s.origin name)).2.add)))) =
     ((Concrete.run H cfg name f s).2.1.parts name, Concrete.Cond.of H ((Concrete.run H cfg name f s).2.1.blob? (.origin name)))
   rw [run_snd, parts_of_blob h1, h1]
   rfl

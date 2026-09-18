@@ -56,16 +56,16 @@ theorem KeepDoc.set {org d : Origin} (hd : KeepDoc org d) {x : Object}
     exact ⟨o', mem_set_of_ne ho' (fun h => e (hi.symm.trans h)), hi, ht⟩
 
 structure Keep (org : Origin) (c : Commands) : Prop where
-  arm : ∀ t ∈ c.arm, t.kind = .promiseTimeout → ∃ o ∈ c.org.current.objects, o.id = t.id ∧ o.promise.type ≠ .internal
-  doc : KeepDoc org c.org
+  arm : ∀ t ∈ c.arm, t.kind = .promiseTimeout → ∃ o ∈ (c.doc org).current.objects, o.id = t.id ∧ o.promise.type ≠ .internal
+  doc : KeepDoc org (c.doc org)
 
-theorem Keep.id (org : Origin) : Keep org { org } :=
-  ⟨fun _ ht => absurd ht List.not_mem_nil, KeepDoc.refl org⟩
+theorem Keep.id (org : Origin) : Keep org {} :=
+  ⟨fun _ ht => absurd ht List.not_mem_nil, by rw [doc_empty]; exact KeepDoc.refl org⟩
 
-theorem Keep.merge {org : Origin} {c d : Commands} (hc : Keep org c) (hd : Keep c.org d) :
+theorem Keep.merge {org : Origin} {c d : Commands} (hc : Keep org c) (hd : Keep (c.doc org) d) :
     Keep org (c.merge d) := by
-  refine ⟨fun t ht hk => ?_, hc.doc.trans hd.doc⟩
-  show ∃ o ∈ d.org.current.objects, o.id = t.id ∧ o.promise.type ≠ .internal
+  refine ⟨fun t ht hk => ?_, by rw [doc_merge]; exact hc.doc.trans hd.doc⟩
+  rw [doc_merge]
   have ht' : t ∈ c.arm ++ d.arm := ht
   rcases List.mem_append.1 ht' with ht | ht
   · obtain ⟨o, ho, hi, hty⟩ := hc.arm t ht hk
@@ -132,12 +132,33 @@ theorem type_of_none {org : Origin} {id : Ident} {now : Nat} (hf : org.get id no
   unfold Origin.find at hfind
   exact (List.find?_eq_none.1 hfind o' ho') (by simp [he, hx])
 
-theorem Keep.set {org d : Origin} (hd : KeepDoc org d) {x : Object}
+theorem Keep.one {org : Origin} {x : Object}
     (hty : ∀ o ∈ org.current.objects, o.id = x.id → o.promise.type = x.promise.type)
     {A D : List Timer} {S : List (String × Protocol.Message)}
     (harm : ∀ t ∈ A, t.kind = .promiseTimeout → t.id = x.id ∧ x.promise.type ≠ .internal) :
-    Keep org { arm := A, org := d.set x, del := D, send := S } :=
-  ⟨fun t ht hk => ⟨x, mem_set_self d x, (harm t ht hk).1.symm, (harm t ht hk).2⟩, hd.set hty⟩
+    Keep org { arm := A, add := [x], del := D, send := S } :=
+  ⟨fun t ht hk => ⟨x, mem_set_self org x, (harm t ht hk).1.symm, (harm t ht hk).2⟩, (KeepDoc.refl org).set hty⟩
+
+theorem Keep.add {org : Origin} {l : List Object} (hd : KeepDoc org (org.add l)) {x : Object}
+    (hty : ∀ o ∈ org.current.objects, o.id = x.id → o.promise.type = x.promise.type)
+    {A D : List Timer} {S : List (String × Protocol.Message)}
+    (harm : ∀ t ∈ A, t.kind = .promiseTimeout → t.id = x.id ∧ x.promise.type ≠ .internal) :
+    Keep org { arm := A, add := l ++ [x], del := D, send := S } := by
+  have hdoc : ({ arm := A, add := l ++ [x], del := D, send := S } : Commands).doc org = (org.add l).set x :=
+    add_snoc org l x
+  refine ⟨fun t ht hk => ?_, ?_⟩
+  · rw [hdoc]
+    exact ⟨x, mem_set_self _ x, (harm t ht hk).1.symm, (harm t ht hk).2⟩
+  · rw [hdoc]
+    exact hd.set hty
+
+theorem Keep.of_current {org : Origin} {c : Commands} (h : Keep org.current c) : Keep org c := by
+  have hd : (c.doc org.current).current = (c.doc org).current := current_add_current org c.add
+  refine ⟨fun t ht hk => ?_, fun o ho => ?_⟩
+  · rw [← hd]
+    exact h.arm t ht hk
+  · rw [← hd]
+    exact h.doc o (by rw [current_current]; exact ho)
 
 theorem noarm {x : Object} : ∀ t ∈ ([] : List Timer), t.kind = .promiseTimeout → t.id = x.id ∧ x.promise.type ≠ .internal :=
   fun _ ht => absurd ht List.not_mem_nil
@@ -161,9 +182,9 @@ theorem promiseCreate_keep {org : Origin} (now : Nat) (req : PromiseCreateReq) :
     dsimp only
     split
     · split
-      · exact Keep.set (KeepDoc.refl org) (type_of_none hf (by rfl)) objarm
-      · exact Keep.set (KeepDoc.refl org) (type_of_none hf (by rfl)) objarm
-    · exact Keep.set (KeepDoc.refl org) (type_of_none hf (by rfl)) noarm
+      · exact Keep.one (type_of_none hf (by rfl)) objarm
+      · exact Keep.one (type_of_none hf (by rfl)) objarm
+    · exact Keep.one (type_of_none hf (by rfl)) noarm
 
 theorem promiseSettle_keep {org : Origin} (now : Nat) (req : PromiseSettleReq) : Keep org (Concrete.promiseSettle req now org).2 := by
   unfold Concrete.promiseSettle
@@ -173,7 +194,7 @@ theorem promiseSettle_keep {org : Origin} (now : Nat) (req : PromiseSettleReq) :
     · exact Keep.id org
     · rename_i hf
       split
-      · exact Keep.set (KeepDoc.refl org) (type_of_get hf (by rfl) (by rfl)) noarm
+      · exact Keep.one (type_of_get hf (by rfl) (by rfl)) noarm
       · exact Keep.id org
 
 theorem promiseRegisterCallback_keep {org : Origin} (now : Nat) (req : PromiseRegisterCallbackReq) :
@@ -188,7 +209,7 @@ theorem promiseRegisterCallback_keep {org : Origin} (now : Nat) (req : PromiseRe
       split
       · exact Keep.id org
       · split
-        · exact Keep.set (KeepDoc.refl org) (type_of_get hA (by rfl) (by exact addCallback_type _ _)) noarm
+        · exact Keep.one (type_of_get hA (by rfl) (by exact addCallback_type _ _)) noarm
         · exact Keep.id org
 
 theorem promiseRegisterListener_keep {org : Origin} (now : Nat) (req : PromiseRegisterListenerReq) :
@@ -200,7 +221,7 @@ theorem promiseRegisterListener_keep {org : Origin} (now : Nat) (req : PromiseRe
     split
     · exact Keep.id org
     · split
-      · exact Keep.set (KeepDoc.refl org) (type_of_get hf (by rfl) (by exact addListener_type _ _)) noarm
+      · exact Keep.one (type_of_get hf (by rfl) (by exact addListener_type _ _)) noarm
       · exact Keep.id org
 
 theorem taskGet_keep {org : Origin} (now : Nat) (req : TaskGetReq) : Keep org (Concrete.taskGet req now org).2 := by
@@ -215,8 +236,8 @@ theorem taskCreate_keep {org : Origin} (now : Nat) (req : TaskCreateReq) : Keep 
   · split
     · rename_i hf
       split
-      · exact Keep.set (KeepDoc.refl org) (type_of_none hf (by rfl)) objarm
-      · exact Keep.set (KeepDoc.refl org) (type_of_none hf (by rfl)) noarm
+      · exact Keep.one (type_of_none hf (by rfl)) objarm
+      · exact Keep.one (type_of_none hf (by rfl)) noarm
     · rename_i hf
       split
       · exact Keep.id org
@@ -225,7 +246,7 @@ theorem taskCreate_keep {org : Origin} (now : Nat) (req : TaskCreateReq) : Keep 
         · split
           · exact Keep.id org
           · split
-            · exact Keep.set (KeepDoc.refl org) (type_of_get hf (by rfl) (by rfl)) taskarm
+            · exact Keep.one (type_of_get hf (by rfl) (by rfl)) taskarm
             · exact Keep.id org
 
 theorem taskAcquire_keep {org : Origin} (now : Nat) (req : TaskAcquireReq) : Keep org (Concrete.taskAcquire req now org).2 := by
@@ -240,7 +261,7 @@ theorem taskAcquire_keep {org : Origin} (now : Nat) (req : TaskAcquireReq) : Kee
           simp only [Option.map_some]
           split
           · exact Keep.id org
-          · exact Keep.set (KeepDoc.refl org) (type_of_get hf (by rfl) (by rfl)) taskarm
+          · exact Keep.one (type_of_get hf (by rfl) (by rfl)) taskarm
 
 theorem taskFence_keep {org : Origin} (now : Nat) (req : TaskFenceReq) : Keep org (Concrete.taskFence req now org).2 := by
   unfold Concrete.taskFence
@@ -261,9 +282,9 @@ theorem taskFence_keep {org : Origin} (now : Nat) (req : TaskFenceReq) : Keep or
               · exact promiseSettle_keep now _
 
 theorem hbStep_keep {org : Origin} (now : Nat) (pid : String) : ∀ (refs : List TaskRef) (c : Commands),
-    (∀ t ∈ c.arm, t.kind ≠ .promiseTimeout) → KeepDoc org c.org →
+    (∀ t ∈ c.arm, t.kind ≠ .promiseTimeout) → KeepDoc org (c.doc org) →
     (∀ t ∈ (refs.foldl (hbStep now org pid) c).arm, t.kind ≠ .promiseTimeout) ∧
-      KeepDoc org (refs.foldl (hbStep now org pid) c).org
+      KeepDoc org ((refs.foldl (hbStep now org pid) c).doc org)
   | [], _, ha, hd => ⟨ha, hd⟩
   | ref :: refs, c, ha, hd => by
       rw [List.foldl_cons]
@@ -296,25 +317,30 @@ theorem hbStep_keep {org : Origin} (now : Nat) (pid : String) : ∀ (refs : List
             | some t =>
                 simp only [Option.map_some]
                 split
-                · exact hd.set (type_of_get hf (by rfl) (by rfl))
+                · dsimp only [Commands.doc]
+                  rw [add_snoc]
+                  exact hd.set (type_of_get hf (by rfl) (by rfl))
                 · exact hd
 
 theorem taskHeartbeat_keep {org : Origin} (now : Nat) (req : TaskHeartbeatReq) : Keep org (Concrete.taskHeartbeat req now org).2 := by
   rw [taskHeartbeat_eq]
-  obtain ⟨ha, hd⟩ := hbStep_keep now req.pid req.tasks { org } (fun t ht => absurd ht List.not_mem_nil)
-    (KeepDoc.refl org)
+  obtain ⟨ha, hd⟩ := hbStep_keep now req.pid req.tasks {} (fun t ht => absurd ht List.not_mem_nil)
+    (by rw [doc_empty]; exact KeepDoc.refl org)
   exact ⟨fun t ht hk => absurd hk (ha t ht), hd⟩
 
-theorem regStep_keep {org : Origin} (now : Nat) (awaiter : Ident) : ∀ (ids : List Ident) (d : Origin), KeepDoc org d →
-    KeepDoc org ((ids.map (org.get · now)).foldl (regStep awaiter) d)
+theorem regStep_keep {org : Origin} (now : Nat) (awaiter : Ident) : ∀ (ids : List Ident) (adds : List Object),
+    KeepDoc org (org.add adds) → KeepDoc org (org.add ((ids.map (org.get · now)).foldl (regStep awaiter) adds))
   | [], _, hd => hd
-  | id :: ids, d, hd => by
+  | id :: ids, adds, hd => by
       simp only [List.map_cons, List.foldl_cons]
       refine regStep_keep now awaiter ids _ ?_
       unfold regStep
       cases hf : org.get id now with
       | none => exact hd
-      | some oa => exact hd.set (type_of_get hf (by rfl) (by exact addCallback_type _ _))
+      | some oa =>
+          dsimp only
+          rw [add_snoc]
+          exact hd.set (type_of_get hf (by rfl) (by exact addCallback_type _ _))
 
 theorem taskSuspend_keep {org : Origin} (now : Nat) (req : TaskSuspendReq) : Keep org (Concrete.taskSuspend req now org).2 := by
   rw [taskSuspend_eq]
@@ -334,8 +360,8 @@ theorem taskSuspend_keep {org : Origin} (now : Nat) (req : TaskSuspendReq) : Kee
             · split
               · exact Keep.id org
               · split
-                · exact Keep.set (KeepDoc.refl org) (type_of_get hf (by rfl) (by rfl)) noarm
-                · exact Keep.set (regStep_keep now req.id _ org (KeepDoc.refl org))
+                · exact Keep.one (type_of_get hf (by rfl) (by rfl)) noarm
+                · exact Keep.add (regStep_keep now req.id _ [] (by rw [add_nil]; exact KeepDoc.refl org))
                     (type_of_get hf (by rfl) (by rfl)) noarm
 
 theorem taskFulfill_keep {org : Origin} (now : Nat) (req : TaskFulfillReq) : Keep org (Concrete.taskFulfill req now org).2 := by
@@ -352,7 +378,7 @@ theorem taskFulfill_keep {org : Origin} (now : Nat) (req : TaskFulfillReq) : Kee
             simp only [Option.map_some]
             split
             · exact Keep.id org
-            · exact Keep.set (KeepDoc.refl org) (type_of_get hf (by rfl) (by rfl)) noarm
+            · exact Keep.one (type_of_get hf (by rfl) (by rfl)) noarm
 
 theorem taskRelease_keep {org : Origin} (now : Nat) (req : TaskReleaseReq) : Keep org (Concrete.taskRelease req now org).2 := by
   unfold Concrete.taskRelease
@@ -366,7 +392,7 @@ theorem taskRelease_keep {org : Origin} (now : Nat) (req : TaskReleaseReq) : Kee
           simp only [Option.map_some]
           split
           · exact Keep.id org
-          · exact Keep.set (KeepDoc.refl org) (type_of_get hf (by rfl) (by rfl)) taskarm
+          · exact Keep.one (type_of_get hf (by rfl) (by rfl)) taskarm
 
 theorem taskHalt_keep {org : Origin} (now : Nat) (req : TaskHaltReq) : Keep org (Concrete.taskHalt req now org).2 := by
   unfold Concrete.taskHalt
@@ -382,7 +408,7 @@ theorem taskHalt_keep {org : Origin} (now : Nat) (req : TaskHaltReq) : Keep org 
           · exact Keep.id org
           · split
             · exact Keep.id org
-            · exact Keep.set (KeepDoc.refl org) (type_of_get hf (by rfl) (by rfl)) noarm
+            · exact Keep.one (type_of_get hf (by rfl) (by rfl)) noarm
 
 theorem taskContinue_keep {org : Origin} (now : Nat) (req : TaskContinueReq) : Keep org (Concrete.taskContinue req now org).2 := by
   unfold Concrete.taskContinue
@@ -396,7 +422,7 @@ theorem taskContinue_keep {org : Origin} (now : Nat) (req : TaskContinueReq) : K
           simp only [Option.map_some]
           split
           · exact Keep.id org
-          · exact Keep.set (KeepDoc.refl org) (type_of_get hf (by rfl) (by rfl)) taskarm
+          · exact Keep.one (type_of_get hf (by rfl) (by rfl)) taskarm
 
 theorem handleExternal_keep {org : Origin} (now : Nat) (req : Request) : Keep org (Concrete.handleExternal req now org).2 := by
   cases req with
@@ -477,8 +503,9 @@ theorem handle_keep {org : Origin} (hnd : (org.objects.map (·.id)).Nodup) (now 
     Keep org (Concrete.handle ev now org).2 := by
   cases ev with
   | external req =>
-      show Keep org ((Concrete.sweep now org).merge (Concrete.handleExternal req now (Concrete.sweep now org).org).2)
-      exact (sweep_keep now hnd).merge (handleExternal_keep now req)
+      show Keep org ((Concrete.sweep now org).merge
+        (Concrete.handleExternal req now (org.add (Concrete.sweep now org).add).current).2)
+      exact (sweep_keep now hnd).merge (Keep.of_current (handleExternal_keep now req))
   | internal _ => exact sweep_keep now hnd
   | stutter => exact Keep.id org
 
@@ -532,8 +559,8 @@ theorem applyAll_blob_source {H : Concrete.Hasher} :
           · exact Or.inr ⟨b, c, List.mem_cons_of_mem _ hm⟩
 
 theorem arm_of_put {H : Concrete.Hasher} {cfg : Concrete.Config} {name : String} {parts : List (List Object)}
-    {cond : Concrete.Cond H} {org : Origin} {c : Commands} {t : Timer} {b : Blob} {cd : Concrete.Cond H}
-    (h : Concrete.Effect.put (.timer t) b cd ∈ c.effects (Concrete.write H cfg name parts cond org)) :
+    {cond : Concrete.Cond H} {objects : List Object} {c : Commands} {t : Timer} {b : Blob} {cd : Concrete.Cond H}
+    (h : Concrete.Effect.put (.timer t) b cd ∈ c.effects (Concrete.write H cfg name parts cond objects)) :
     t ∈ c.arm := by
   unfold Concrete.write at h
   split at h <;>
@@ -543,12 +570,12 @@ theorem arm_of_put {H : Concrete.Hasher} {cfg : Concrete.Config} {name : String}
   · exact ht'
 
 theorem Armed.run (H : Concrete.Hasher) (cfg : Concrete.Config) (name : String) (c : Commands) (s : Concrete.State)
-    (hs : Armed s) (hk : Keep (s.origin name) c) (horig : ∀ o ∈ c.org.current.objects, o.id.origin = name)
-    (hext : Extends (s.origin name) c.org) :
+    (hs : Armed s) (hk : Keep (s.origin name) c)
+    (horig : ∀ o ∈ (c.doc (s.origin name)).current.objects, o.id.origin = name) :
     Armed (Concrete.applyAll s (c.effects (Concrete.write H cfg name (s.parts name)
-      (Concrete.Cond.of H (s.blob? (.origin name))) c.org))).1 := by
+      (Concrete.Cond.of H (s.blob? (.origin name))) c.add))).1 := by
   obtain ⟨h1, h2, -, -, -, -⟩ := run_state H cfg name c s
-  rw [view_next cfg (s.parts name) hext] at h1
+  rw [view_next] at h1
   intro t ht hk'
   rcases applyAll_blob_source _ s t ht with hold | ⟨b, cd, hm⟩
   · obtain ⟨o, ho, hoi, hot⟩ := hs t hold hk'
@@ -580,11 +607,10 @@ theorem Armed.step (H : Concrete.Hasher) (cfg : Concrete.Config) (ev : Concrete.
             simp only [Concrete.step, ho]
           rw [hst] at inv' ⊢
           rw [run_snd] at inv' ⊢
-          have hext := handle_extends (.external req) now (s.origin name)
-          refine Armed.run H cfg name _ s hs (handle_keep (inv.origin_props name).2.1 now _) ?_ hext
+          refine Armed.run H cfg name _ s hs (handle_keep (inv.origin_props name).2.1 now _) ?_
           have := (inv'.origin_props name).1
           have h1 := (run_state H cfg name (Concrete.handle (.external req) now (s.origin name)).2 s).1
-          rw [view_next cfg (s.parts name) hext] at h1
+          rw [view_next] at h1
           rw [h1] at this
           exact this
   | internal t =>
@@ -594,11 +620,10 @@ theorem Armed.step (H : Concrete.Hasher) (cfg : Concrete.Config) (ev : Concrete.
           simp only [Concrete.step, if_pos hl]
         rw [hst] at inv' ⊢
         rw [run_snd] at inv' ⊢
-        have hext := handle_extends (.internal t) now (s.origin t.id.origin)
-        refine Armed.run H cfg t.id.origin _ s hs (handle_keep (inv.origin_props t.id.origin).2.1 now _) ?_ hext
+        refine Armed.run H cfg t.id.origin _ s hs (handle_keep (inv.origin_props t.id.origin).2.1 now _) ?_
         have := (inv'.origin_props t.id.origin).1
         have h1 := (run_state H cfg t.id.origin (Concrete.handle (.internal t) now (s.origin t.id.origin)).2 s).1
-        rw [view_next cfg (s.parts t.id.origin) hext] at h1
+        rw [view_next] at h1
         rw [h1] at this
         exact this
       · simp only [Concrete.step, if_neg hl]

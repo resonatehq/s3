@@ -23,6 +23,9 @@ theorem WF_good {org : Origin} (h : WF org.current) {id : Ident} {now : Nat} {o 
     rw [project_callbacks] at hw'
     exact h3 w hw'
 
+theorem WF_empty {org : Origin} (h : WF org.current) : WF (({} : Commands).doc org).current := by
+  rw [doc_empty]; exact h
+
 theorem WF_set_of {o : Object} (hg : Good o) {x : Object} (hid : x.id = o.id)
     (hcb : x.promise.callbacks <+ o.promise.callbacks) (hls : x.promise.listeners <+ o.promise.listeners)
     {d : Origin} (hd : WF d.current) : WF (d.set x).current :=
@@ -80,15 +83,15 @@ open Protocol (PromiseGetReq PromiseCreateReq PromiseSettleReq PromiseRegisterCa
                TaskContinueReq TaskSearchReq TaskRef)
 
 theorem promiseGet_wf {org : Origin} (h : WF org.current) (now : Nat) (req : PromiseGetReq) :
-    WF (Concrete.promiseGet req now org).2.org.current := by
+    WF ((Concrete.promiseGet req now org).2.doc org).current := by
   unfold Concrete.promiseGet
-  split <;> exact h
+  split <;> exact WF_empty h
 
 theorem promiseCreate_wf {org : Origin} (h : WF org.current) (now : Nat) (req : PromiseCreateReq) :
-    WF (Concrete.promiseCreate req now org).2.org.current := by
+    WF ((Concrete.promiseCreate req now org).2.doc org).current := by
   unfold Concrete.promiseCreate
   split
-  · exact h
+  · exact WF_empty h
   · dsimp only
     split
     · split
@@ -97,35 +100,35 @@ theorem promiseCreate_wf {org : Origin} (h : WF org.current) (now : Nat) (req : 
     · exact WF_set_new h _ _ _ rfl rfl
 
 theorem promiseSettle_wf {org : Origin} (h : WF org.current) (now : Nat) (req : PromiseSettleReq) :
-    WF (Concrete.promiseSettle req now org).2.org.current := by
+    WF ((Concrete.promiseSettle req now org).2.doc org).current := by
   unfold Concrete.promiseSettle
   split
-  · exact h
+  · exact WF_empty h
   · cases hf : org.get req.id now with
-    | none => exact h
+    | none => exact WF_empty h
     | some o =>
         dsimp only
         split
         · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
-        · exact h
+        · exact WF_empty h
 
 theorem promiseRegisterCallback_wf {org : Origin} (h : WF org.current) (now : Nat)
     (req : PromiseRegisterCallbackReq) :
-    WF (Concrete.promiseRegisterCallback req now org).2.org.current := by
+    WF ((Concrete.promiseRegisterCallback req now org).2.doc org).current := by
   unfold Concrete.promiseRegisterCallback
   by_cases hc : (req.awaited == req.awaiter) = true ∨ (!req.awaited.sameOrigin req.awaiter) = true
   · rw [if_pos hc]
-    exact h
+    exact WF_empty h
   · rw [if_neg hc]
     cases hf : org.get req.awaited now with
-    | none => exact h
+    | none => exact WF_empty h
     | some awaited =>
         cases hg : org.get req.awaiter now with
-        | none => exact h
+        | none => exact WF_empty h
         | some awaiter =>
             dsimp only
             split
-            · exact h
+            · exact WF_empty h
             · split
               · have hne : req.awaiter ≠ awaited.id := by
                   rw [get_id hf]
@@ -137,33 +140,33 @@ theorem promiseRegisterCallback_wf {org : Origin} (h : WF org.current) (now : Na
                   · exact sameOrigin_eq hs
                   · exact absurd (Or.inr (by simpa using hs)) hc
                 exact WF_set_add (WF_good h hf) hne ho h
-              · exact h
+              · exact WF_empty h
 
 theorem promiseRegisterListener_wf {org : Origin} (h : WF org.current) (now : Nat)
     (req : PromiseRegisterListenerReq) :
-    WF (Concrete.promiseRegisterListener req now org).2.org.current := by
+    WF ((Concrete.promiseRegisterListener req now org).2.doc org).current := by
   unfold Concrete.promiseRegisterListener
   cases hf : org.get req.awaited now with
-  | none => exact h
+  | none => exact WF_empty h
   | some awaited =>
       dsimp only
       split
-      · exact h
+      · exact WF_empty h
       · split
         · exact WF_set_addListener (WF_good h hf) req.address h
-        · exact h
+        · exact WF_empty h
 
 theorem taskGet_wf {org : Origin} (h : WF org.current) (now : Nat) (req : TaskGetReq) :
-    WF (Concrete.taskGet req now org).2.org.current := by
+    WF ((Concrete.taskGet req now org).2.doc org).current := by
   unfold Concrete.taskGet
-  split <;> exact h
+  split <;> exact WF_empty h
 
 theorem taskCreate_wf {org : Origin} (h : WF org.current) (now : Nat) (req : TaskCreateReq) :
-    WF (Concrete.taskCreate req now org).2.org.current := by
+    WF ((Concrete.taskCreate req now org).2.doc org).current := by
   unfold Concrete.taskCreate
   dsimp only
   split
-  · exact h
+  · exact WF_empty h
   · cases hf : org.get req.action.id now with
     | none =>
         dsimp only
@@ -173,45 +176,45 @@ theorem taskCreate_wf {org : Origin} (h : WF org.current) (now : Nat) (req : Tas
     | some o =>
         dsimp only
         split
-        · exact h
+        · exact WF_empty h
         · split
-          · exact h
+          · exact WF_empty h
           · split
-            · exact h
+            · exact WF_empty h
             · split
               · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
-              · exact h
+              · exact WF_empty h
 
 theorem taskAcquire_wf {org : Origin} (h : WF org.current) (now : Nat) (req : TaskAcquireReq) :
-    WF (Concrete.taskAcquire req now org).2.org.current := by
+    WF ((Concrete.taskAcquire req now org).2.doc org).current := by
   unfold Concrete.taskAcquire
   cases hf : org.get req.id now with
-  | none => exact h
+  | none => exact WF_empty h
   | some o =>
       simp only [Option.bind_some]
       cases o.task with
-      | none => exact h
+      | none => exact WF_empty h
       | some t =>
           simp only [Option.map_some]
           split
-          · exact h
+          · exact WF_empty h
           · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem taskFence_wf {org : Origin} (h : WF org.current) (now : Nat) (req : TaskFenceReq) :
-    WF (Concrete.taskFence req now org).2.org.current := by
+    WF ((Concrete.taskFence req now org).2.doc org).current := by
   unfold Concrete.taskFence
   split
-  · exact h
+  · exact WF_empty h
   · cases org.get req.id now with
-    | none => exact h
+    | none => exact WF_empty h
     | some o =>
         simp only [Option.bind_some]
         cases o.task with
-        | none => exact h
+        | none => exact WF_empty h
         | some t =>
             simp only [Option.map_some]
             split
-            · exact h
+            · exact WF_empty h
             · cases req.action with
               | create r =>
                   rcases hC : Concrete.promiseCreate r now org with ⟨res, c⟩
@@ -227,7 +230,8 @@ theorem taskFence_wf {org : Origin} (h : WF org.current) (now : Nat) (req : Task
                   exact this
 
 theorem hbStep_wf {org : Origin} (h : WF org.current) (now : Nat) (pid : String) :
-    ∀ (refs : List TaskRef) (c : Commands), WF c.org.current → WF (refs.foldl (hbStep now org pid) c).org.current
+    ∀ (refs : List TaskRef) (c : Commands), WF (c.doc org).current →
+      WF ((refs.foldl (hbStep now org pid) c).doc org).current
   | [], _, hc => hc
   | ref :: refs, c, hc => by
       simp only [List.foldl_cons]
@@ -242,20 +246,22 @@ theorem hbStep_wf {org : Origin} (h : WF org.current) (now : Nat) (pid : String)
           | some t =>
               simp only [Option.map_some]
               split
-              · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ hc <;> first | rfl | exact List.Sublist.refl _
+              · dsimp only [Commands.doc]
+                rw [add_snoc]
+                refine WF_set_of (WF_good h hf) ?_ ?_ ?_ hc <;> first | rfl | exact List.Sublist.refl _
               · exact hc
 
 theorem taskHeartbeat_wf {org : Origin} (h : WF org.current) (now : Nat) (req : TaskHeartbeatReq) :
-    WF (Concrete.taskHeartbeat req now org).2.org.current := by
+    WF ((Concrete.taskHeartbeat req now org).2.doc org).current := by
   rw [taskHeartbeat_eq]
-  exact hbStep_wf h now req.pid req.tasks _ h
+  exact hbStep_wf h now req.pid req.tasks _ (WF_empty h)
 
 theorem regStep_wf {org : Origin} (h : WF org.current) (now : Nat) (awaiter : Ident) :
-    ∀ (ids : List Ident) (d : Origin), WF d.current →
+    ∀ (ids : List Ident) (adds : List Object), WF (org.add adds).current →
       (∀ id ∈ ids, id ≠ awaiter ∧ awaiter.origin = id.origin) →
-      WF ((ids.map (org.get · now)).foldl (regStep awaiter) d).current
+      WF (org.add ((ids.map (org.get · now)).foldl (regStep awaiter) adds)).current
   | [], _, hd, _ => hd
-  | id :: ids, d, hd, hids => by
+  | id :: ids, adds, hd, hids => by
       simp only [List.map_cons, List.foldl_cons]
       refine regStep_wf h now awaiter ids _ ?_ (fun i hi => hids i (List.mem_cons_of_mem _ hi))
       unfold regStep
@@ -263,36 +269,39 @@ theorem regStep_wf {org : Origin} (h : WF org.current) (now : Nat) (awaiter : Id
       | none => exact hd
       | some oa =>
           have hi := hids id (List.mem_cons_self ..)
+          rw [add_snoc]
           refine WF_set_add (WF_good h hf) ?_ ?_ hd
           · rw [get_id hf]; exact hi.1.symm
           · rw [get_id hf]; exact hi.2
 
 theorem taskSuspend_wf {org : Origin} (h : WF org.current) (now : Nat) (req : TaskSuspendReq) :
-    WF (Concrete.taskSuspend req now org).2.org.current := by
+    WF ((Concrete.taskSuspend req now org).2.doc org).current := by
   rw [taskSuspend_eq]
   dsimp only
   split
-  · exact h
+  · exact WF_empty h
   · rename_i hc
     cases hf : org.get req.id now with
-    | none => exact h
+    | none => exact WF_empty h
     | some o =>
         simp only [Option.bind_some]
         cases o.task with
-        | none => exact h
+        | none => exact WF_empty h
         | some t =>
             simp only [Option.map_some]
             split
-            · exact h
+            · exact WF_empty h
             · split
-              · exact h
+              · exact WF_empty h
               · split
                 · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
-                · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ ?_
+                · dsimp only [Commands.doc]
+                  rw [add_snoc]
+                  refine WF_set_of (WF_good h hf) ?_ ?_ ?_ ?_
                   · rfl
                   · exact List.Sublist.refl _
                   · exact List.Sublist.refl _
-                  refine regStep_wf h now req.id _ org h ?_
+                  refine regStep_wf h now req.id _ [] (by rw [add_nil]; exact h) ?_
                   intro id hid
                   simp only [not_or] at hc
                   obtain ⟨_, h2, h3, _⟩ := hc
@@ -304,71 +313,71 @@ theorem taskSuspend_wf {org : Origin} (h : WF org.current) (now : Nat) (req : Ta
                     exact sameOrigin_eq (by simpa using h3')
 
 theorem taskFulfill_wf {org : Origin} (h : WF org.current) (now : Nat) (req : TaskFulfillReq) :
-    WF (Concrete.taskFulfill req now org).2.org.current := by
+    WF ((Concrete.taskFulfill req now org).2.doc org).current := by
   unfold Concrete.taskFulfill
   split
-  · exact h
+  · exact WF_empty h
   · cases hf : org.get req.id now with
-    | none => exact h
+    | none => exact WF_empty h
     | some o =>
         simp only [Option.bind_some]
         cases o.task with
-        | none => exact h
+        | none => exact WF_empty h
         | some t =>
             simp only [Option.map_some]
             split
-            · exact h
+            · exact WF_empty h
             · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem taskRelease_wf {org : Origin} (h : WF org.current) (now : Nat) (req : TaskReleaseReq) :
-    WF (Concrete.taskRelease req now org).2.org.current := by
+    WF ((Concrete.taskRelease req now org).2.doc org).current := by
   unfold Concrete.taskRelease
   cases hf : org.get req.id now with
-  | none => exact h
+  | none => exact WF_empty h
   | some o =>
       simp only [Option.bind_some]
       cases o.task with
-      | none => exact h
+      | none => exact WF_empty h
       | some t =>
           simp only [Option.map_some]
           split
-          · exact h
+          · exact WF_empty h
           · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem taskHalt_wf {org : Origin} (h : WF org.current) (now : Nat) (req : TaskHaltReq) :
-    WF (Concrete.taskHalt req now org).2.org.current := by
+    WF ((Concrete.taskHalt req now org).2.doc org).current := by
   unfold Concrete.taskHalt
   cases hf : org.get req.id now with
-  | none => exact h
+  | none => exact WF_empty h
   | some o =>
       simp only [Option.bind_some]
       cases o.task with
-      | none => exact h
+      | none => exact WF_empty h
       | some t =>
           simp only [Option.map_some]
           split
-          · exact h
+          · exact WF_empty h
           · split
-            · exact h
+            · exact WF_empty h
             · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem taskContinue_wf {org : Origin} (h : WF org.current) (now : Nat) (req : TaskContinueReq) :
-    WF (Concrete.taskContinue req now org).2.org.current := by
+    WF ((Concrete.taskContinue req now org).2.doc org).current := by
   unfold Concrete.taskContinue
   cases hf : org.get req.id now with
-  | none => exact h
+  | none => exact WF_empty h
   | some o =>
       simp only [Option.bind_some]
       cases o.task with
-      | none => exact h
+      | none => exact WF_empty h
       | some t =>
           simp only [Option.map_some]
           split
-          · exact h
+          · exact WF_empty h
           · refine WF_set_of (WF_good h hf) ?_ ?_ ?_ h <;> first | rfl | exact List.Sublist.refl _
 
 theorem handleExternal_wf {org : Origin} (h : WF org.current) (now : Nat) (req : Request) :
-    WF (Concrete.handleExternal req now org).2.org.current := by
+    WF ((Concrete.handleExternal req now org).2.doc org).current := by
   cases req with
   | promiseGet r =>
       rcases hC : Concrete.promiseGet r now org with ⟨res, c⟩
@@ -400,11 +409,11 @@ theorem handleExternal_wf {org : Origin} (h : WF org.current) (now : Nat) (req :
       rw [hC] at this
       simp only [Concrete.handleExternal, hC]
       exact this
-  | promiseSearch r => exact h
-  | scheduleGet r => exact h
-  | scheduleCreate r => exact h
-  | scheduleDelete r => exact h
-  | scheduleSearch r => exact h
+  | promiseSearch r => exact WF_empty h
+  | scheduleGet r => exact WF_empty h
+  | scheduleCreate r => exact WF_empty h
+  | scheduleDelete r => exact WF_empty h
+  | scheduleSearch r => exact WF_empty h
   | taskGet r =>
       rcases hC : Concrete.taskGet r now org with ⟨res, c⟩
       have := taskGet_wf h now r
@@ -465,6 +474,6 @@ theorem handleExternal_wf {org : Origin} (h : WF org.current) (now : Nat) (req :
       rw [hC] at this
       simp only [Concrete.handleExternal, hC]
       exact this
-  | taskSearch r => exact h
+  | taskSearch r => exact WF_empty h
 
 end Refinement

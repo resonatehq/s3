@@ -24,7 +24,7 @@ def attempt (H : Hasher) (cfg : Config) (name : String) (f : Origin → α × Co
     α × Cached H × Bool :=
   let (parts, cond) := cs.read name
   let (a, c) := f (view parts)
-  let (s', ok) := applyAll cs.state (c.effects (write H cfg name parts cond c.org))
+  let (s', ok) := applyAll cs.state (c.effects (write H cfg name parts cond c.add))
   (a, { state := s',
         cache := match ok, s'.blob? (.origin name) with
                  | true, some (.origin parts') => (name, parts', H.hash (.origin parts')) :: cs.forget name

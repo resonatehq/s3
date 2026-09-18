@@ -26,13 +26,13 @@ structure Timer where
 
 structure Commands where
   arm  : List Timer := []
-  org  : Origin
+  add  : List Object := []
   del  : List Timer := []
   send : List (String × Message) := []
   deriving Repr
 
-def Origin.set (org : Origin) (o : Object) : Origin :=
-  ⟨org.objects ++ [o]⟩
+def Origin.add (org : Origin) (objects : List Object) : Origin :=
+  ⟨org.objects ++ objects⟩
 
 def Origin.current (org : Origin) : Origin :=
   ⟨org.objects.foldl (init := []) fun objects o =>
@@ -151,12 +151,12 @@ def applyAll {H : Hasher} : State → List (Effect H) → State × Bool
       | none =>
           (s, false)
 
-def write (H : Hasher) (cfg : Config) (name : String) (parts : List (List Object)) (cond : Cond H) (org : Origin) :
-    Effect H :=
+def write (H : Hasher) (cfg : Config) (name : String) (parts : List (List Object)) (cond : Cond H)
+    (objects : List Object) : Effect H :=
   if parts.tail.length < cfg.adds then
-    .add name (org.objects.drop (view parts).objects.length) cond
+    .add name objects cond
   else
-    .put (.origin name) (.origin [org.current.objects]) cond
+    .put (.origin name) (.origin [((view parts).add objects).current.objects]) cond
 
 def Commands.effects {H : Hasher} (write : Effect H) (c : Commands) : List (Effect H) :=
   c.arm.map (fun t => .put (.timer t) .timer .any)
@@ -167,7 +167,7 @@ def Commands.effects {H : Hasher} (write : Effect H) (c : Commands) : List (Effe
 def run (H : Hasher) (cfg : Config) (name : String) (f : Origin → α × Commands) (s : State) :
     α × State × Bool :=
   let (a, c) := f (s.origin name)
-  let (s', ok) := applyAll s (c.effects (write H cfg name (s.parts name) (Cond.of H (s.blob? (.origin name))) c.org))
+  let (s', ok) := applyAll s (c.effects (write H cfg name (s.parts name) (Cond.of H (s.blob? (.origin name))) c.add))
   (a, s', ok)
 
 end Concrete
