@@ -49,13 +49,11 @@ def promiseCreate (req : PromiseCreateReq) (now : Nat) (org : Origin) : PromiseC
             | none =>
                 now
           let t : TaskObject := { state := .pending, version := 0, retryTimeoutAt := some due }
-          ({ status := 200, promise := some (p.toRecord req.id) },
-           { arm := [⟨req.timeoutAt, req.id, .promiseTimeout⟩, ⟨due, req.id, .taskRetryTimeout⟩],
-             org := org.set ⟨req.id, p, some t⟩ })
+          let o : Object := ⟨req.id, p, some t⟩
+          ({ status := 200, promise := some (p.toRecord req.id) }, { arm := o.timers, org := org.set o })
         else
-          ({ status := 200, promise := some (p.toRecord req.id) },
-           { arm := [⟨req.timeoutAt, req.id, .promiseTimeout⟩],
-             org := org.set ⟨req.id, p, none⟩ })
+          let o : Object := ⟨req.id, p, none⟩
+          ({ status := 200, promise := some (p.toRecord req.id) }, { arm := o.timers, org := org.set o })
       else
         let p : PromiseObject :=
           { state := if req.type == .deadline then .resolved else .rejectedTimedout,
@@ -140,9 +138,9 @@ def taskCreate (req : TaskCreateReq) (now : Nat) (org : Origin) : TaskCreateRes 
           let t : TaskObject :=
             { state := .acquired, version := 1, ttl := some req.ttl, pid := some req.pid,
               leaseTimeoutAt := some (now + req.ttl) }
+          let o : Object := ⟨a.id, p, some t⟩
           ({ status := 200, task := some (t.toRecord a.id), promise := some (p.toRecord a.id) },
-           { arm := [⟨a.timeoutAt, a.id, .promiseTimeout⟩, ⟨now + req.ttl, a.id, .taskLeaseTimeout⟩],
-             org := org.set ⟨a.id, p, some t⟩ })
+           { arm := o.timers, org := org.set o })
         else
           let p : PromiseObject :=
             { state := .rejectedTimedout, param := a.param, type := a.type,
@@ -168,9 +166,7 @@ def taskCreate (req : TaskCreateReq) (now : Nat) (org : Origin) : TaskCreateRes 
                                    retryTimeoutAt := none, resumes := [] }
                 ({ status := 200, task := some (t'.toRecord o.id),
                    promise := some (o.promise.toRecord o.id) },
-                 { arm := [⟨now + req.ttl, o.id, .taskLeaseTimeout⟩],
-                   org := org.set { o with task := some t' },
-                   del := t.timers o.id })
+                 { arm := t'.timers o.id, org := org.set { o with task := some t' }, del := t.timers o.id })
               else
                 ({ status := 409 }, { org })
 
@@ -187,9 +183,7 @@ def taskAcquire (req : TaskAcquireReq) (now : Nat) (org : Origin) : TaskAcquireR
                            leaseTimeoutAt := some (now + req.ttl),
                            retryTimeoutAt := none, resumes := [] }
         ({ status := 200, task := some (t'.toRecord o.id), promise := some (o.promise.toRecord o.id) },
-         { arm := [⟨now + req.ttl, o.id, .taskLeaseTimeout⟩],
-           org := org.set { o with task := some t' },
-           del := t.timers o.id })
+         { arm := t'.timers o.id, org := org.set { o with task := some t' }, del := t.timers o.id })
 
 def taskFence (req : TaskFenceReq) (now : Nat) (org : Origin) : TaskFenceRes × Commands :=
   if req.action.targetId == req.id ∨ !req.action.targetId.sameOrigin req.id then
@@ -220,9 +214,10 @@ def taskHeartbeat (req : TaskHeartbeatReq) (now : Nat) (org : Origin) : TaskHear
          if t.state == .acquired ∧ t.version == ref.version
              ∧ t.pid == some req.pid ∧ o.promise.state == .pending then
            let lease := now + t.ttl.getD 0
+           let t' := { t with leaseTimeoutAt := some lease }
            { c with
-             arm := c.arm ++ (if t.leaseTimeoutAt == some lease then [] else [⟨lease, o.id, .taskLeaseTimeout⟩]),
-             org := c.org.set { o with task := some { t with leaseTimeoutAt := some lease } },
+             arm := c.arm ++ (if t.leaseTimeoutAt == some lease then [] else t'.timers o.id),
+             org := c.org.set { o with task := some t' },
              del := c.del ++ (if t.leaseTimeoutAt == some lease then [] else t.timers o.id) }
          else
            c)
@@ -286,12 +281,9 @@ def taskRelease (req : TaskReleaseReq) (now : Nat) (org : Origin) : TaskReleaseR
       if t.state != .acquired ∨ o.promise.state != .pending ∨ t.version != req.version then
         ({ status := 409 }, { org })
       else
-        ({ status := 200 },
-         { arm := [⟨now, o.id, .taskRetryTimeout⟩],
-           org := org.set { o with task := some { t with state := .pending, pid := none, ttl := none,
-                                                           leaseTimeoutAt := none,
-                                                           retryTimeoutAt := some now } },
-           del := t.timers o.id })
+        let t' := { t with state := .pending, pid := none, ttl := none, leaseTimeoutAt := none,
+                           retryTimeoutAt := some now }
+        ({ status := 200 }, { arm := t'.timers o.id, org := org.set { o with task := some t' }, del := t.timers o.id })
 
 def taskHalt (req : TaskHaltReq) (now : Nat) (org : Origin) : TaskHaltRes × Commands :=
   match (org.get req.id now).bind fun o => o.task.map (o, ·) with
@@ -317,9 +309,8 @@ def taskContinue (req : TaskContinueReq) (now : Nat) (org : Origin) : TaskContin
       if t.state != .halted ∨ o.promise.state != .pending then
         ({ status := 409 }, { org })
       else
-        ({ status := 200 },
-         { arm := [⟨now, o.id, .taskRetryTimeout⟩],
-           org := org.set { o with task := some { t with state := .pending, retryTimeoutAt := some now } } })
+        let t' := { t with state := .pending, retryTimeoutAt := some now }
+        ({ status := 200 }, { arm := t'.timers o.id, org := org.set { o with task := some t' } })
 
 def taskSearch (_req : TaskSearchReq) (_now : Nat) (org : Origin) : TaskSearchRes × Commands :=
   ({ status := 501 }, { org })

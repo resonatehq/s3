@@ -46,7 +46,8 @@ def _root_.Protocol.TaskObject.timers (t : TaskObject) (id : Ident) : List Timer
       []
 
 def _root_.Protocol.Object.timers (o : Object) : List Timer :=
-  (if o.promise.state == .pending then [⟨o.promise.timeoutAt, o.id, .promiseTimeout⟩] else [])
+  (if o.promise.state == .pending ∧ o.promise.type != .internal then [⟨o.promise.timeoutAt, o.id, .promiseTimeout⟩]
+   else [])
   ++ (o.task.map (·.timers o.id)).getD []
 
 inductive Path

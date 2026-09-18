@@ -21,7 +21,7 @@ Four folders under `src/`:
 - `types.lean` is the protocol: identifiers, promises, tasks, schedules, callbacks and listeners, outbox messages, and the request and response alphabets.
 - `spec/02-abstract` is the specification: an abstract state machine over objects, schedules and an outbox, driven by external requests and internal triggers such as timeouts. `spec/03-theorems` proves properties of the specification; a few `sorry`s remain there, none used below.
 - `impl/` is the implementation, laid out like the specification: `state` (the origin document, the bucket, conditional puts), `external` (the request handlers), `internal` (the sweep), `system` (events, the step, traces), and `cache` (the machine with a read cache). Definitions only, no theorems.
-- `refinement/` is the proof that `impl` refines `spec`. Nothing in `impl` depends on it.
+- `refinement/` is the proof that `impl` refines `spec`, and the invariants of `impl` on its own. Nothing in `impl` depends on it.
 
 The headline theorems follow.
 
@@ -70,6 +70,25 @@ theorem refinesCached (H : Hasher) (tr : Cached.Trace H)
 ```
 
 Take any hasher `H` and any infinite sequence of frames `tr` of the cached machine, each frame a bucket with its cache, an event, a reply and an instant. Suppose `valid`: every frame steps to the next by the cached machine, and time never runs backwards. Suppose `init`: the first frame holds the empty bucket and the empty cache. Then there is a run `tr'` of the abstract machine, valid with materialisation off and starting from the empty abstract state, such that for every position `k` and every observation `o`, `o` is the `k`-th observation of the cached run if and only if it is the `k`-th observation of the abstract run.
+
+## `armed`
+
+Only a pending, non-internal promise ever has a timeout timer armed in the bucket.
+
+```lean
+theorem armed (H : Concrete.Hasher) (tr : Concrete.Trace) (valid : Concrete.Valid H tr)
+    (init : (tr 0).state = Concrete.State.init) : ∀ n, Armed (tr n).state
+```
+
+with
+
+```lean
+def Armed (s : Concrete.State) : Prop :=
+  ∀ t : Timer, (s.blob? (.timer t)).isSome = true → t.kind = .promiseTimeout →
+    ∃ o ∈ (s.origin t.id.origin).objects, o.id = t.id ∧ o.promise.type ≠ .internal
+```
+
+Take any hasher `H` and any valid concrete run `tr` from the empty bucket. Then in every frame `n` the bucket is `Armed`: for every timer `t` whose blob is present in the bucket, if it is a promise timeout timer, then the document of the timer's origin contains an object with the timer's id, and that object's promise is not of type `internal`. Internal promises are never awaited, so their timeouts are settled lazily, by the sweep of the next request to their origin, and no timer is ever armed for them. The proof goes handler by handler: every timer a handler or the sweep arms is a timer implied by an object it writes, and no handler changes the type of a promise.
 
 ## Build
 

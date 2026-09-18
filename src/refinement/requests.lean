@@ -639,9 +639,10 @@ def hbStep (now : Nat) (org : Origin) (pid : String) (c : Commands) (ref : TaskR
       if t.state == .acquired ∧ t.version == ref.version
           ∧ t.pid == some pid ∧ o.promise.state == .pending then
         let lease := now + t.ttl.getD 0
+        let t' := { t with leaseTimeoutAt := some lease }
         { c with
-          arm := c.arm ++ (if t.leaseTimeoutAt == some lease then [] else [⟨lease, o.id, .taskLeaseTimeout⟩]),
-          org := c.org.set { o with task := some { t with leaseTimeoutAt := some lease } },
+          arm := c.arm ++ (if t.leaseTimeoutAt == some lease then [] else t'.timers o.id),
+          org := c.org.set { o with task := some t' },
           del := c.del ++ (if t.leaseTimeoutAt == some lease then [] else t.timers o.id) }
       else
         c
