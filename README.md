@@ -73,7 +73,7 @@ Take any hasher `H` and any infinite sequence of frames `tr` of the cached machi
 
 ## `armed`
 
-Only a pending, non-internal promise ever has a timeout timer armed in the bucket.
+Every armed timeout timer belongs to an existing, non-internal promise.
 
 ```lean
 theorem armed (H : Concrete.Hasher) (tr : Concrete.Trace) (valid : Concrete.Valid H tr)
