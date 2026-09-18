@@ -7,14 +7,14 @@ open Protocol (Ident Message PromiseState TaskState Object PromiseObject TaskObj
 open Concrete (Origin Commands Timer)
 
 def promiseTimeouts (now : Nat) (org : Origin) : Commands :=
-  org.objects.foldl (init := { org }) fun c o =>
+  org.current.objects.foldl (init := { org }) fun c o =>
     if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now then
       { c with org := c.org.set (o.project now), del := c.del ++ o.timers }
     else
       c
 
 def listeners (now : Nat) (org : Origin) : Commands :=
-  org.objects.foldl (init := { org }) fun c o =>
+  org.current.objects.foldl (init := { org }) fun c o =>
     let o := o.project now
     if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
       { c with
@@ -43,7 +43,7 @@ def resumeOne (now : Nat) (awaited : Ident) (c : Commands) (awaiter : Ident) : C
           { c with org := c.org.set w }
 
 def callbacks (now : Nat) (org : Origin) : Commands :=
-  org.objects.foldl (init := { org }) fun c o =>
+  org.current.objects.foldl (init := { org }) fun c o =>
     let o := o.project now
     if o.promise.state != .pending then
       o.promise.callbacks.foldl (init := c) fun c awaiter =>
@@ -59,7 +59,7 @@ def callbacks (now : Nat) (org : Origin) : Commands :=
       c
 
 def leaseTimeouts (now : Nat) (org : Origin) : Commands :=
-  org.objects.foldl (init := { org }) fun c o =>
+  org.current.objects.foldl (init := { org }) fun c o =>
     let o := o.project now
     match o.task with
     | some t =>
@@ -77,7 +77,7 @@ def leaseTimeouts (now : Nat) (org : Origin) : Commands :=
         c
 
 def retryTimeouts (now : Nat) (org : Origin) : Commands :=
-  org.objects.foldl (init := { org }) fun c o =>
+  org.current.objects.foldl (init := { org }) fun c o =>
     let o := o.project now
     match o.task, o.promise.type with
     | some t, .runnable target =>
@@ -101,14 +101,14 @@ def sweep (now : Nat) (org : Origin) : Commands :=
   c4.merge (retryTimeouts now c4.org)
 
 def promiseTimeoutTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
-  org.objects.filterMap fun o =>
+  org.current.objects.filterMap fun o =>
     if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now then
       some (.promiseTimeout ⟨o.id⟩)
     else
       none
 
 def listenerTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
-  org.objects.flatMap fun o =>
+  org.current.objects.flatMap fun o =>
     let o := o.project now
     if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
       o.promise.listeners.map fun a => .listener ⟨o.id, a⟩
@@ -116,7 +116,7 @@ def listenerTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
       []
 
 def callbackTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
-  org.objects.flatMap fun o =>
+  org.current.objects.flatMap fun o =>
     let o := o.project now
     if o.promise.state != .pending then
       o.promise.callbacks.map fun w => .callback ⟨o.id, w⟩
@@ -124,7 +124,7 @@ def callbackTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
       []
 
 def leaseTimeoutTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
-  org.objects.filterMap fun o =>
+  org.current.objects.filterMap fun o =>
     let o := o.project now
     match o.task with
     | some t =>
@@ -136,7 +136,7 @@ def leaseTimeoutTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
         none
 
 def retryTimeoutTriggers (now : Nat) (org : Origin) : List Abstract.Trigger :=
-  org.objects.filterMap fun o =>
+  org.current.objects.filterMap fun o =>
     let o := o.project now
     match o.task, o.promise.type with
     | some t, .runnable _ =>

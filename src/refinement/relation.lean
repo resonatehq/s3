@@ -61,8 +61,8 @@ def events : Concrete.Event → Nat → Concrete.State → List Abstract.Event
 
 def origins (s : Concrete.State) : List Concrete.Origin :=
   s.bucket.filterMap fun
-    | (.origin _, .origin org) =>
-        some org
+    | (.origin _, .origin parts) =>
+        some (Concrete.view parts)
     | _ =>
         none
 
@@ -82,8 +82,8 @@ def WF (org : Concrete.Origin) : Prop :=
 
 structure Inv (s : Concrete.State) : Prop where
   blobs : ∀ name b, (Concrete.Path.origin name, b) ∈ s.bucket →
-    ∃ org, b = .origin org ∧ (∀ o ∈ org.objects, o.id.origin = name) ∧
-      (org.objects.map (·.id)).Nodup ∧ WF org
+    ∃ parts, b = .origin parts ∧ (∀ o ∈ (Concrete.view parts).objects, o.id.origin = name) ∧
+      WF (Concrete.view parts)
   paths : (s.bucket.map (·.1)).Nodup
 
 def observations (now : Nat) : List Abstract.Event → List Abstract.Reply → List Abstract.Observation

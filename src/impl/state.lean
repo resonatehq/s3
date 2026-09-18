@@ -8,6 +8,10 @@ structure Origin where
   objects : List Object := []
   deriving Repr
 
+structure Config where
+  adds : Nat := 0
+  deriving Repr
+
 inductive TimerKind
   | promiseTimeout
   | taskLeaseTimeout
@@ -27,14 +31,18 @@ structure Commands where
   send : List (String × Message) := []
   deriving Repr
 
-def Origin.get (org : Origin) (id : Ident) (now : Nat) : Option Object :=
-  (org.objects.find? (·.id == id)).map (·.project now)
-
 def Origin.set (org : Origin) (o : Object) : Origin :=
-  if org.objects.any (·.id == o.id) then
-    ⟨org.objects.map fun x => if x.id == o.id then o else x⟩
-  else
-    ⟨org.objects ++ [o]⟩
+  ⟨org.objects ++ [o]⟩
+
+def Origin.current (org : Origin) : Origin :=
+  ⟨org.objects.foldl (init := []) fun objects o =>
+    if objects.any (·.id == o.id) then
+      objects.map fun x => if x.id == o.id then o else x
+    else
+      objects ++ [o]⟩
+
+def Origin.get (org : Origin) (id : Ident) (now : Nat) : Option Object :=
+  (org.current.objects.find? (·.id == id)).map (·.project now)
 
 def _root_.Protocol.TaskObject.timers (t : TaskObject) (id : Ident) : List Timer :=
   match t.state, t.leaseTimeoutAt, t.retryTimeoutAt with
@@ -56,9 +64,12 @@ inductive Path
   deriving Repr, DecidableEq
 
 inductive Blob
-  | origin (org : Origin)
+  | origin (parts : List (List Object))
   | timer
   deriving Repr
+
+def view (parts : List (List Object)) : Origin :=
+  Origin.current ⟨parts.flatten⟩
 
 structure Hasher where
   Hash : Type
@@ -97,15 +108,19 @@ def State.init : State := {}
 def State.blob? (s : State) (p : Path) : Option Blob :=
   (s.bucket.find? (·.1 == p)).map (·.2)
 
-def State.origin (s : State) (name : String) : Origin :=
+def State.parts (s : State) (name : String) : List (List Object) :=
   match s.blob? (.origin name) with
-  | some (.origin org) =>
-      org
+  | some (.origin parts) =>
+      parts
   | _ =>
-      {}
+      []
+
+def State.origin (s : State) (name : String) : Origin :=
+  view (s.parts name)
 
 inductive Effect (H : Hasher)
   | put (path : Path) (blob : Blob) (cond : Cond H)
+  | add (name : String) (part : List Object) (cond : Cond H)
   | del (path : Path)
   | send (address : String) (msg : Message)
 
@@ -113,6 +128,11 @@ def Effect.apply {H : Hasher} (s : State) : Effect H → Option State
   | .put p b c =>
       if c.holds (s.blob? p) then
         some { s with bucket := (p, b) :: s.bucket.filter (·.1 != p) }
+      else
+        none
+  | .add name part c =>
+      if c.holds (s.blob? (.origin name)) then
+        some { s with bucket := (.origin name, .origin (s.parts name ++ [part])) :: s.bucket.filter (·.1 != .origin name) }
       else
         none
   | .del p =>
@@ -131,17 +151,23 @@ def applyAll {H : Hasher} : State → List (Effect H) → State × Bool
       | none =>
           (s, false)
 
-def Commands.effects {H : Hasher} (name : String) (cond : Cond H) (c : Commands) :
-    List (Effect H) :=
+def write (H : Hasher) (cfg : Config) (name : String) (parts : List (List Object)) (cond : Cond H) (org : Origin) :
+    Effect H :=
+  if parts.tail.length < cfg.adds then
+    .add name (org.objects.drop (view parts).objects.length) cond
+  else
+    .put (.origin name) (.origin [org.current.objects]) cond
+
+def Commands.effects {H : Hasher} (write : Effect H) (c : Commands) : List (Effect H) :=
   c.arm.map (fun t => .put (.timer t) .timer .any)
-  ++ [.put (.origin name) (.origin c.org) cond]
+  ++ [write]
   ++ c.del.map (fun t => .del (.timer t))
   ++ c.send.map (fun (a, m) => .send a m)
 
-def run (H : Hasher) (name : String) (f : Origin → α × Commands) (s : State) :
+def run (H : Hasher) (cfg : Config) (name : String) (f : Origin → α × Commands) (s : State) :
     α × State × Bool :=
   let (a, c) := f (s.origin name)
-  let (s', ok) := applyAll s (c.effects name (Cond.of H (s.blob? (.origin name))))
+  let (s', ok) := applyAll s (c.effects (write H cfg name (s.parts name) (Cond.of H (s.blob? (.origin name))) c.org))
   (a, s', ok)
 
 end Concrete

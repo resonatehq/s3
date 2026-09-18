@@ -2,7 +2,7 @@ import impl.system
 
 namespace Concrete
 
-open Protocol (Message OutboxEntry Request Response)
+open Protocol (Message OutboxEntry Request Response Object)
 
 variable {H : Hasher}
 
@@ -23,6 +23,10 @@ def Effect.unconditional : Effect H → Bool
       true
   | .put _ _ _ =>
       false
+  | .add _ _ .any =>
+      true
+  | .add _ _ _ =>
+      false
   | .del _ =>
       true
   | .send _ _ =>
@@ -34,6 +38,10 @@ theorem apply_unconditional {e : Effect H} (h : e.unconditional = true) (s : Sta
   | put p b c =>
       cases c <;> simp [Effect.unconditional] at h
       exact ⟨{ s with bucket := (p, b) :: s.bucket.filter (·.1 != p) },
+             by simp [Effect.apply, Cond.holds]⟩
+  | add name part c =>
+      cases c <;> simp [Effect.unconditional] at h
+      exact ⟨{ s with bucket := (.origin name, .origin (s.parts name ++ [part])) :: s.bucket.filter (·.1 != .origin name) },
              by simp [Effect.apply, Cond.holds]⟩
   | del p =>
       exact ⟨_, rfl⟩
@@ -102,27 +110,48 @@ theorem applyAll_arm (name : String) :
       obtain ⟨h1, h2⟩ := applyAll_arm name ts s'
       exact ⟨h1, by rw [h2, blob?_put_other hs (by simp)]⟩
 
-theorem applyAll_accepted (s : State) (name : String) (c : Commands) :
-    (applyAll s (c.effects name (Cond.of H (s.blob? (.origin name))))).2 = true := by
+def next (cfg : Config) (parts : List (List Object)) (org : Origin) : List (List Object) :=
+  if parts.tail.length < cfg.adds then
+    parts ++ [org.objects.drop (view parts).objects.length]
+  else
+    [org.current.objects]
+
+theorem write_apply (cfg : Config) (name : String) (parts : List (List Object)) (cond : Cond H) (org : Origin)
+    {s : State} (hp : s.parts name = parts) :
+    (write H cfg name parts cond org).apply s =
+      if cond.holds (s.blob? (.origin name)) then
+        some { s with bucket := (.origin name, .origin (next cfg parts org)) :: s.bucket.filter (·.1 != .origin name) }
+      else
+        none := by
+  unfold write next
+  split
+  · simp only [Effect.apply, hp]
+  · simp only [Effect.apply]
+
+theorem write_refused (cfg : Config) (name : String) (parts : List (List Object)) (cond : Cond H) (org : Origin)
+    {s : State} (h : cond.holds (s.blob? (.origin name)) = false) :
+    (write H cfg name parts cond org).apply s = none := by
+  unfold write
+  split <;> simp [Effect.apply, h]
+
+theorem applyAll_accepted (cfg : Config) (s : State) (name : String) (c : Commands) :
+    (applyAll s (c.effects (write H cfg name (s.parts name) (Cond.of H (s.blob? (.origin name))) c.org))).2 = true := by
   unfold Commands.effects
   obtain ⟨h1, h2⟩ := applyAll_arm (H := H) name c.arm s
   simp only [List.append_assoc, List.singleton_append]
   rw [applyAll_append, if_pos h1]
-  have key : ∀ s1 : State,
-      (Cond.of H (s.blob? (.origin name))).holds (s1.blob? (.origin name)) = true →
-      (applyAll s1 (Effect.put (.origin name) (.origin c.org) (Cond.of H (s.blob? (.origin name))) ::
-        (c.del.map (fun t => Effect.del (H := H) (.timer t)) ++
-         c.send.map (fun (a, m) => Effect.send (H := H) a m)))).2 = true := by
-    intro s1 hh
-    simp only [applyAll, Effect.apply, hh, ↓reduceIte]
-    apply applyAll_unconditional
-    intro e he
-    simp only [List.mem_append, List.mem_map] at he
-    rcases he with ⟨_, _, rfl⟩ | ⟨⟨a, m⟩, _, rfl⟩ <;> rfl
-  exact key _ (by rw [h2]; exact Cond.of_holds _)
+  have hp : (applyAll s (c.arm.map fun t => Effect.put (H := H) (.timer t) .timer .any)).1.parts name = s.parts name := by
+    unfold State.parts; rw [h2]
+  rw [List.cons_append]
+  simp only [applyAll]
+  rw [write_apply cfg name _ _ _ hp, if_pos (by rw [h2]; exact Cond.of_holds _)]
+  apply applyAll_unconditional
+  intro e he
+  simp only [List.mem_append, List.mem_map] at he
+  rcases he with ⟨_, _, rfl⟩ | ⟨⟨a, m⟩, _, rfl⟩ <;> rfl
 
-theorem run_accepted (name : String) (f : Origin → α × Commands) (s : State) :
-    (run H name f s).2.2 = true := by
+theorem run_accepted (cfg : Config) (name : String) (f : Origin → α × Commands) (s : State) :
+    (run H cfg name f s).2.2 = true := by
   simp only [run, applyAll_accepted]
 
 end Concrete

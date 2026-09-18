@@ -92,7 +92,7 @@ def sweep (now : Nat) (org : Origin) : Commands :=
   let before := org.objects.flatMap (·.timers)
   let after := (changes.map (·.obj)).flatMap (·.timers)
   { arm  := after.filter (!before.contains ·),
-    org  := ⟨changes.map (·.obj)⟩,
+    org  := ⟨org.objects ++ (changes.map (·.obj)).filter (· ∉ org.objects)⟩,
     del  := before.filter (!after.contains ·),
     send := changes.flatMap (·.unblocks) ++ changes.flatMap (·.executes) }
 

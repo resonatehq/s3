@@ -94,30 +94,30 @@ def handle (ev : Event) (now : Nat) (org : Origin) : Reply × Commands :=
   | .stutter =>
       (.stutter, { org })
 
-def step (H : Hasher) (ev : Event) (now : Nat) (s : State) : Reply × State :=
+def step (H : Hasher) (cfg : Config) (ev : Event) (now : Nat) (s : State) : Reply × State :=
   match ev with
   | .external req =>
       match req.origin? with
       | some name =>
-          let (r, s', ok) := run H name (fun org => handle ev now org) s
+          let (r, s', ok) := run H cfg name (fun org => handle ev now org) s
           (if ok then r else .stutter, s')
       | none =>
           (.stutter, s)
   | .internal t =>
       if (s.blob? (.timer t)).isSome ∧ t.deadline ≤ now then
-        let (r, s', ok) := run H t.id.origin (fun org => handle ev now org) s
+        let (r, s', ok) := run H cfg t.id.origin (fun org => handle ev now org) s
         (if ok then r else .stutter, s')
       else
         (.stutter, s)
   | .stutter =>
       (.stutter, s)
 
-def exec (H : Hasher) : List (Event × Nat) → State → List Reply × State
+def exec (H : Hasher) (cfg : Config) : List (Event × Nat) → State → List Reply × State
   | [], s =>
       ([], s)
   | (ev, n) :: w, s =>
-      let (r, s')   := step H ev n s
-      let (rs, s'') := exec H w s'
+      let (r, s')   := step H cfg ev n s
+      let (rs, s'') := exec H cfg w s'
       (r :: rs, s'')
 
 structure Frame where
@@ -128,20 +128,20 @@ structure Frame where
 
 abbrev Trace := Nat → Frame
 
-def Valid (H : Hasher) (tr : Trace) : Prop :=
+def Valid (H : Hasher) (cfg : Config) (tr : Trace) : Prop :=
   ∀ t : Nat,
-    step H (tr t).event (tr t).now (tr t).state = ((tr t).reply, (tr (t + 1)).state) ∧
+    step H cfg (tr t).event (tr t).now (tr t).state = ((tr t).reply, (tr (t + 1)).state) ∧
     (tr t).now ≤ (tr (t + 1)).now
 
-theorem Valid.reply {H : Hasher} {tr : Trace} (hv : Valid H tr) (t : Nat) :
-    (tr t).reply = (step H (tr t).event (tr t).now (tr t).state).1 := by
+theorem Valid.reply {H : Hasher} {cfg : Config} {tr : Trace} (hv : Valid H cfg tr) (t : Nat) :
+    (tr t).reply = (step H cfg (tr t).event (tr t).now (tr t).state).1 := by
   rw [(hv t).1]
 
-theorem Valid.state {H : Hasher} {tr : Trace} (hv : Valid H tr) (t : Nat) :
-    (tr (t + 1)).state = (step H (tr t).event (tr t).now (tr t).state).2 := by
+theorem Valid.state {H : Hasher} {cfg : Config} {tr : Trace} (hv : Valid H cfg tr) (t : Nat) :
+    (tr (t + 1)).state = (step H cfg (tr t).event (tr t).now (tr t).state).2 := by
   rw [(hv t).1]
 
-theorem Valid.now {H : Hasher} {tr : Trace} (hv : Valid H tr) (t : Nat) :
+theorem Valid.now {H : Hasher} {cfg : Config} {tr : Trace} (hv : Valid H cfg tr) (t : Nat) :
     (tr t).now ≤ (tr (t + 1)).now := (hv t).2
 
 end Concrete

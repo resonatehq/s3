@@ -1,5 +1,6 @@
 import refinement.wf
 import refinement.equal
+import refinement.extends
 
 namespace Refinement
 
@@ -7,24 +8,31 @@ open Protocol (Ident Message OutboxEntry Object PromiseObject TaskObject Request
 open Concrete (Origin Commands Path Blob)
 
 def originOf? : Option Blob → Origin
-  | some (.origin org) => org
+  | some (.origin parts) => Concrete.view parts
   | _ => {}
 
 theorem State.origin_eq (s : Concrete.State) (name : String) :
     s.origin name = originOf? (s.blob? (.origin name)) := by
-  unfold Concrete.State.origin originOf?
+  unfold Concrete.State.origin Concrete.State.parts originOf?
   cases s.blob? (.origin name) with
   | none => rfl
   | some b => cases b <;> rfl
 
+theorem view_current (parts : List (List Object)) : (Concrete.view parts).current = Concrete.view parts :=
+  current_current _
+
+theorem origin_current (s : Concrete.State) (name : String) : (s.origin name).current = s.origin name :=
+  current_current _
+
 def blobOrig : Path × Blob → Option Origin
-  | (.origin _, .origin org) => some org
+  | (.origin _, .origin parts) => some (Concrete.view parts)
   | _ => none
 
 theorem origins_eq (s : Concrete.State) : origins s = s.bucket.filterMap blobOrig := rfl
 
 def Owned (l : List (Path × Blob)) : Prop :=
-  ∀ name b, (Path.origin name, b) ∈ l → ∃ org, b = .origin org ∧ ∀ o ∈ org.objects, o.id.origin = name
+  ∀ name b, (Path.origin name, b) ∈ l →
+    ∃ parts, b = .origin parts ∧ ∀ o ∈ (Concrete.view parts).objects, o.id.origin = name
 
 theorem Owned.tail {x : Path × Blob} {l : List (Path × Blob)} (h : Owned (x :: l)) : Owned l :=
   fun n b hb => h n b (List.mem_cons_of_mem _ hb)
@@ -49,7 +57,7 @@ theorem find_flat_none (id : Ident) : ∀ (l : List (Path × Blob)), Owned l →
           simp only [List.filterMap_cons, blobOrig]
           exact find_flat_none id l hb.tail hnot.2
       | origin name =>
-          obtain ⟨org, rfl, horg⟩ := hb name b (List.mem_cons_self ..)
+          obtain ⟨parts, rfl, horg⟩ := hb name b (List.mem_cons_self ..)
           have hne : name ≠ id.origin := fun e => hnot.1 (by rw [e])
           simp only [List.filterMap_cons, blobOrig, List.flatMap_cons, List.find?_append,
             find?_objects_none horg hne, Option.none_or]
@@ -67,13 +75,14 @@ theorem find_flat (id : Ident) : ∀ (l : List (Path × Blob)), Owned l → (l.m
           simp only [List.filterMap_cons, blobOrig, List.find?_cons, hne]
           exact find_flat id l hb.tail hnd.2
       | origin name =>
-          obtain ⟨org, rfl, horg⟩ := hb name b (List.mem_cons_self ..)
+          obtain ⟨parts, rfl, horg⟩ := hb name b (List.mem_cons_self ..)
           by_cases e : name = id.origin
           · subst e
             simp only [List.filterMap_cons, blobOrig, List.flatMap_cons, List.find?_append, List.find?_cons,
               beq_self_eq_true, Option.map_some, originOf?, find_flat_none id l hb.tail hnd.1, Option.or_none]
-            rfl
-          · have hf : ((Path.origin name, Blob.origin org).1 == Path.origin id.origin) = false := by
+            unfold Origin.find
+            rw [view_current]
+          · have hf : ((Path.origin name, Blob.origin parts).1 == Path.origin id.origin) = false := by
               simpa using e
             simp only [List.filterMap_cons, blobOrig, List.flatMap_cons, List.find?_append, List.find?_cons,
               hf, find?_objects_none horg e, Option.none_or]
@@ -85,7 +94,7 @@ theorem find_abstract {s : Concrete.State} (inv : Inv s) (id : Ident) :
   rw [State.origin_eq, origins_eq]
   unfold Concrete.State.blob?
   exact find_flat id s.bucket
-    (fun n b h => let ⟨org, hb, ho, _, _⟩ := inv.blobs n b h; ⟨org, hb, ho⟩) inv.paths
+    (fun n b h => let ⟨parts, hb, ho, _⟩ := inv.blobs n b h; ⟨parts, hb, ho⟩) inv.paths
 
 theorem Inv.origin_props {s : Concrete.State} (inv : Inv s) (name : String) :
     (∀ o ∈ (s.origin name).objects, o.id.origin = name) ∧
@@ -102,8 +111,8 @@ theorem Inv.origin_props {s : Concrete.State} (inv : Inv s) (name : String) :
       obtain ⟨p, b⟩ := x
       simp only at hx
       subst hx
-      obtain ⟨org, rfl, horg, hnd, hwf⟩ := inv.blobs name b hmem
-      exact ⟨horg, hnd, hwf⟩
+      obtain ⟨parts, rfl, horg, hwf⟩ := inv.blobs name b hmem
+      exact ⟨horg, current_nodup _, hwf⟩
 
 theorem Local_of_rel {s : Concrete.State} {S : Abstract.State} (inv : Inv s) (rel : Equiv (abstract s) S)
     (name : String) : Local name (s.origin name) S := by
@@ -242,6 +251,7 @@ theorem timers_phase : ∀ (es : List (Concrete.Effect H)) (s : Concrete.State),
               obtain ⟨h1, h2⟩ := timers_phase es _ hes
               exact ⟨h1, (same_del_timer s t).trans h2⟩
       | send _ _ => exact False.elim he
+      | add _ _ _ => exact False.elim he
 
 theorem sends_phase : ∀ (ms : List (String × Message)) (s : Concrete.State),
     (Concrete.applyAll s (ms.map fun (a, m) => Concrete.Effect.send (H := H) a m)).2 = true ∧
@@ -253,14 +263,16 @@ theorem sends_phase : ∀ (ms : List (String × Message)) (s : Concrete.State),
       simp only [List.map_cons, Concrete.applyAll, Concrete.Effect.apply, sendsFold]
       exact sends_phase ms _
 
-theorem origin_put {s s' : Concrete.State} {name : String} {org : Origin} {c : Concrete.Cond H}
-    (h : (Concrete.Effect.put (Path.origin name) (Blob.origin org) c).apply s = some s') :
-    s'.blob? (.origin name) = some (.origin org) ∧
+theorem origin_write {s s' : Concrete.State} {name : String} {parts : List (List Object)} {cond : Concrete.Cond H}
+    {org : Origin} (cfg : Concrete.Config) (hp : s.parts name = parts)
+    (h : (Concrete.write H cfg name parts cond org).apply s = some s') :
+    s'.blob? (.origin name) = some (.origin (Concrete.next cfg parts org)) ∧
     (∀ m, m ≠ name → s'.blob? (.origin m) = s.blob? (.origin m)) ∧
     s'.outbox = s.outbox ∧
-    (∀ m b, (Path.origin m, b) ∈ s'.bucket → (m = name ∧ b = .origin org) ∨ (Path.origin m, b) ∈ s.bucket) ∧
+    (∀ m b, (Path.origin m, b) ∈ s'.bucket →
+      (m = name ∧ b = .origin (Concrete.next cfg parts org)) ∨ (Path.origin m, b) ∈ s.bucket) ∧
     ((s.bucket.map (·.1)).Nodup → (s'.bucket.map (·.1)).Nodup) := by
-  simp only [Concrete.Effect.apply] at h
+  rw [Concrete.write_apply cfg name parts cond org hp] at h
   split at h
   · cases h
     refine ⟨?_, fun m hm => ?_, rfl, fun m b hm => ?_, fun hn => nodup_put hn _ _⟩
@@ -272,19 +284,40 @@ theorem origin_put {s s' : Concrete.State} {name : String} {org : Origin} {c : C
       · exact Or.inr hm
   · cases h
 
-theorem run_state (H : Concrete.Hasher) (name : String) (c : Commands) (s : Concrete.State) :
-    (Concrete.applyAll s (c.effects name (Concrete.Cond.of H (s.blob? (.origin name))))).1.blob? (.origin name)
-      = some (.origin c.org) ∧
+theorem view_next (cfg : Concrete.Config) (parts : List (List Object)) {org : Origin}
+    (hext : Extends (Concrete.view parts) org) :
+    Concrete.view (Concrete.next cfg parts org) = org.current := by
+  obtain ⟨new, hn⟩ := hext
+  have horg : org = ⟨(Concrete.view parts).objects ++ new⟩ := Origin.eq_of_objects hn
+  unfold Concrete.next
+  split
+  · rw [horg]
+    show Origin.current ⟨(parts ++ [((Concrete.view parts).objects ++ new).drop (Concrete.view parts).objects.length]).flatten⟩ = _
+    rw [List.drop_left, List.flatten_append, List.flatten_cons, List.flatten_nil, List.append_nil]
+    exact (current_append_current ⟨parts.flatten⟩ new).symm
+  · show Origin.current ⟨[org.current.objects].flatten⟩ = _
+    rw [List.flatten_cons, List.flatten_nil, List.append_nil]
+    exact current_current org
+
+theorem run_state (H : Concrete.Hasher) (cfg : Concrete.Config) (name : String) (c : Commands) (s : Concrete.State) :
+    (Concrete.applyAll s (c.effects (Concrete.write H cfg name (s.parts name)
+      (Concrete.Cond.of H (s.blob? (.origin name))) c.org))).1.origin name =
+      Concrete.view (Concrete.next cfg (s.parts name) c.org) ∧
     (∀ m, m ≠ name →
-      (Concrete.applyAll s (c.effects name (Concrete.Cond.of H (s.blob? (.origin name))))).1.blob? (.origin m)
-        = s.blob? (.origin m)) ∧
-    (Concrete.applyAll s (c.effects name (Concrete.Cond.of H (s.blob? (.origin name))))).1.outbox
-      = sendsFold s.outbox c.send ∧
+      (Concrete.applyAll s (c.effects (Concrete.write H cfg name (s.parts name)
+        (Concrete.Cond.of H (s.blob? (.origin name))) c.org))).1.blob? (.origin m) = s.blob? (.origin m)) ∧
+    (Concrete.applyAll s (c.effects (Concrete.write H cfg name (s.parts name)
+      (Concrete.Cond.of H (s.blob? (.origin name))) c.org))).1.outbox = sendsFold s.outbox c.send ∧
     (∀ m b, (Path.origin m, b) ∈
-        (Concrete.applyAll s (c.effects name (Concrete.Cond.of H (s.blob? (.origin name))))).1.bucket →
-      (m = name ∧ b = .origin c.org) ∨ (Path.origin m, b) ∈ s.bucket) ∧
+        (Concrete.applyAll s (c.effects (Concrete.write H cfg name (s.parts name)
+          (Concrete.Cond.of H (s.blob? (.origin name))) c.org))).1.bucket →
+      (m = name ∧ b = .origin (Concrete.next cfg (s.parts name) c.org)) ∨ (Path.origin m, b) ∈ s.bucket) ∧
     ((s.bucket.map (·.1)).Nodup →
-      ((Concrete.applyAll s (c.effects name (Concrete.Cond.of H (s.blob? (.origin name))))).1.bucket.map (·.1)).Nodup) := by
+      ((Concrete.applyAll s (c.effects (Concrete.write H cfg name (s.parts name)
+        (Concrete.Cond.of H (s.blob? (.origin name))) c.org))).1.bucket.map (·.1)).Nodup) ∧
+    (Concrete.applyAll s (c.effects (Concrete.write H cfg name (s.parts name)
+      (Concrete.Cond.of H (s.blob? (.origin name))) c.org))).1.blob? (.origin name) =
+      some (.origin (Concrete.next cfg (s.parts name) c.org)) := by
   unfold Commands.effects
   obtain ⟨hA, sameA⟩ := timers_phase (H := H) (c.arm.map fun t => .put (.timer t) .timer .any) s
     (by intro e he; simp only [List.mem_map] at he; obtain ⟨t, _, rfl⟩ := he; trivial)
@@ -292,14 +325,17 @@ theorem run_state (H : Concrete.Hasher) (name : String) (c : Commands) (s : Conc
     ⟨_, Prod.ext rfl hA⟩
   rw [hs1] at sameA
   simp only at sameA
+  have hp1 : s1.parts name = s.parts name := by
+    unfold Concrete.State.parts; rw [sameA.blob]
   have hhold : (Concrete.Cond.of H (s.blob? (.origin name))).holds (s1.blob? (.origin name)) = true := by
     rw [sameA.blob]; exact Concrete.Cond.of_holds _
-  have hP : (Concrete.Effect.put (H := H) (.origin name) (.origin c.org) (Concrete.Cond.of H (s.blob? (.origin name)))).apply s1 =
-      some { s1 with bucket := (Path.origin name, Blob.origin c.org) :: s1.bucket.filter (·.1 != Path.origin name) } := by
-    simp [Concrete.Effect.apply, hhold]
-  obtain ⟨s2, hs2⟩ : ∃ s2, (Concrete.Effect.put (H := H) (.origin name) (.origin c.org) (Concrete.Cond.of H (s.blob? (.origin name)))).apply s1 = some s2 :=
+  have hP : (Concrete.write H cfg name (s.parts name) (Concrete.Cond.of H (s.blob? (.origin name))) c.org).apply s1 =
+      some { s1 with bucket := (Path.origin name, Blob.origin (Concrete.next cfg (s.parts name) c.org)) ::
+        s1.bucket.filter (·.1 != Path.origin name) } := by
+    rw [Concrete.write_apply cfg name _ _ _ hp1, if_pos hhold]
+  obtain ⟨s2, hs2⟩ : ∃ s2, (Concrete.write H cfg name (s.parts name) (Concrete.Cond.of H (s.blob? (.origin name))) c.org).apply s1 = some s2 :=
     ⟨_, hP⟩
-  obtain ⟨hP1, hP2, hP3, hP4, hP5⟩ := origin_put hs2
+  obtain ⟨hP1, hP2, hP3, hP4, hP5⟩ := origin_write cfg hp1 hs2
   obtain ⟨hD, sameD⟩ := timers_phase (H := H) (c.del.map fun t => .del (.timer t)) s2
     (by intro e he; simp only [List.mem_map] at he; obtain ⟨t, _, rfl⟩ := he; trivial)
   obtain ⟨s3, hs3⟩ : ∃ s3, Concrete.applyAll s2 (c.del.map fun t => Concrete.Effect.del (H := H) (.timer t)) = (s3, true) :=
@@ -308,17 +344,21 @@ theorem run_state (H : Concrete.Hasher) (name : String) (c : Commands) (s : Conc
   simp only at sameD
   obtain ⟨hS, hS1, hS2⟩ := sends_phase (H := H) c.send s3
   have e1 : Concrete.applyAll s ((c.arm.map fun t => Concrete.Effect.put (H := H) (.timer t) .timer .any) ++
-      [Concrete.Effect.put (.origin name) (.origin c.org) (Concrete.Cond.of H (s.blob? (.origin name)))]) = (s2, true) := by
+      [Concrete.write H cfg name (s.parts name) (Concrete.Cond.of H (s.blob? (.origin name))) c.org]) = (s2, true) := by
     rw [Concrete.applyAll_append, hs1, if_pos rfl]
     simp only [Concrete.applyAll, hs2]
   have e2 : Concrete.applyAll s ((c.arm.map fun t => Concrete.Effect.put (H := H) (.timer t) .timer .any) ++
-      [Concrete.Effect.put (.origin name) (.origin c.org) (Concrete.Cond.of H (s.blob? (.origin name)))] ++
+      [Concrete.write H cfg name (s.parts name) (Concrete.Cond.of H (s.blob? (.origin name))) c.org] ++
       c.del.map fun t => Concrete.Effect.del (.timer t)) = (s3, true) := by
     rw [Concrete.applyAll_append, e1, if_pos rfl]
     exact hs3
   rw [Concrete.applyAll_append, e2, if_pos rfl]
-  refine ⟨?_, fun m hm => ?_, ?_, fun m b hm => ?_, fun hn => ?_⟩
-  · rw [blob?_eq, hS1, ← blob?_eq, sameD.blob, hP1]
+  have hblob : (Concrete.applyAll s3 (c.send.map fun (a, m) => Concrete.Effect.send (H := H) a m)).1.blob? (.origin name) =
+      some (.origin (Concrete.next cfg (s.parts name) c.org)) := by
+    rw [blob?_eq, hS1, ← blob?_eq, sameD.blob, hP1]
+  refine ⟨?_, fun m hm => ?_, ?_, fun m b hm => ?_, fun hn => ?_, hblob⟩
+  · rw [State.origin_eq, hblob]
+    rfl
   · rw [blob?_eq, hS1, ← blob?_eq, sameD.blob, hP2 m hm, sameA.blob]
   · rw [hS2, sameD.out, hP3, sameA.out]
   · rw [hS1] at hm
@@ -331,7 +371,7 @@ theorem run_state (H : Concrete.Hasher) (name : String) (c : Commands) (s : Conc
 theorem Sim.map' {o : String} {org : Origin} {S : Abstract.State} {α β : Type}
     {r : α × List Abstract.Effect} {res : α} {c : Commands} (f : α → β) (h : Sim o org S r res c) :
     Sim o org S (f r.1, r.2) (f res) c :=
-  ⟨by rw [h.res], h.fx, h.loc, h.send, h.orig, h.nodup⟩
+  ⟨by rw [h.res], h.fx, h.loc, h.send, h.orig⟩
 
 theorem handleExternal_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S) (now : Nat)
     (req : Request) (h : req.origin? = some o) :
@@ -498,7 +538,7 @@ theorem observations_internal (now : Nat) : ∀ (l : List Abstract.Trigger) (evs
 theorem SwInv.equiv {o : String} {s s' : Concrete.State} {S : Abstract.State} {c : Commands}
     {T : Abstract.State} (inv : Inv s) (rel : Equiv (abstract s) S) (h : SwInv o S c T)
     (inv' : Inv s')
-    (h1 : s'.blob? (.origin o) = some (.origin c.org))
+    (h1 : s'.origin o = c.org.current)
     (h2 : ∀ m, m ≠ o → s'.blob? (.origin m) = s.blob? (.origin m))
     (h3 : s'.outbox = sendsFold s.outbox c.send) :
     Equiv (abstract s') T := by
@@ -506,8 +546,7 @@ theorem SwInv.equiv {o : String} {s s' : Concrete.State} {S : Abstract.State} {c
   · show find (abstract s') id = find T id
     rw [find_abstract inv' id]
     by_cases e : id.origin = o
-    · rw [e, State.origin_eq, h1, h.loc id e]
-      rfl
+    · rw [e, h1, find_current, h.loc id e]
     · rw [State.origin_eq, h2 _ e, ← State.origin_eq, h.other id e, ← find_abstract inv id]
       exact rel.1 id
   · show [] = T.schedules
@@ -518,22 +557,23 @@ theorem SwInv.equiv {o : String} {s s' : Concrete.State} {S : Abstract.State} {c
     rfl
 
 theorem Inv.of_run {s s' : Concrete.State} {o : String} {org : Origin} (inv : Inv s)
-    (horig : ∀ ob ∈ org.objects, ob.id.origin = o) (hnodup : (org.objects.map (·.id)).Nodup) (hwf : WF org)
-    (hmem : ∀ m b, (Path.origin m, b) ∈ s'.bucket → (m = o ∧ b = .origin org) ∨ (Path.origin m, b) ∈ s.bucket)
+    (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current)
+    {parts : List (List Object)} (hview : Concrete.view parts = org.current)
+    (hmem : ∀ m b, (Path.origin m, b) ∈ s'.bucket → (m = o ∧ b = .origin parts) ∨ (Path.origin m, b) ∈ s.bucket)
     (hnd : (s.bucket.map (·.1)).Nodup → (s'.bucket.map (·.1)).Nodup) : Inv s' := by
   refine ⟨fun m b hb => ?_, hnd inv.paths⟩
   rcases hmem m b hb with ⟨rfl, rfl⟩ | hb'
-  · exact ⟨org, rfl, horig, hnodup, hwf⟩
+  · exact ⟨parts, rfl, by rw [hview]; exact horig, by rw [hview]; exact hwf⟩
   · exact inv.blobs m b hb'
 
-theorem step_sim (H : Concrete.Hasher) (ev : Concrete.Event) (now : Nat)
+theorem step_sim (H : Concrete.Hasher) (cfg : Concrete.Config) (ev : Concrete.Event) (now : Nat)
     (s : Concrete.State) (S : Abstract.State)
     (inv : Inv s) (rel : Equiv (abstract s) S) :
-    Inv (Concrete.step H ev now s).2 ∧
-    Equiv (abstract (Concrete.step H ev now s).2)
+    Inv (Concrete.step H cfg ev now s).2 ∧
+    Equiv (abstract (Concrete.step H cfg ev now s).2)
           (Abstract.exec false ((events ev now s).map (·, now)) S).2 ∧
     observations now (events ev now s) (Abstract.exec false ((events ev now s).map (·, now)) S).1 =
-      (Concrete.Frame.observe ⟨s, ev, (Concrete.step H ev now s).1, now⟩).toList := by
+      (Concrete.Frame.observe ⟨s, ev, (Concrete.step H cfg ev now s).1, now⟩).toList := by
   cases ev with
   | stutter =>
       exact ⟨inv, rel, rfl⟩
@@ -554,23 +594,29 @@ theorem step_sim (H : Concrete.Hasher) (ev : Concrete.Event) (now : Nat)
           have hfin : SwInv name S ((Concrete.sweep now (s.origin name)).merge c)
               (Abstract.applyAll (execI (Chain.sweepTriggers now (s.origin name)) now S)
                 (Abstract.handleExternal req now (env (execI (Chain.sweepTriggers now (s.origin name)) now S))).2) :=
-            hsw.step _ hsim.fx hsim.loc (by rw [hsim.send]; rfl) (hsim.orig hsw.orig) (hsim.nodup hsw.nodup) hwf'
+            hsw.step _ hsim.fx hsim.loc (by rw [hsim.send]; rfl) (hsim.orig hsw.orig) hwf'
           have hhandle : Concrete.handle (.external req) now (s.origin name) =
               (.external res, (Concrete.sweep now (s.origin name)).merge c) := by
             simp only [Concrete.handle, hC]
-          have hok := Concrete.applyAll_accepted (H := H) s name ((Concrete.sweep now (s.origin name)).merge c)
-          have hst := run_state H name ((Concrete.sweep now (s.origin name)).merge c) s
-          rcases hR : Concrete.applyAll s (((Concrete.sweep now (s.origin name)).merge c).effects name
-            (Concrete.Cond.of H (s.blob? (.origin name)))) with ⟨s', ok⟩
+          have hext : Extends (s.origin name) ((Concrete.sweep now (s.origin name)).merge c).org := by
+            have := handle_extends (.external req) now (s.origin name)
+            rw [hhandle] at this
+            exact this
+          have hok := Concrete.applyAll_accepted (H := H) cfg s name ((Concrete.sweep now (s.origin name)).merge c)
+          have hst := run_state H cfg name ((Concrete.sweep now (s.origin name)).merge c) s
+          rcases hR : Concrete.applyAll s (((Concrete.sweep now (s.origin name)).merge c).effects
+            (Concrete.write H cfg name (s.parts name) (Concrete.Cond.of H (s.blob? (.origin name)))
+              ((Concrete.sweep now (s.origin name)).merge c).org)) with ⟨s', ok⟩
           rw [hR] at hok hst
           simp only at hok hst
           subst hok
-          obtain ⟨h1, h2, h3, h4, h5⟩ := hst
-          have hstep : Concrete.step H (.external req) now s = (.external res, s') := by
+          obtain ⟨h1, h2, h3, h4, h5, -⟩ := hst
+          rw [view_next cfg (s.parts name) hext] at h1
+          have hstep : Concrete.step H cfg (.external req) now s = (.external res, s') := by
             simp only [Concrete.step, ho, Concrete.run, hhandle, hR, ↓reduceIte]
           rw [hstep, events, ho, exec_external_events, step_external_eq]
           simp only
-          have inv' : Inv s' := Inv.of_run inv hfin.orig hfin.nodup hfin.wf h4 h5
+          have inv' : Inv s' := Inv.of_run inv hfin.orig hfin.wf (view_next cfg (s.parts name) hext) h4 h5
           refine ⟨inv', SwInv.equiv inv rel hfin inv' h1 h2 h3, ?_⟩
           rw [observations_internal, hsim.res]
           rfl
@@ -581,25 +627,29 @@ theorem step_sim (H : Concrete.Hasher) (ev : Concrete.Event) (now : Nat)
         have hsw := sweep_sim hL horig hnd hwf now
         have hhandle : Concrete.handle (.internal t) now (s.origin t.id.origin) =
             (.internal, Concrete.sweep now (s.origin t.id.origin)) := rfl
-        have hok := Concrete.applyAll_accepted (H := H) s t.id.origin (Concrete.sweep now (s.origin t.id.origin))
-        have hst := run_state H t.id.origin (Concrete.sweep now (s.origin t.id.origin)) s
-        rcases hR : Concrete.applyAll s ((Concrete.sweep now (s.origin t.id.origin)).effects t.id.origin
-          (Concrete.Cond.of H (s.blob? (.origin t.id.origin)))) with ⟨s', ok⟩
+        have hext : Extends (s.origin t.id.origin) (Concrete.sweep now (s.origin t.id.origin)).org :=
+          sweep_extends now _
+        have hok := Concrete.applyAll_accepted (H := H) cfg s t.id.origin (Concrete.sweep now (s.origin t.id.origin))
+        have hst := run_state H cfg t.id.origin (Concrete.sweep now (s.origin t.id.origin)) s
+        rcases hR : Concrete.applyAll s ((Concrete.sweep now (s.origin t.id.origin)).effects
+          (Concrete.write H cfg t.id.origin (s.parts t.id.origin) (Concrete.Cond.of H (s.blob? (.origin t.id.origin)))
+            (Concrete.sweep now (s.origin t.id.origin)).org)) with ⟨s', ok⟩
         rw [hR] at hok hst
         simp only at hok hst
         subst hok
-        obtain ⟨h1, h2, h3, h4, h5⟩ := hst
-        have hstep : Concrete.step H (.internal t) now s = (.internal, s') := by
+        obtain ⟨h1, h2, h3, h4, h5, -⟩ := hst
+        rw [view_next cfg (s.parts t.id.origin) hext] at h1
+        have hstep : Concrete.step H cfg (.internal t) now s = (.internal, s') := by
           simp only [Concrete.step, hl, and_self, ↓reduceIte, Concrete.run, hhandle, hR]
         rw [hstep, events, if_pos hl, exec_internal_events]
         simp only
-        have inv' : Inv s' := Inv.of_run inv hsw.orig hsw.nodup hsw.wf h4 h5
+        have inv' : Inv s' := Inv.of_run inv hsw.orig hsw.wf (view_next cfg (s.parts t.id.origin) hext) h4 h5
         refine ⟨inv', SwInv.equiv inv rel hsw inv' h1 h2 h3, ?_⟩
         have := observations_internal now (Chain.sweepTriggers now (s.origin t.id.origin)) [] []
         simp only [List.append_nil] at this
         rw [this]
         rfl
-      · have hstep : Concrete.step H (.internal t) now s = (.stutter, s) := by
+      · have hstep : Concrete.step H cfg (.internal t) now s = (.stutter, s) := by
           simp only [Concrete.step, hl, ↓reduceIte]
         rw [hstep, events, if_neg hl]
         exact ⟨inv, rel, rfl⟩

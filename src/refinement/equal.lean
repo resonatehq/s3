@@ -10,16 +10,15 @@ theorem ids_map {l : List Object} {g : Object → Object} (hg : ∀ o, (g o).id 
     (l.map g).map (·.id) = l.map (·.id) := by
   rw [List.map_map]; congr 1; funext o; exact hg o
 
-theorem set_map {l : List Object} {g : Object → Object} (hg : ∀ o, (g o).id = o.id) {x : Object}
+theorem replace_map {l : List Object} {g : Object → Object} (hg : ∀ o, (g o).id = o.id) {x : Object}
     (hx : ∃ o ∈ l, o.id = x.id) :
-    (⟨l.map g⟩ : Origin).set x = ⟨l.map fun o => if o.id == x.id then x else g o⟩ := by
+    replace (l.map g) x = l.map fun o => if o.id == x.id then x else g o := by
   have hany : (l.map g).any (·.id == x.id) = true := by
     rw [List.any_map]
     refine List.any_eq_true.2 ?_
     obtain ⟨o, ho, hox⟩ := hx
     exact ⟨o, ho, by simp [Function.comp, hg, hox]⟩
-  apply Origin.eq_of_objects
-  rw [set_present hany, List.map_map]
+  rw [replace_present hany, List.map_map]
   congr 1
   funext o
   simp only [Function.comp, hg]
@@ -49,20 +48,18 @@ theorem getD_id {step : Object → Option Object} (hid : ∀ o x, step o = some 
   | none => rfl
   | some x => exact hid o x hs
 
-theorem bulk_put (step : Object → Option Object) (hid : ∀ o x, step o = some x → x.id = o.id)
-    (f : Commands → Object → Commands)
-    (hf : ∀ c o, (f c o).org = match step o with | some x => c.org.set x | none => c.org) :
-    ∀ (P Q : List Object) (c : Commands), ((P ++ Q).map (·.id)).Nodup →
-      c.org = ⟨(P ++ Q).map fun o => if o.id ∈ P.map (·.id) then (step o).getD o else o⟩ →
-      (Q.foldl f c).org = ⟨(P ++ Q).map fun o => (step o).getD o⟩
-  | P, [], c, _, hc => by
-      rw [List.foldl_nil, hc]
-      apply Origin.eq_of_objects
+theorem bulk_replace (step : Object → Option Object) (hid : ∀ o x, step o = some x → x.id = o.id) :
+    ∀ (P Q : List Object), ((P ++ Q).map (·.id)).Nodup →
+      Q.foldl (fun acc o => match step o with | some x => replace acc x | none => acc)
+        ((P ++ Q).map fun o => if o.id ∈ P.map (·.id) then (step o).getD o else o) =
+      (P ++ Q).map fun o => (step o).getD o
+  | P, [], _ => by
+      rw [List.foldl_nil]
       apply List.map_congr_left
       intro o ho
       simp only [List.append_nil] at ho
       rw [if_pos (List.mem_map_of_mem ho)]
-  | P, o :: Q, c, hnd, hc => by
+  | P, o :: Q, hnd => by
       rw [List.foldl_cons]
       have hmem : o ∈ P ++ o :: Q := by simp
       have hnd' : ((P ++ [o] ++ Q).map (·.id)).Nodup := by simpa using hnd
@@ -71,12 +68,12 @@ theorem bulk_put (step : Object → Option Object) (hid : ∀ o x, step o = some
         rw [List.map_append, List.nodup_append] at hnd
         obtain ⟨_, _, hdis⟩ := hnd
         exact hdis o.id hm o.id (by simp) rfl
-      have hstep : (f c o).org = ⟨(P ++ o :: Q).map fun ob =>
-          if ob.id ∈ (P ++ [o]).map (·.id) then (step ob).getD ob else ob⟩ := by
-        rw [hf, hc]
+      have hstep : (match step o with
+          | some x => replace ((P ++ o :: Q).map fun ob => if ob.id ∈ P.map (·.id) then (step ob).getD ob else ob) x
+          | none => (P ++ o :: Q).map fun ob => if ob.id ∈ P.map (·.id) then (step ob).getD ob else ob) =
+          (P ++ o :: Q).map fun ob => if ob.id ∈ (P ++ [o]).map (·.id) then (step ob).getD ob else ob := by
         cases hs : step o with
         | none =>
-            apply Origin.eq_of_objects
             apply List.map_congr_left
             intro ob hob
             by_cases e : ob.id = o.id
@@ -87,8 +84,8 @@ theorem bulk_put (step : Object → Option Object) (hid : ∀ o x, step o = some
         | some x =>
             have hxo : x.id = o.id := hid o x hs
             simp only
-            rw [set_map (fun ob => by split <;> first | exact getD_id hid ob | rfl) ⟨o, hmem, hxo.symm⟩]
-            apply Origin.eq_of_objects
+            rw [replace_map (l := P ++ o :: Q) (g := fun ob => if ob.id ∈ P.map (·.id) then (step ob).getD ob else ob)
+              (fun ob => by split <;> first | exact getD_id hid ob | rfl) ⟨o, hmem, hxo.symm⟩]
             apply List.map_congr_left
             intro ob hob
             by_cases e : ob.id = o.id
@@ -97,8 +94,77 @@ theorem bulk_put (step : Object → Option Object) (hid : ∀ o x, step o = some
               simp [hxo, hs]
             · have e' : (ob.id == x.id) = false := by simp [hxo, e]
               simp [e', e]
-      have := bulk_put step hid f hf (P ++ [o]) Q (f c o) hnd' (by rw [hstep]; simp)
+      rw [hstep]
+      have := bulk_replace step hid (P ++ [o]) Q hnd'
       simpa using this
+
+theorem foldl_current (step : Object → Option Object) (f : Commands → Object → Commands)
+    (hf : ∀ c o, (f c o).org = match step o with | some x => c.org.set x | none => c.org) :
+    ∀ (Q : List Object) (c : Commands),
+      (Q.foldl f c).org.current.objects =
+        Q.foldl (fun acc o => match step o with | some x => replace acc x | none => acc) c.org.current.objects
+  | [], _ => rfl
+  | o :: Q, c => by
+      rw [List.foldl_cons, List.foldl_cons, foldl_current step f hf Q]
+      congr 1
+      rw [hf]
+      cases step o with
+      | none => rfl
+      | some x => rw [current_set]
+
+theorem bulk_put (step : Object → Option Object) (hid : ∀ o x, step o = some x → x.id = o.id)
+    (f : Commands → Object → Commands)
+    (hf : ∀ c o, (f c o).org = match step o with | some x => c.org.set x | none => c.org)
+    (P Q : List Object) (c : Commands) (hnd : ((P ++ Q).map (·.id)).Nodup)
+    (hc : c.org.current = ⟨(P ++ Q).map fun o => if o.id ∈ P.map (·.id) then (step o).getD o else o⟩) :
+    (Q.foldl f c).org.current = ⟨(P ++ Q).map fun o => (step o).getD o⟩ := by
+  apply Origin.eq_of_objects
+  rw [foldl_current step f hf]
+  have hc' := congrArg Origin.objects hc
+  simp only at hc'
+  rw [hc']
+  exact bulk_replace step hid P Q hnd
+
+theorem foldl_filter {α β : Type} (q : α → Bool) (f : β → α → β) :
+    ∀ (l : List α) (b : β), (l.filter q).foldl f b = l.foldl (fun acc o => if q o then f acc o else acc) b
+  | [], _ => rfl
+  | a :: l, b => by
+      rw [List.filter_cons]
+      split
+      · rw [List.foldl_cons, List.foldl_cons, foldl_filter q f l]
+        rename_i h
+        rw [if_pos h]
+      · rw [List.foldl_cons, foldl_filter q f l]
+        rename_i h
+        rw [if_neg h]
+
+theorem foldl_replace_map (l : List Object) (g : Object → Object) (hg : ∀ o, (g o).id = o.id)
+    (q : Object → Bool) (hnd : (l.map (·.id)).Nodup) (hq : ∀ o ∈ l, q o = false → g o = o) :
+    l.foldl (fun acc o => if q o then replace acc (g o) else acc) l = l.map g := by
+  have h := bulk_replace (fun o => if q o then some (g o) else none)
+    (fun o x hx => by
+      by_cases hqo : q o = true
+      · rw [if_pos hqo, Option.some.injEq] at hx
+        rw [← hx]
+        exact hg o
+      · rw [if_neg hqo] at hx
+        cases hx)
+    [] l (by simpa using hnd)
+  simp only [List.nil_append, List.map_nil, List.not_mem_nil, ↓reduceIte, List.map_id'] at h
+  have hstep : (fun acc o => match (if q o then some (g o) else none) with | some x => replace acc x | none => acc) =
+      fun acc o => if q o then replace acc (g o) else acc := by
+    funext acc o
+    by_cases hqo : q o = true
+    · simp [hqo]
+    · simp [hqo]
+  rw [hstep] at h
+  rw [h]
+  apply List.map_congr_left
+  intro o ho
+  by_cases hqo : q o = true
+  · simp [hqo]
+  · have hqo' : q o = false := by simpa using hqo
+    simp [hqo', hq o ho hqo']
 
 theorem bulk_send (msg : Object → List (String × Message)) (f : Commands → Object → Commands)
     (hf : ∀ c o, (f c o).send = c.send ++ msg o) :
@@ -107,8 +173,16 @@ theorem bulk_send (msg : Object → List (String × Message)) (f : Commands → 
   | o :: Q, c => by
       rw [List.foldl_cons, bulk_send msg f hf Q, hf, List.flatMap_cons, List.append_assoc]
 
-theorem promiseTimeouts_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)).Nodup) :
-    (Chain.promiseTimeouts now d).org = ⟨d.objects.map fun o => (Concrete.processPromiseTimeout now o).getD o⟩ := by
+theorem init_current (d : Origin) (step : Object → Option Object) :
+    ({ org := d } : Commands).org.current =
+      ⟨([] ++ d.current.objects).map fun o : Object =>
+        if o.id ∈ ([] : List Object).map (fun x : Object => x.id) then (step o).getD o else o⟩ := by
+  apply Origin.eq_of_objects
+  simp
+
+theorem promiseTimeouts_put (now : Nat) (d : Origin) :
+    (Chain.promiseTimeouts now d).org.current =
+      ⟨d.current.objects.map fun o => (Concrete.processPromiseTimeout now o).getD o⟩ := by
   rw [promiseTimeouts_eq]
   have := bulk_put (Concrete.processPromiseTimeout now)
     (fun o x hx => by
@@ -118,12 +192,12 @@ theorem promiseTimeouts_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.i
       · cases hx)
     (ptStep now)
     (fun c o => by unfold ptStep Concrete.processPromiseTimeout; split <;> rfl)
-    [] d.objects { org := d } (by simpa using hnd) (by simp)
+    [] d.current.objects { org := d } (by simpa using current_nodup d) (init_current d _)
   simpa using this
 
 theorem promiseTimeouts_send (now : Nat) (d : Origin) : (Chain.promiseTimeouts now d).send = [] := by
   rw [promiseTimeouts_eq]
-  have := bulk_send (fun _ => []) (ptStep now) (fun c o => by unfold ptStep; split <;> simp) d.objects { org := d }
+  have := bulk_send (fun _ => []) (ptStep now) (fun c o => by unfold ptStep; split <;> simp) d.current.objects { org := d }
   rw [this, flatMap_const_nil]; rfl
 
 def listenerObj (now : Nat) (o : Object) : Option Object := (Concrete.processListener now o).map (·.1)
@@ -131,8 +205,8 @@ def listenerObj (now : Nat) (o : Object) : Option Object := (Concrete.processLis
 def listenerMsgs (now : Nat) (o : Object) : List (String × Message) :=
   ((Concrete.processListener now o).map (·.2)).getD []
 
-theorem listeners_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)).Nodup) :
-    (Chain.listeners now d).org = ⟨d.objects.map fun o => (listenerObj now o).getD o⟩ := by
+theorem listeners_put (now : Nat) (d : Origin) :
+    (Chain.listeners now d).org.current = ⟨d.current.objects.map fun o => (listenerObj now o).getD o⟩ := by
   rw [listeners_eq]
   have := bulk_put (listenerObj now)
     (fun o x hx => by
@@ -142,18 +216,19 @@ theorem listeners_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)).No
       · cases hx)
     (lsBulk now)
     (fun c o => by simp only [lsBulk, listenerObj, Concrete.processListener]; split <;> simp_all)
-    [] d.objects { org := d } (by simpa using hnd) (by simp)
+    [] d.current.objects { org := d } (by simpa using current_nodup d) (init_current d _)
   simpa using this
 
 theorem listeners_send (now : Nat) (d : Origin) :
-    (Chain.listeners now d).send = d.objects.flatMap (listenerMsgs now) := by
+    (Chain.listeners now d).send = d.current.objects.flatMap (listenerMsgs now) := by
   rw [listeners_eq]
   have := bulk_send (listenerMsgs now) (lsBulk now)
-    (fun c o => by simp only [lsBulk, listenerMsgs, Concrete.processListener]; split <;> simp_all) d.objects { org := d }
+    (fun c o => by simp only [lsBulk, listenerMsgs, Concrete.processListener]; split <;> simp_all) d.current.objects { org := d }
   simpa using this
 
-theorem leaseTimeouts_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)).Nodup) :
-    (Chain.leaseTimeouts now d).org = ⟨d.objects.map fun o => (Concrete.processLeaseTimeout now o).getD o⟩ := by
+theorem leaseTimeouts_put (now : Nat) (d : Origin) :
+    (Chain.leaseTimeouts now d).org.current =
+      ⟨d.current.objects.map fun o => (Concrete.processLeaseTimeout now o).getD o⟩ := by
   rw [leaseTimeouts_eq]
   have := bulk_put (Concrete.processLeaseTimeout now)
     (fun o x hx => by
@@ -171,13 +246,13 @@ theorem leaseTimeouts_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)
       | some t =>
           simp only
           split <;> rfl)
-    [] d.objects { org := d } (by simpa using hnd) (by simp)
+    [] d.current.objects { org := d } (by simpa using current_nodup d) (init_current d _)
   simpa using this
 
 theorem leaseTimeouts_send (now : Nat) (d : Origin) : (Chain.leaseTimeouts now d).send = [] := by
   rw [leaseTimeouts_eq]
   have := bulk_send (fun _ => []) (ltStep now)
-    (fun c o => by simp only [ltStep]; split <;> (try split) <;> simp) d.objects { org := d }
+    (fun c o => by simp only [ltStep]; split <;> (try split) <;> simp) d.current.objects { org := d }
   rw [this, flatMap_const_nil]; rfl
 
 def retryObj (now : Nat) (o : Object) : Option Object := (Concrete.processRetryTimeout now o).map (·.1)
@@ -185,8 +260,8 @@ def retryObj (now : Nat) (o : Object) : Option Object := (Concrete.processRetryT
 def retryMsgs (now : Nat) (o : Object) : List (String × Message) :=
   ((Concrete.processRetryTimeout now o).map (·.2)).getD []
 
-theorem retryTimeouts_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)).Nodup) :
-    (Chain.retryTimeouts now d).org = ⟨d.objects.map fun o => (retryObj now o).getD o⟩ := by
+theorem retryTimeouts_put (now : Nat) (d : Origin) :
+    (Chain.retryTimeouts now d).org.current = ⟨d.current.objects.map fun o => (retryObj now o).getD o⟩ := by
   rw [retryTimeouts_eq]
   have := bulk_put (retryObj now)
     (fun o x hx => by
@@ -206,11 +281,11 @@ theorem retryTimeouts_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)
           all_goals try rfl
           simp only
           split <;> rfl)
-    [] d.objects { org := d } (by simpa using hnd) (by simp)
+    [] d.current.objects { org := d } (by simpa using current_nodup d) (init_current d _)
   simpa using this
 
 theorem retryTimeouts_send (now : Nat) (d : Origin) :
-    (Chain.retryTimeouts now d).send = d.objects.flatMap (retryMsgs now) := by
+    (Chain.retryTimeouts now d).send = d.current.objects.flatMap (retryMsgs now) := by
   rw [retryTimeouts_eq]
   have := bulk_send (retryMsgs now) (rtStep now)
     (fun c o => by
@@ -224,7 +299,7 @@ theorem retryTimeouts_send (now : Nat) (d : Origin) :
           split
           · rfl
           · exact (List.append_nil c.send).symm)
-    d.objects { org := d }
+    d.current.objects { org := d }
   simpa using this
 
 
@@ -536,8 +611,8 @@ theorem inner_step {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodup
     (hs : s ∈ d.objects) (hsP : s.id ∉ P.map (·.id))
     {L : List Ident} (hL : (s.project now).promise.callbacks = L) (hLnd : L.Nodup) (hsL : s.id ∉ L) :
     ∀ (Q₁ Q₂ : List Ident) (w : Ident) (c : Commands), L = Q₁ ++ w :: Q₂ →
-      c.org = ⟨d.objects.map (inner now P s Q₁ (w :: Q₂))⟩ →
-      (cbStepOld now s.id c w).org = ⟨d.objects.map (inner now P s (Q₁ ++ [w]) Q₂)⟩ := by
+      c.org.current = ⟨d.objects.map (inner now P s Q₁ (w :: Q₂))⟩ →
+      (cbStepOld now s.id c w).org.current = ⟨d.objects.map (inner now P s (Q₁ ++ [w]) Q₂)⟩ := by
   intro Q₁ Q₂ w c hsplit hc
   have hwL : w ∈ L := by rw [hsplit]; simp
   have hws : w ≠ s.id := fun e => hsL (e ▸ hwL)
@@ -547,7 +622,9 @@ theorem inner_step {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodup
   have hwQ₁ : w ∉ Q₁ := fun hm => hdis w hm w (List.mem_cons_self ..) rfl
   have hwQ₂ : w ∉ Q₂ := (List.nodup_cons.1 hnd2).1
   have hcurS : c.org.get s.id now = some (stageC now P s (w :: Q₂)) := by
-    rw [get_eq, hc]
+    rw [get_eq]
+    unfold Origin.find
+    rw [hc]
     show ((d.objects.map (inner now P s Q₁ (w :: Q₂))).find? (·.id == s.id)).map (·.project now) = _
     rw [find?_map_self (inner_id now P s Q₁ (w :: Q₂)) hnd hs, Option.map_some, Option.some.injEq]
     unfold inner
@@ -572,26 +649,28 @@ theorem inner_step {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodup
     rfl
   rw [hc₁, resume_put]
   simp only
-  have hput₁ : c.org.set (stageC now P s Q₂) =
+  have hput₁ : (c.org.set (stageC now P s Q₂)).current =
       ⟨d.objects.map fun ob => if ob.id == s.id then stageC now P s Q₂ else inner now P s Q₁ (w :: Q₂) ob⟩ := by
-    rw [hc, set_map (x := stageC now P s Q₂) (inner_id now P s Q₁ (w :: Q₂)) ⟨s, hs, rfl⟩, stageC_id]
+    rw [current_set, hc]
+    show (⟨replace (d.objects.map (inner now P s Q₁ (w :: Q₂))) (stageC now P s Q₂)⟩ : Origin) = _
+    rw [replace_map (x := stageC now P s Q₂) (inner_id now P s Q₁ (w :: Q₂)) ⟨s, hs, rfl⟩, stageC_id]
   have hf₁ : ∀ ob, (if ob.id == s.id then stageC now P s Q₂ else inner now P s Q₁ (w :: Q₂) ob).id = ob.id := by
     intro ob
     split
     · rename_i e; exact (beq_iff_eq.1 e).symm
     · exact inner_id ..
-  rw [hput₁]
   cases hfw : d.objects.find? (·.id == w) with
   | none =>
       have hnone : (d.objects.map fun ob => if ob.id == s.id then stageC now P s Q₂
           else inner now P s Q₁ (w :: Q₂) ob).find? (fun x : Object => x.id == w) = none := by
         rw [find?_map_id _ hf₁, hfw]; rfl
-      have hg : (⟨d.objects.map fun ob => if ob.id == s.id then stageC now P s Q₂
-          else inner now P s Q₁ (w :: Q₂) ob⟩ : Origin).get w now = none := by
+      have hg : (c.org.set (stageC now P s Q₂)).get w now = none := by
         rw [get_eq]
+        unfold Origin.find
+        rw [hput₁]
         show ((d.objects.map _).find? (fun x : Object => x.id == w)).map _ = none
         rw [hnone]; rfl
-      rw [hg, Option.bind_none]
+      rw [hg, Option.bind_none, hput₁]
       apply Origin.eq_of_objects
       apply List.map_congr_left
       intro ob hob
@@ -620,9 +699,10 @@ theorem inner_step {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodup
         rw [if_neg (by simp [hws])]
         unfold inner
         rw [if_neg hobws, if_neg (fun h => hwQ₁ (hobwid ▸ h.1))]
-      have hg : (⟨d.objects.map fun ob => if ob.id == s.id then stageC now P s Q₂
-          else inner now P s Q₁ (w :: Q₂) ob⟩ : Origin).get w now = some (stageP now P obw) := by
+      have hg : (c.org.set (stageC now P s Q₂)).get w now = some (stageP now P obw) := by
         rw [get_eq]
+        unfold Origin.find
+        rw [hput₁]
         show ((d.objects.map _).find? (fun x : Object => x.id == w)).map _ = _
         have hfind := find?_map_self hf₁ hnd hobw
         rw [hobwid] at hfind
@@ -630,7 +710,7 @@ theorem inner_step {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodup
       rw [hg, Option.bind_some]
       cases ht : obw.task with
       | none =>
-          rw [stageP_task_none ht, Option.map_none]
+          rw [stageP_task_none ht, Option.map_none, hput₁]
           apply Origin.eq_of_objects
           apply List.map_congr_left
           intro ob hob
@@ -655,7 +735,9 @@ theorem inner_step {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodup
           simp only
           have hxid : ∀ t' : TaskObject, ({ stageP now P obw with task := some t' } : Object).id = w :=
             fun _ => hobwid
-          rw [set_map hf₁ ⟨obw, hobw, hobwid.trans (hxid _).symm⟩]
+          rw [current_set, hput₁]
+          show (⟨replace (d.objects.map _) _⟩ : Origin) = _
+          rw [replace_map hf₁ ⟨obw, hobw, hobwid.trans (hxid _).symm⟩]
           apply Origin.eq_of_objects
           apply List.map_congr_left
           intro ob hob
@@ -683,8 +765,8 @@ theorem inner_fold {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodup
     (hs : s ∈ d.objects) (hsP : s.id ∉ P.map (·.id))
     {L : List Ident} (hL : (s.project now).promise.callbacks = L) (hLnd : L.Nodup) (hsL : s.id ∉ L) :
     ∀ (Q₁ Q₂ : List Ident) (c : Commands), L = Q₁ ++ Q₂ →
-      c.org = ⟨d.objects.map (inner now P s Q₁ Q₂)⟩ →
-      (Q₂.foldl (cbStepOld now s.id) c).org = ⟨d.objects.map (inner now P s L [])⟩
+      c.org.current = ⟨d.objects.map (inner now P s Q₁ Q₂)⟩ →
+      (Q₂.foldl (cbStepOld now s.id) c).org.current = ⟨d.objects.map (inner now P s L [])⟩
   | Q₁, [], c, hsplit, hc => by
       rw [List.foldl_nil, hc]
       rw [List.append_nil] at hsplit
@@ -774,8 +856,8 @@ theorem inner_end {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodup)
 
 theorem chain_callbacks_step {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodup) (hwf : WF d)
     {P Q : List Object} {s : Object} (hd : d.objects = P ++ s :: Q) {c : Commands}
-    (hc : c.org = ⟨d.objects.map (stage now P)⟩) :
-    (cbOuterOld now c s).org = ⟨d.objects.map (stage now (P ++ [s]))⟩ := by
+    (hc : c.org.current = ⟨d.objects.map (stage now P)⟩) :
+    (cbOuterOld now c s).org.current = ⟨d.objects.map (stage now (P ++ [s]))⟩ := by
   have hs : s ∈ d.objects := by rw [hd]; simp
   have hsP : s.id ∉ P.map (·.id) := by
     intro hm
@@ -828,8 +910,8 @@ theorem stage_nil (now : Nat) (ob : Object) : stage now [] ob = ob := by
 
 theorem chain_callbacks_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)).Nodup) (hwf : WF d) :
     ∀ (P Q : List Object) (c : Commands), d.objects = P ++ Q →
-      c.org = ⟨d.objects.map (stage now P)⟩ →
-      (Q.foldl (cbOuterOld now) c).org = ⟨d.objects.map (stage now (P ++ Q))⟩
+      c.org.current = ⟨d.objects.map (stage now P)⟩ →
+      (Q.foldl (cbOuterOld now) c).org.current = ⟨d.objects.map (stage now (P ++ Q))⟩
   | P, [], c, _, hc => by rw [List.foldl_nil, List.append_nil]; exact hc
   | P, s :: Q, c, hd, hc => by
       rw [List.foldl_cons]
@@ -838,18 +920,19 @@ theorem chain_callbacks_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.i
         (by rw [hd, List.append_assoc, List.singleton_append]) hstep
       rwa [List.append_assoc, List.singleton_append] at this
 
-theorem callbacks_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)).Nodup) (hwf : WF d) :
-    (Chain.callbacks now d).org = ⟨d.objects.map fun ob => (Concrete.processCallback now d ob).getD ob⟩ := by
+theorem callbacks_put (now : Nat) (d : Origin) (hwf : WF d.current) :
+    (Chain.callbacks now d).org.current =
+      ⟨d.current.objects.map fun ob => (Concrete.processCallback now d.current ob).getD ob⟩ := by
   rw [callbacks_eq]
-  have h0 : ({ org := d } : Commands).org = ⟨d.objects.map (stage now [])⟩ := by
-    show d = _
+  have h0 : ({ org := d } : Commands).org.current = ⟨d.current.objects.map (stage now [])⟩ := by
+    show d.current = _
     apply Origin.eq_of_objects
-    show d.objects = d.objects.map (stage now [])
-    conv => lhs; rw [← List.map_id d.objects]
+    show d.current.objects = d.current.objects.map (stage now [])
+    conv => lhs; rw [← List.map_id d.current.objects]
     apply List.map_congr_left
     intro ob _
     exact (stage_nil now ob).symm
-  have := chain_callbacks_put now d hnd hwf [] d.objects { org := d } rfl h0
+  have := chain_callbacks_put now d.current (current_nodup d) hwf [] d.current.objects { org := d } rfl h0
   rw [this, List.nil_append]
   apply Origin.eq_of_objects
   apply List.map_congr_left
@@ -875,7 +958,7 @@ theorem callbacks_send (now : Nat) (d : Origin) : (Chain.callbacks now d).send =
         split
         · exact inner_send ..
         · rfl
-  exact this d.objects { org := d }
+  exact this d.current.objects { org := d }
 
 theorem filterMap_congr' {α β : Type} {f g : α → Option β} :
     ∀ (l : List α), (∀ a ∈ l, f a = g a) → l.filterMap f = l.filterMap g
@@ -987,35 +1070,51 @@ theorem flatMap_map' {α β γ : Type} (l : List α) (f : α → β) (g : β →
   | nil => rfl
   | cons a l ih => simp [ih]
 
+theorem g5_id (now : Nat) (o : Object) : (g5 now o).id = o.id := by
+  simp only [g5, retryObj, Concrete.processRetryTimeout]
+  split <;> (try split) <;> rfl
+
+theorem sweepObject_id (now : Nat) (org : Origin) (o : Object) : (Concrete.sweepObject now org o).obj.id = o.id := by
+  rw [sweepObject_eq]
+  show (g5 now (g4 now (g3 now org (g2 now (g1 now o))))).id = o.id
+  rw [g5_id, g4_id, g3_id, g2_id, g1_id]
+
+theorem sweep_current (now : Nat) {org : Origin} (hnd : (org.objects.map (·.id)).Nodup) :
+    (Concrete.sweep now org).org.current = ⟨org.objects.map fun o => (Concrete.sweepObject now org o).obj⟩ := by
+  have hcur : (⟨org.objects⟩ : Origin).current = org := current_of_nodup hnd
+  apply Origin.eq_of_objects
+  simp only [Concrete.sweep]
+  rw [current_append, hcur, List.map_map, List.filter_map, List.foldl_map, foldl_filter]
+  exact foldl_replace_map org.objects _ (fun o => sweepObject_id now org o) _ hnd (fun o ho hq => by
+    have hm : (Concrete.sweepObject now org o).obj ∈ org.objects := by
+      simpa [Function.comp] using hq
+    exact eq_of_id_nodup hnd hm ho (sweepObject_id now org o))
+
 theorem chain_sweep_eq (now : Nat) (org : Origin) (hnd : (org.objects.map (·.id)).Nodup) (hwf : WF org) :
-    (Chain.sweep now org).org = (Concrete.sweep now org).org ∧
+    (Chain.sweep now org).org.current = (Concrete.sweep now org).org.current ∧
     (Chain.sweep now org).send = (Concrete.sweep now org).send := by
+  have hcur : org.current = org := current_of_nodup hnd
   have hwf' : WF ⟨org.objects⟩ := hwf
-  have hc1 : (Chain.promiseTimeouts now org).org = ⟨org.objects.map (g1 now)⟩ := promiseTimeouts_put now org hnd
-  have hnd1 : ((Chain.promiseTimeouts now org).org.objects.map (·.id)).Nodup := by
-    rw [hc1]; show ((org.objects.map (g1 now)).map (fun x : Object => x.id)).Nodup; rw [ids_map (g1_id now)]; exact hnd
-  have hc2 : (Chain.listeners now (Chain.promiseTimeouts now org).org).org =
+  have hc1 : (Chain.promiseTimeouts now org).org.current = ⟨org.objects.map (g1 now)⟩ := by
+    rw [promiseTimeouts_put, hcur]
+    rfl
+  have hc2 : (Chain.listeners now (Chain.promiseTimeouts now org).org).org.current =
       ⟨org.objects.map fun o => g2 now (g1 now o)⟩ := by
-    rw [listeners_put _ _ hnd1, hc1]
+    rw [listeners_put, hc1]
     apply Origin.eq_of_objects
     show (org.objects.map (g1 now)).map _ = _
     rw [List.map_map]; rfl
-  have hnd2 : ((Chain.listeners now (Chain.promiseTimeouts now org).org).org.objects.map (·.id)).Nodup := by
-    rw [hc2]; show ((org.objects.map _).map (fun x : Object => x.id)).Nodup
-    rw [ids_map (fun o => by rw [g2_id, g1_id])]; exact hnd
-  have hwf2 : WF (Chain.listeners now (Chain.promiseTimeouts now org).org).org := by
+  have hwf2 : WF (Chain.listeners now (Chain.promiseTimeouts now org).org).org.current := by
     rw [hc2]
     exact WF_map hwf' _ (fun o => by rw [g2_id, g1_id])
       (fun o => by rw [(g2_lists now _).1, (g1_lists now o).1]; exact List.Sublist.refl _)
       (fun o => by rw [← (g1_lists now o).2]; exact (g2_lists now _).2)
-  have hc3 : (Chain.callbacks now (Chain.listeners now (Chain.promiseTimeouts now org).org).org).org =
+  have hc3 : (Chain.callbacks now (Chain.listeners now (Chain.promiseTimeouts now org).org).org).org.current =
       ⟨org.objects.map fun o => g3 now org (g2 now (g1 now o))⟩ := by
-    rw [callbacks_put _ _ hnd2 hwf2]
+    rw [callbacks_put _ _ hwf2, hc2]
     apply Origin.eq_of_objects
-    show (Chain.listeners now (Chain.promiseTimeouts now org).org).org.objects.map _ = _
     have hcong := callback_congr (now := now) (d := ⟨org.objects.map fun o => g2 now (g1 now o)⟩) (org := org)
       (fun id => g21_awaiting now org.objects id)
-    rw [hc2]
     show (org.objects.map _).map _ = _
     rw [List.map_map]
     apply List.map_congr_left
@@ -1023,31 +1122,22 @@ theorem chain_sweep_eq (now : Nat) (org : Origin) (hnd : (org.objects.map (·.id
     show (Concrete.processCallback now _ (g2 now (g1 now o))).getD _ = g3 now org _
     rw [hcong]
     rfl
-  have hnd3 : ((Chain.callbacks now (Chain.listeners now (Chain.promiseTimeouts now org).org).org).org.objects.map (·.id)).Nodup := by
-    rw [hc3]; show ((org.objects.map _).map (fun x : Object => x.id)).Nodup
-    rw [ids_map (fun o => by rw [g3_id, g2_id, g1_id])]; exact hnd
-  have hc4 : (Chain.leaseTimeouts now (Chain.callbacks now (Chain.listeners now (Chain.promiseTimeouts now org).org).org).org).org =
+  have hc4 : (Chain.leaseTimeouts now (Chain.callbacks now (Chain.listeners now (Chain.promiseTimeouts now org).org).org).org).org.current =
       ⟨org.objects.map fun o => g4 now (g3 now org (g2 now (g1 now o)))⟩ := by
-    rw [leaseTimeouts_put _ _ hnd3, hc3]
+    rw [leaseTimeouts_put, hc3]
     apply Origin.eq_of_objects
     show (org.objects.map _).map _ = _
     rw [List.map_map]; rfl
-  have hnd4 : ((Chain.leaseTimeouts now (Chain.callbacks now (Chain.listeners now (Chain.promiseTimeouts now org).org).org).org).org.objects.map (·.id)).Nodup := by
-    rw [hc4]; show ((org.objects.map _).map (fun x : Object => x.id)).Nodup
-    rw [ids_map (fun o => by rw [g4_id, g3_id, g2_id, g1_id])]; exact hnd
-  have hc5 : (Chain.retryTimeouts now (Chain.leaseTimeouts now (Chain.callbacks now (Chain.listeners now (Chain.promiseTimeouts now org).org).org).org).org).org =
+  have hc5 : (Chain.retryTimeouts now (Chain.leaseTimeouts now (Chain.callbacks now (Chain.listeners now (Chain.promiseTimeouts now org).org).org).org).org).org.current =
       ⟨org.objects.map fun o => g5 now (g4 now (g3 now org (g2 now (g1 now o))))⟩ := by
-    rw [retryTimeouts_put _ _ hnd4, hc4]
+    rw [retryTimeouts_put, hc4]
     apply Origin.eq_of_objects
     show (org.objects.map _).map _ = _
     rw [List.map_map]; rfl
   constructor
-  · show (Chain.retryTimeouts now (Chain.leaseTimeouts now (Chain.callbacks now (Chain.listeners now (Chain.promiseTimeouts now org).org).org).org).org).org = _
-    rw [hc5]
-    show _ = (⟨(org.objects.map (Concrete.sweepObject now org)).map (fun ch : Concrete.Change => ch.obj)⟩ : Origin)
+  · show (Chain.retryTimeouts now (Chain.leaseTimeouts now (Chain.callbacks now (Chain.listeners now (Chain.promiseTimeouts now org).org).org).org).org).org.current = _
+    rw [hc5, sweep_current now hnd]
     apply Origin.eq_of_objects
-    show _ = (org.objects.map (Concrete.sweepObject now org)).map (fun ch : Concrete.Change => ch.obj)
-    rw [List.map_map]
     apply List.map_congr_left
     intro o _
     show _ = (Concrete.sweepObject now org o).obj
@@ -1061,15 +1151,12 @@ theorem chain_sweep_eq (now : Nat) (org : Origin) (hnd : (org.objects.map (·.id
     rw [promiseTimeouts_send, listeners_send, callbacks_send, leaseTimeouts_send, retryTimeouts_send, hc4, hc1]
     simp only [List.nil_append, List.append_nil, flatMap_map', sweepObject_eq]
 
-theorem SwInv.transfer {o : String} {S : Abstract.State} {c : Commands} {T : Abstract.State}
-    (h : SwInv o S c T) {c' : Commands} (hp : c'.org = c.org) (hs : c'.send = c.send) : SwInv o S c' T :=
-  ⟨hp ▸ h.loc, hs ▸ h.out, h.sch, hp ▸ h.orig, hp ▸ h.nodup, hp ▸ h.wf, h.other⟩
-
 theorem sweep_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.objects, ob.id.origin = o) (hnodup : (org.objects.map (·.id)).Nodup)
     (hwf : WF org) (now : Nat) :
-    SwInv o S (Concrete.sweep now org) (execI (Chain.sweepTriggers now org) now S) :=
-  (chain_sweep_sim hL horig hnodup hwf now).transfer (chain_sweep_eq now org hnodup hwf).1.symm
-    (chain_sweep_eq now org hnodup hwf).2.symm
+    SwInv o S (Concrete.sweep now org) (execI (Chain.sweepTriggers now org) now S) := by
+  have hcur : org.current = org := current_of_nodup hnodup
+  exact (chain_sweep_sim hL (by rw [hcur]; exact horig) (by rw [hcur]; exact hwf) now).transfer
+    (chain_sweep_eq now org hnodup hwf).1.symm (chain_sweep_eq now org hnodup hwf).2.symm
 
 end Refinement

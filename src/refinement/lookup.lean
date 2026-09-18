@@ -32,7 +32,7 @@ def find (S : Abstract.State) (id : Ident) : Option Object :=
   S.objects.find? (·.id == id)
 
 def Origin.find (org : Origin) (id : Ident) : Option Object :=
-  org.objects.find? (·.id == id)
+  org.current.objects.find? (·.id == id)
 
 theorem find_id {S : Abstract.State} {id : Ident} {o : Object} (h : find S id = some o) : o.id = id := by
   have := List.find?_some h
@@ -192,26 +192,34 @@ theorem find_setTask (S : Abstract.State) (id id' : Ident) (t : TaskObject) :
 theorem find_setMessage (S : Abstract.State) (a : String) (m : Message) (id : Ident) :
     find ((Abstract.Effect.setMessage a m).apply S) id = find S id := rfl
 
-theorem set_present {org : Origin} {x : Object} (h : org.objects.any (·.id == x.id) = true) :
-    (org.set x).objects = org.objects.map fun o => if o.id == x.id then x else o := by
-  simp [Concrete.Origin.set, h]
+def replace (objects : List Object) (o : Object) : List Object :=
+  if objects.any (·.id == o.id) then objects.map fun x => if x.id == o.id then o else x else objects ++ [o]
 
-theorem set_absent {org : Origin} {x : Object} (h : org.objects.any (·.id == x.id) = false) :
-    (org.set x).objects = org.objects ++ [x] := by
-  simp [Concrete.Origin.set, h]
+theorem current_eq (org : Origin) : org.current = ⟨org.objects.foldl replace []⟩ := rfl
+
+theorem current_set (org : Origin) (x : Object) : (org.set x).current = ⟨replace org.current.objects x⟩ := by
+  show (⟨(org.objects ++ [x]).foldl replace []⟩ : Origin) = _
+  rw [List.foldl_append, List.foldl_cons, List.foldl_nil]
+  rfl
+
+theorem replace_present {l : List Object} {x : Object} (h : l.any (·.id == x.id) = true) :
+    replace l x = l.map fun o => if o.id == x.id then x else o := by
+  simp [replace, h]
+
+theorem replace_absent {l : List Object} {x : Object} (h : l.any (·.id == x.id) = false) :
+    replace l x = l ++ [x] := by
+  simp [replace, h]
 
 theorem replace_id (x o : Object) : (if o.id == x.id then x else o).id = o.id := by
   split
   · rename_i e; exact (beq_iff_eq.1 e).symm
   · rfl
 
-theorem find_set_same (org : Origin) (x : Object) :
-    Origin.find (org.set x) x.id = some x := by
-  unfold Origin.find
-  by_cases h : org.objects.any (·.id == x.id) = true
-  · rw [set_present h, find?_map_id _ (replace_id x)]
+theorem find?_replace_same (l : List Object) (x : Object) : (replace l x).find? (·.id == x.id) = some x := by
+  by_cases h : l.any (·.id == x.id) = true
+  · rw [replace_present h, find?_map_id _ (replace_id x)]
     obtain ⟨y, hy, hyx⟩ := List.any_eq_true.1 h
-    cases hf : org.objects.find? (·.id == x.id) with
+    cases hf : l.find? (·.id == x.id) with
     | none =>
         rw [List.find?_eq_none] at hf
         exact absurd hyx (hf y hy)
@@ -219,34 +227,44 @@ theorem find_set_same (org : Origin) (x : Object) :
         have hz : z.id = x.id := by simpa using List.find?_some hf
         simp [hz]
   · have h' := eq_false_of_ne_true h
-    rw [set_absent h', List.find?_append]
-    have : org.objects.find? (·.id == x.id) = none := by
+    rw [replace_absent h', List.find?_append]
+    have : l.find? (·.id == x.id) = none := by
       rw [List.find?_eq_none]
       intro a ha hp
       exact List.any_eq_false.1 h' a ha hp
     simp [this]
 
-theorem find_set_other (org : Origin) (x : Object) (id : Ident) (h : id ≠ x.id) :
-    Origin.find (org.set x) id = Origin.find org id := by
-  unfold Origin.find
-  by_cases hp : org.objects.any (·.id == x.id) = true
-  · rw [set_present hp, find?_map_id _ (replace_id x)]
-    cases hf : org.objects.find? (·.id == id) with
+theorem find?_replace_other (l : List Object) (x : Object) (id : Ident) (h : id ≠ x.id) :
+    (replace l x).find? (·.id == id) = l.find? (·.id == id) := by
+  by_cases hp : l.any (·.id == x.id) = true
+  · rw [replace_present hp, find?_map_id _ (replace_id x)]
+    cases hf : l.find? (·.id == id) with
     | none => rfl
     | some y =>
         have hy : y.id = id := by simpa using List.find?_some hf
         have : y.id ≠ x.id := fun e => h (hy.symm.trans e)
         simp [this]
   · have hp' := eq_false_of_ne_true hp
-    rw [set_absent hp', List.find?_append]
+    rw [replace_absent hp', List.find?_append]
     have : ([x].find? (·.id == id)) = none := by
       have : (x.id == id) = false := by simpa using Ne.symm h
       simp [this]
     rw [this, Option.or_none]
 
-theorem mem_set {org : Origin} {x ob : Object} (hob : ob ∈ (org.set x).objects) :
-    ob = x ∨ ob ∈ org.objects := by
-  unfold Concrete.Origin.set at hob
+theorem find_set_same (org : Origin) (x : Object) :
+    Origin.find (org.set x) x.id = some x := by
+  unfold Origin.find
+  rw [current_set]
+  exact find?_replace_same _ _
+
+theorem find_set_other (org : Origin) (x : Object) (id : Ident) (h : id ≠ x.id) :
+    Origin.find (org.set x) id = Origin.find org id := by
+  unfold Origin.find
+  rw [current_set]
+  exact find?_replace_other _ _ _ h
+
+theorem mem_replace {l : List Object} {x ob : Object} (hob : ob ∈ replace l x) : ob = x ∨ ob ∈ l := by
+  unfold replace at hob
   split at hob
   · simp only [List.mem_map] at hob
     obtain ⟨y, hy, rfl⟩ := hob
@@ -258,8 +276,13 @@ theorem mem_set {org : Origin} {x ob : Object} (hob : ob ∈ (org.set x).objects
     · exact Or.inr hob
     · exact Or.inl rfl
 
+theorem mem_set {org : Origin} {x ob : Object} (hob : ob ∈ (org.set x).current.objects) :
+    ob = x ∨ ob ∈ org.current.objects := by
+  rw [current_set] at hob
+  exact mem_replace hob
+
 theorem find_mem {org : Origin} {id : Ident} {o : Object} (h : Origin.find org id = some o) :
-    o ∈ org.objects ∧ o.id = id := by
+    o ∈ org.current.objects ∧ o.id = id := by
   refine ⟨List.mem_of_find?_eq_some h, ?_⟩
   have := List.find?_some h
   simpa using this
@@ -350,8 +373,8 @@ theorem applyAll_find_other {o : String} (S : Abstract.State) (fx : List Abstrac
       | delSchedule i => simp [Fx] at h
 
 theorem set_derived {o : String} {org : Origin} {x : Object}
-    (h : ∀ ob ∈ org.objects, ob.id.origin = o) (hx : x.id.origin = o) :
-    ∀ ob ∈ (org.set x).objects, ob.id.origin = o := by
+    (h : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hx : x.id.origin = o) :
+    ∀ ob ∈ (org.set x).current.objects, ob.id.origin = o := by
   intro ob hob
   rcases mem_set hob with rfl | hob
   · exact hx
@@ -370,24 +393,82 @@ theorem nodup_append_single {α : Type} {l : List α} {w : α} (h : l.Nodup) (hw
       · exact h'.1 hm
       · exact hw.1 (List.mem_singleton.1 hm).symm
 
-theorem set_ids {org : Origin} {x : Object} (h : org.objects.any (·.id == x.id) = true) :
-    (org.set x).objects.map (·.id) = org.objects.map (·.id) := by
-  rw [set_present h, List.map_map]
+theorem replace_ids {l : List Object} {x : Object} (h : l.any (·.id == x.id) = true) :
+    (replace l x).map (·.id) = l.map (·.id) := by
+  rw [replace_present h, List.map_map]
   congr 1
   funext o
   exact replace_id x o
 
-theorem set_nodup {org : Origin} {x : Object} (h : (org.objects.map (·.id)).Nodup) :
-    ((org.set x).objects.map (·.id)).Nodup := by
-  by_cases hp : org.objects.any (·.id == x.id) = true
-  · rw [set_ids hp]; exact h
+theorem replace_nodup {l : List Object} {x : Object} (h : (l.map (·.id)).Nodup) :
+    ((replace l x).map (·.id)).Nodup := by
+  by_cases hp : l.any (·.id == x.id) = true
+  · rw [replace_ids hp]; exact h
   · have hp' := eq_false_of_ne_true hp
-    rw [set_absent hp', List.map_append, List.map_singleton]
+    rw [replace_absent hp', List.map_append, List.map_singleton]
     apply nodup_append_single h
     intro hm
     simp only [List.mem_map] at hm
     obtain ⟨y, hy, hyx⟩ := hm
     exact List.any_eq_false.1 hp' y hy (by simp [hyx])
+
+theorem foldl_replace_nodup : ∀ (l acc : List Object), (acc.map (·.id)).Nodup →
+    ((l.foldl replace acc).map (·.id)).Nodup
+  | [], _, h => h
+  | _ :: l, _, h => foldl_replace_nodup l _ (replace_nodup h)
+
+theorem current_nodup (org : Origin) : (org.current.objects.map (·.id)).Nodup :=
+  foldl_replace_nodup org.objects [] List.nodup_nil
+
+theorem mem_foldl_replace : ∀ (l acc : List Object) {ob : Object}, ob ∈ l.foldl replace acc →
+    ob ∈ acc ∨ ob ∈ l
+  | [], _, _, h => Or.inl h
+  | o :: l, acc, ob, h => by
+      rcases mem_foldl_replace l _ h with h1 | h1
+      · rcases mem_replace h1 with rfl | h2
+        · exact Or.inr (List.mem_cons_self ..)
+        · exact Or.inl h2
+      · exact Or.inr (List.mem_cons_of_mem _ h1)
+
+theorem mem_current {org : Origin} {ob : Object} (h : ob ∈ org.current.objects) : ob ∈ org.objects := by
+  rcases mem_foldl_replace org.objects [] h with h | h
+  · cases h
+  · exact h
+
+theorem foldl_replace_of_nodup : ∀ (l acc : List Object), ((acc ++ l).map (·.id)).Nodup →
+    l.foldl replace acc = acc ++ l
+  | [], acc, _ => by simp
+  | o :: l, acc, h => by
+      have hnot : acc.any (·.id == o.id) = false := by
+        rw [List.map_append, List.map_cons, List.nodup_append] at h
+        obtain ⟨_, _, hdis⟩ := h
+        refine List.any_eq_false.2 fun a ha e => ?_
+        have hae : a.id = o.id := beq_iff_eq.1 e
+        have hm : o.id ∈ acc.map (·.id) := hae ▸ List.mem_map_of_mem ha
+        exact hdis o.id hm o.id (List.mem_cons_self ..) rfl
+      rw [List.foldl_cons, replace_absent hnot, foldl_replace_of_nodup l (acc ++ [o]) (by simpa using h)]
+      simp
+
+theorem current_of_nodup {org : Origin} (h : (org.objects.map (·.id)).Nodup) : org.current = org := by
+  rw [current_eq, foldl_replace_of_nodup org.objects [] (by simpa using h)]
+  rfl
+
+theorem current_current (org : Origin) : org.current.current = org.current :=
+  current_of_nodup (current_nodup org)
+
+theorem find_current (org : Origin) (id : Ident) : Origin.find org.current id = Origin.find org id := by
+  unfold Origin.find
+  rw [current_current]
+
+theorem current_append (l m : List Object) :
+    (⟨l ++ m⟩ : Origin).current = ⟨m.foldl replace (⟨l⟩ : Origin).current.objects⟩ := by
+  rw [current_eq, current_eq, List.foldl_append]
+
+theorem current_append_current (org : Origin) (m : List Object) :
+    (⟨org.current.objects ++ m⟩ : Origin).current = (⟨org.objects ++ m⟩ : Origin).current := by
+  rw [current_append, current_append]
+  congr 2
+  exact congrArg Origin.objects (current_current org)
 
 theorem project_id (o : Object) (n : Nat) : (o.project n).id = o.id := rfl
 

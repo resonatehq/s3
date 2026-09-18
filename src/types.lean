@@ -14,7 +14,7 @@ abbrev Tags := List (String × String)
 structure Value where
   headers : Tags          := []
   data    : Option String := none
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 inductive PromiseState
   | pending
@@ -396,7 +396,7 @@ structure PromiseObject where
   settledAt : Option Nat  := none
   callbacks : List Ident     := []
   listeners : List String := []
-  deriving Repr
+  deriving Repr, DecidableEq
 
 def PromiseObject.toRecord (p : PromiseObject) (id : Ident) : PromiseRecord :=
   { id := id, state := p.state, param := p.param, value := p.value,
@@ -432,7 +432,7 @@ structure TaskObject where
   leaseTimeoutAt : Option Nat    := none
   retryTimeoutAt : Option Nat    := none
   resumes        : List Ident    := []
-  deriving Repr
+  deriving Repr, DecidableEq
 
 def TaskObject.toRecord (t : TaskObject) (id : Ident) : TaskRecord :=
   { id := id, state := t.state, version := t.version,
@@ -449,13 +449,12 @@ structure Object where
   id      : Ident
   promise : PromiseObject
   task    : Option TaskObject := none
-  deriving Repr
+  deriving Repr, DecidableEq
 
 def Object.project (o : Object) (now : Nat) : Object :=
   let p := o.promise.project now
   { o with promise := p, task := o.task.map (·.view p) }
 
-deriving instance BEq for Value
 deriving instance BEq for PromiseRecord
 deriving instance BEq for TaskRecord
 deriving instance BEq for Schedule

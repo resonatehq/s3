@@ -22,21 +22,21 @@ theorem Inv.init : Inv Concrete.State.init :=
 
 theorem Equiv.refl (S : Abstract.State) : Equiv S S := ⟨fun _ => rfl, rfl, rfl⟩
 
-theorem invariant (H : Concrete.Hasher) (tr : Concrete.Trace) (valid : Concrete.Valid H tr)
+theorem invariant (H : Concrete.Hasher) (cfg : Concrete.Config) (tr : Concrete.Trace) (valid : Concrete.Valid H cfg tr)
     (init : (tr 0).state = Concrete.State.init) :
     ∀ n, Inv (tr n).state ∧ Equiv (abstract (tr n).state) (astate tr n)
   | 0 => by rw [init]; exact ⟨Inv.init, abstract_init ▸ Equiv.refl _⟩
   | n + 1 => by
-      obtain ⟨inv, rel⟩ := invariant H tr valid init n
-      obtain ⟨h1, h2, _⟩ := step_sim H (tr n).event (tr n).now (tr n).state (astate tr n) inv rel
+      obtain ⟨inv, rel⟩ := invariant H cfg tr valid init n
+      obtain ⟨h1, h2, _⟩ := step_sim H cfg (tr n).event (tr n).now (tr n).state (astate tr n) inv rel
       rw [valid.state n]
       exact ⟨h1, h2⟩
 
-theorem blocks_observe (H : Concrete.Hasher) (tr : Concrete.Trace) (valid : Concrete.Valid H tr)
+theorem blocks_observe (H : Concrete.Hasher) (cfg : Concrete.Config) (tr : Concrete.Trace) (valid : Concrete.Valid H cfg tr)
     (init : (tr 0).state = Concrete.State.init) (n : Nat) :
     (blocks tr n).filterMap Abstract.Frame.observe = (Concrete.Frame.observe (tr n)).toList := by
-  obtain ⟨inv, rel⟩ := invariant H tr valid init n
-  obtain ⟨_, _, h3⟩ := step_sim H (tr n).event (tr n).now (tr n).state (astate tr n) inv rel
+  obtain ⟨inv, rel⟩ := invariant H cfg tr valid init n
+  obtain ⟨_, _, h3⟩ := step_sim H cfg (tr n).event (tr n).now (tr n).state (astate tr n) inv rel
   rw [blocks, frames_observe, evs, List.map_append, exec_append]
   simp only [List.map_cons, List.map_nil, exec_cons, Abstract.exec, step_stutter]
   rw [observations_stutter _ _ _ (by rw [exec_length, List.length_map]), h3, ← valid.reply n]
@@ -56,8 +56,8 @@ theorem blocks_head_now (tr : Concrete.Trace) (n : Nat) :
     ((blocks tr n).head (List.ne_nil_of_length_pos (blocks_pos tr n))).now = (tr n).now :=
   frames_head_now _ _ _ _
 
-theorem refines (H : Concrete.Hasher) (tr : Concrete.Trace)
-    (valid : Concrete.Valid H tr) (init : (tr 0).state = Concrete.State.init) :
+theorem refines (H : Concrete.Hasher) (cfg : Concrete.Config) (tr : Concrete.Trace)
+    (valid : Concrete.Valid H cfg tr) (init : (tr 0).state = Concrete.State.init) :
     ∃ tr' : Abstract.Trace,
       Abstract.Valid false tr' ∧
       (tr' 0).state = Abstract.State.init ∧
@@ -84,7 +84,7 @@ theorem refines (H : Concrete.Hasher) (tr : Concrete.Trace)
       intro n
       induction n with
       | zero => rfl
-      | succ n ih => rw [observed_succ, aobserved_block, ih, blocks_observe H tr valid init]
+      | succ n ih => rw [observed_succ, aobserved_block, ih, blocks_observe H cfg tr valid init]
     intro k o
     constructor
     · rintro ⟨n, hn⟩
