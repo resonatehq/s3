@@ -25,14 +25,14 @@ open Protocol (PromiseGetReq PromiseGetRes
                   ScheduleDeleteReq ScheduleDeleteRes
                   ScheduleSearchReq ScheduleSearchRes)
 
-def promiseGet (now : Nat) (org : Origin) (req : PromiseGetReq) : PromiseGetRes × Commands :=
+def promiseGet (req : PromiseGetReq) (now : Nat) (org : Origin) : PromiseGetRes × Commands :=
   match org.get req.id now with
   | none =>
       ({ status := 404 }, { org })
   | some o =>
       ({ status := 200, promise := some (o.promise.toRecord o.id) }, { org })
 
-def promiseCreate (now : Nat) (org : Origin) (req : PromiseCreateReq) : PromiseCreateRes × Commands :=
+def promiseCreate (req : PromiseCreateReq) (now : Nat) (org : Origin) : PromiseCreateRes × Commands :=
   match org.get req.id now with
   | some o =>
       ({ status := 200, promise := some (o.promise.toRecord o.id) }, { org })
@@ -50,11 +50,11 @@ def promiseCreate (now : Nat) (org : Origin) (req : PromiseCreateReq) : PromiseC
                 now
           let t : TaskObject := { state := .pending, version := 0, retryTimeoutAt := some due }
           ({ status := 200, promise := some (p.toRecord req.id) },
-           { arm := [⟨req.timeoutAt, req.id, .promise⟩, ⟨due, req.id, .retry⟩],
+           { arm := [⟨req.timeoutAt, req.id, .promiseTimeout⟩, ⟨due, req.id, .taskRetryTimeout⟩],
              org := org.set ⟨req.id, p, some t⟩ })
         else
           ({ status := 200, promise := some (p.toRecord req.id) },
-           { arm := [⟨req.timeoutAt, req.id, .promise⟩],
+           { arm := [⟨req.timeoutAt, req.id, .promiseTimeout⟩],
              org := org.set ⟨req.id, p, none⟩ })
       else
         let p : PromiseObject :=
@@ -67,7 +67,7 @@ def promiseCreate (now : Nat) (org : Origin) (req : PromiseCreateReq) : PromiseC
         ({ status := 200, promise := some (p.toRecord req.id) },
          { org := org.set ⟨req.id, p, t⟩ })
 
-def promiseSettle (now : Nat) (org : Origin) (req : PromiseSettleReq) : PromiseSettleRes × Commands :=
+def promiseSettle (req : PromiseSettleReq) (now : Nat) (org : Origin) : PromiseSettleRes × Commands :=
   if !req.state.settable then
     ({ status := 400 }, { org })
   else
@@ -85,7 +85,7 @@ def promiseSettle (now : Nat) (org : Origin) (req : PromiseSettleReq) : PromiseS
         else
           ({ status := 200, promise := some (o.promise.toRecord o.id) }, { org })
 
-def promiseRegisterCallback (now : Nat) (org : Origin) (req : PromiseRegisterCallbackReq) : PromiseRegisterCallbackRes × Commands :=
+def promiseRegisterCallback (req : PromiseRegisterCallbackReq) (now : Nat) (org : Origin) : PromiseRegisterCallbackRes × Commands :=
   if req.awaited == req.awaiter ∨ !req.awaited.sameOrigin req.awaiter then
     ({ status := 400 }, { org })
   else
@@ -103,7 +103,7 @@ def promiseRegisterCallback (now : Nat) (org : Origin) (req : PromiseRegisterCal
         else
           ({ status := 200, promise := some (awaited.promise.toRecord awaited.id) }, { org })
 
-def promiseRegisterListener (now : Nat) (org : Origin) (req : PromiseRegisterListenerReq) : PromiseRegisterListenerRes × Commands :=
+def promiseRegisterListener (req : PromiseRegisterListenerReq) (now : Nat) (org : Origin) : PromiseRegisterListenerRes × Commands :=
   match org.get req.awaited now with
   | none =>
       ({ status := 404 }, { org })
@@ -116,17 +116,17 @@ def promiseRegisterListener (now : Nat) (org : Origin) (req : PromiseRegisterLis
       else
         ({ status := 200, promise := some (awaited.promise.toRecord awaited.id) }, { org })
 
-def promiseSearch (_now : Nat) (org : Origin) (_req : PromiseSearchReq) : PromiseSearchRes × Commands :=
+def promiseSearch (_req : PromiseSearchReq) (_now : Nat) (org : Origin) : PromiseSearchRes × Commands :=
   ({ status := 501 }, { org })
 
-def taskGet (now : Nat) (org : Origin) (req : TaskGetReq) : TaskGetRes × Commands :=
+def taskGet (req : TaskGetReq) (now : Nat) (org : Origin) : TaskGetRes × Commands :=
   match (org.get req.id now).bind fun o => o.task.map (o.id, ·) with
   | none =>
       ({ status := 404 }, { org })
   | some (id, t) =>
       ({ status := 200, task := some (t.toRecord id) }, { org })
 
-def taskCreate (now : Nat) (org : Origin) (req : TaskCreateReq) : TaskCreateRes × Commands :=
+def taskCreate (req : TaskCreateReq) (now : Nat) (org : Origin) : TaskCreateRes × Commands :=
   let a := req.action
   if !a.type.isRunnable then
     ({ status := 400 }, { org })
@@ -141,7 +141,7 @@ def taskCreate (now : Nat) (org : Origin) (req : TaskCreateReq) : TaskCreateRes 
             { state := .acquired, version := 1, ttl := some req.ttl, pid := some req.pid,
               leaseTimeoutAt := some (now + req.ttl) }
           ({ status := 200, task := some (t.toRecord a.id), promise := some (p.toRecord a.id) },
-           { arm := [⟨a.timeoutAt, a.id, .promise⟩, ⟨now + req.ttl, a.id, .lease⟩],
+           { arm := [⟨a.timeoutAt, a.id, .promiseTimeout⟩, ⟨now + req.ttl, a.id, .taskLeaseTimeout⟩],
              org := org.set ⟨a.id, p, some t⟩ })
         else
           let p : PromiseObject :=
@@ -168,13 +168,13 @@ def taskCreate (now : Nat) (org : Origin) (req : TaskCreateReq) : TaskCreateRes 
                                    retryTimeoutAt := none, resumes := [] }
                 ({ status := 200, task := some (t'.toRecord o.id),
                    promise := some (o.promise.toRecord o.id) },
-                 { arm := [⟨now + req.ttl, o.id, .lease⟩],
+                 { arm := [⟨now + req.ttl, o.id, .taskLeaseTimeout⟩],
                    org := org.set { o with task := some t' },
                    del := t.timers o.id })
               else
                 ({ status := 409 }, { org })
 
-def taskAcquire (now : Nat) (org : Origin) (req : TaskAcquireReq) : TaskAcquireRes × Commands :=
+def taskAcquire (req : TaskAcquireReq) (now : Nat) (org : Origin) : TaskAcquireRes × Commands :=
   match (org.get req.id now).bind fun o => o.task.map (o, ·) with
   | none =>
       ({ status := 404 }, { org })
@@ -187,11 +187,11 @@ def taskAcquire (now : Nat) (org : Origin) (req : TaskAcquireReq) : TaskAcquireR
                            leaseTimeoutAt := some (now + req.ttl),
                            retryTimeoutAt := none, resumes := [] }
         ({ status := 200, task := some (t'.toRecord o.id), promise := some (o.promise.toRecord o.id) },
-         { arm := [⟨now + req.ttl, o.id, .lease⟩],
+         { arm := [⟨now + req.ttl, o.id, .taskLeaseTimeout⟩],
            org := org.set { o with task := some t' },
            del := t.timers o.id })
 
-def taskFence (now : Nat) (org : Origin) (req : TaskFenceReq) : TaskFenceRes × Commands :=
+def taskFence (req : TaskFenceReq) (now : Nat) (org : Origin) : TaskFenceRes × Commands :=
   if req.action.targetId == req.id ∨ !req.action.targetId.sameOrigin req.id then
     ({ status := 400 }, { org })
   else
@@ -204,13 +204,13 @@ def taskFence (now : Nat) (org : Origin) (req : TaskFenceReq) : TaskFenceRes × 
         else
           match req.action with
           | .create r =>
-              let (res, c) := promiseCreate now org r
+              let (res, c) := promiseCreate r now org
               ({ status := 200, action := some (.create res) }, c)
           | .settle r =>
-              let (res, c) := promiseSettle now org r
+              let (res, c) := promiseSettle r now org
               ({ status := 200, action := some (.settle res) }, c)
 
-def taskHeartbeat (now : Nat) (org : Origin) (req : TaskHeartbeatReq) : TaskHeartbeatRes × Commands :=
+def taskHeartbeat (req : TaskHeartbeatReq) (now : Nat) (org : Origin) : TaskHeartbeatRes × Commands :=
   ({ status := 200 },
    req.tasks.foldl (init := { org }) fun c ref =>
      match (org.get ref.id now).bind fun o => o.task.map (o, ·) with
@@ -221,13 +221,13 @@ def taskHeartbeat (now : Nat) (org : Origin) (req : TaskHeartbeatReq) : TaskHear
              ∧ t.pid == some req.pid ∧ o.promise.state == .pending then
            let lease := now + t.ttl.getD 0
            { c with
-             arm := c.arm ++ (if t.leaseTimeoutAt == some lease then [] else [⟨lease, o.id, .lease⟩]),
+             arm := c.arm ++ (if t.leaseTimeoutAt == some lease then [] else [⟨lease, o.id, .taskLeaseTimeout⟩]),
              org := c.org.set { o with task := some { t with leaseTimeoutAt := some lease } },
              del := c.del ++ (if t.leaseTimeoutAt == some lease then [] else t.timers o.id) }
          else
            c)
 
-def taskSuspend (now : Nat) (org : Origin) (req : TaskSuspendReq) : TaskSuspendRes × Commands :=
+def taskSuspend (req : TaskSuspendReq) (now : Nat) (org : Origin) : TaskSuspendRes × Commands :=
   let awaitedIds := req.actions.map (·.awaited)
   if req.actions.isEmpty ∨ awaitedIds.contains req.id
       ∨ awaitedIds.any (fun a => !a.sameOrigin req.id)
@@ -260,7 +260,7 @@ def taskSuspend (now : Nat) (org : Origin) (req : TaskSuspendReq) : TaskSuspendR
                                                 resumes := [] } },
                del := t.timers o.id })
 
-def taskFulfill (now : Nat) (org : Origin) (req : TaskFulfillReq) : TaskFulfillRes × Commands :=
+def taskFulfill (req : TaskFulfillReq) (now : Nat) (org : Origin) : TaskFulfillRes × Commands :=
   if !req.action.state.settable then
     ({ status := 400 }, { org })
   else
@@ -278,7 +278,7 @@ def taskFulfill (now : Nat) (org : Origin) (req : TaskFulfillReq) : TaskFulfillR
                                        task := some (if t.state == .fulfilled then t else t.fulfill) },
              del := o.timers })
 
-def taskRelease (now : Nat) (org : Origin) (req : TaskReleaseReq) : TaskReleaseRes × Commands :=
+def taskRelease (req : TaskReleaseReq) (now : Nat) (org : Origin) : TaskReleaseRes × Commands :=
   match (org.get req.id now).bind fun o => o.task.map (o, ·) with
   | none =>
       ({ status := 404 }, { org })
@@ -287,13 +287,13 @@ def taskRelease (now : Nat) (org : Origin) (req : TaskReleaseReq) : TaskReleaseR
         ({ status := 409 }, { org })
       else
         ({ status := 200 },
-         { arm := [⟨now, o.id, .retry⟩],
+         { arm := [⟨now, o.id, .taskRetryTimeout⟩],
            org := org.set { o with task := some { t with state := .pending, pid := none, ttl := none,
                                                            leaseTimeoutAt := none,
                                                            retryTimeoutAt := some now } },
            del := t.timers o.id })
 
-def taskHalt (now : Nat) (org : Origin) (req : TaskHaltReq) : TaskHaltRes × Commands :=
+def taskHalt (req : TaskHaltReq) (now : Nat) (org : Origin) : TaskHaltRes × Commands :=
   match (org.get req.id now).bind fun o => o.task.map (o, ·) with
   | none =>
       ({ status := 404 }, { org })
@@ -309,7 +309,7 @@ def taskHalt (now : Nat) (org : Origin) (req : TaskHaltReq) : TaskHaltRes × Com
                                                            retryTimeoutAt := none } },
            del := t.timers o.id })
 
-def taskContinue (now : Nat) (org : Origin) (req : TaskContinueReq) : TaskContinueRes × Commands :=
+def taskContinue (req : TaskContinueReq) (now : Nat) (org : Origin) : TaskContinueRes × Commands :=
   match (org.get req.id now).bind fun o => o.task.map (o, ·) with
   | none =>
       ({ status := 404 }, { org })
@@ -318,22 +318,22 @@ def taskContinue (now : Nat) (org : Origin) (req : TaskContinueReq) : TaskContin
         ({ status := 409 }, { org })
       else
         ({ status := 200 },
-         { arm := [⟨now, o.id, .retry⟩],
+         { arm := [⟨now, o.id, .taskRetryTimeout⟩],
            org := org.set { o with task := some { t with state := .pending, retryTimeoutAt := some now } } })
 
-def taskSearch (_now : Nat) (org : Origin) (_req : TaskSearchReq) : TaskSearchRes × Commands :=
+def taskSearch (_req : TaskSearchReq) (_now : Nat) (org : Origin) : TaskSearchRes × Commands :=
   ({ status := 501 }, { org })
 
-def scheduleGet (_now : Nat) (org : Origin) (_req : ScheduleGetReq) : ScheduleGetRes × Commands :=
+def scheduleGet (_req : ScheduleGetReq) (_now : Nat) (org : Origin) : ScheduleGetRes × Commands :=
   ({ status := 501 }, { org })
 
-def scheduleCreate (_now : Nat) (org : Origin) (_req : ScheduleCreateReq) : ScheduleCreateRes × Commands :=
+def scheduleCreate (_req : ScheduleCreateReq) (_now : Nat) (org : Origin) : ScheduleCreateRes × Commands :=
   ({ status := 501 }, { org })
 
-def scheduleDelete (_now : Nat) (org : Origin) (_req : ScheduleDeleteReq) : ScheduleDeleteRes × Commands :=
+def scheduleDelete (_req : ScheduleDeleteReq) (_now : Nat) (org : Origin) : ScheduleDeleteRes × Commands :=
   ({ status := 501 }, { org })
 
-def scheduleSearch (_now : Nat) (org : Origin) (_req : ScheduleSearchReq) : ScheduleSearchRes × Commands :=
+def scheduleSearch (_req : ScheduleSearchReq) (_now : Nat) (org : Origin) : ScheduleSearchRes × Commands :=
   ({ status := 501 }, { org })
 
 end Concrete

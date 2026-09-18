@@ -331,10 +331,10 @@ theorem stepCached_eq (H : Hasher) (ev : Event) (now : Nat) {cs : Cached H} (h :
           exact ⟨trivial, trivial, h⟩
       | some name =>
           simp only [stepCached, Concrete.step, ho]
-          have heq := runCached_eq H name (fun org => Concrete.handle now org (.external req)) h
-          have hs := runCached_sound H name (fun org => Concrete.handle now org (.external req)) h
-          rcases hR : runCached H name (fun org => Concrete.handle now org (.external req)) cs with ⟨r, cs', ok⟩
-          rcases hS : Concrete.run H name (fun org => Concrete.handle now org (.external req)) cs.state
+          have heq := runCached_eq H name (fun org => Concrete.handle (.external req) now org) h
+          have hs := runCached_sound H name (fun org => Concrete.handle (.external req) now org) h
+          rcases hR : runCached H name (fun org => Concrete.handle (.external req) now org) cs with ⟨r, cs', ok⟩
+          rcases hS : Concrete.run H name (fun org => Concrete.handle (.external req) now org) cs.state
             with ⟨r', s', ok'⟩
           rw [hR, hS] at heq
           rw [hR] at hs
@@ -344,10 +344,10 @@ theorem stepCached_eq (H : Hasher) (ev : Event) (now : Nat) {cs : Cached H} (h :
   | internal t =>
       simp only [stepCached, Concrete.step]
       split
-      · have heq := runCached_eq H t.id.origin (fun org => Concrete.handle now org (.internal t)) h
-        have hs := runCached_sound H t.id.origin (fun org => Concrete.handle now org (.internal t)) h
-        rcases hR : runCached H t.id.origin (fun org => Concrete.handle now org (.internal t)) cs with ⟨r, cs', ok⟩
-        rcases hS : Concrete.run H t.id.origin (fun org => Concrete.handle now org (.internal t)) cs.state
+      · have heq := runCached_eq H t.id.origin (fun org => Concrete.handle (.internal t) now org) h
+        have hs := runCached_sound H t.id.origin (fun org => Concrete.handle (.internal t) now org) h
+        rcases hR : runCached H t.id.origin (fun org => Concrete.handle (.internal t) now org) cs with ⟨r, cs', ok⟩
+        rcases hS : Concrete.run H t.id.origin (fun org => Concrete.handle (.internal t) now org) cs.state
           with ⟨r', s', ok'⟩
         rw [hR, hS] at heq
         rw [hR] at hs
@@ -365,10 +365,10 @@ theorem stepCached_any (H : Hasher) (now : Nat) (req : Protocol.Request) (name :
     Tagged (stepCached H (.external req) now cs).2 ∧
     Agree (stepCached H (.external req) now cs).2 name := by
   simp only [stepCached, Concrete.step, ho]
-  have ha := runCached_any H name (fun org => Concrete.handle now org (.external req)) ht
-  have hok' := Concrete.run_accepted (H := H) name (fun org => Concrete.handle now org (.external req)) cs.state
-  rcases hR : runCached H name (fun org => Concrete.handle now org (.external req)) cs with ⟨r, cs', ok⟩
-  rcases hS : Concrete.run H name (fun org => Concrete.handle now org (.external req)) cs.state with ⟨r', s', ok'⟩
+  have ha := runCached_any H name (fun org => Concrete.handle (.external req) now org) ht
+  have hok' := Concrete.run_accepted (H := H) name (fun org => Concrete.handle (.external req) now org) cs.state
+  rcases hR : runCached H name (fun org => Concrete.handle (.external req) now org) cs with ⟨r, cs', ok⟩
+  rcases hS : Concrete.run H name (fun org => Concrete.handle (.external req) now org) cs.state with ⟨r', s', ok'⟩
   rw [hR, hS] at ha
   rw [hS] at hok'
   simp only at ha hok'
@@ -384,10 +384,10 @@ theorem stepCached_any_timer (H : Hasher) (now : Nat) (t : Concrete.Timer) {cs :
     Agree (stepCached H (.internal t) now cs).2 t.id.origin := by
   simp only [stepCached, Concrete.step]
   rw [if_pos hl, if_pos hl]
-  have ha := runCached_any H t.id.origin (fun org => Concrete.handle now org (.internal t)) ht
-  have hok' := Concrete.run_accepted (H := H) t.id.origin (fun org => Concrete.handle now org (.internal t)) cs.state
-  rcases hR : runCached H t.id.origin (fun org => Concrete.handle now org (.internal t)) cs with ⟨r, cs', ok⟩
-  rcases hS : Concrete.run H t.id.origin (fun org => Concrete.handle now org (.internal t)) cs.state
+  have ha := runCached_any H t.id.origin (fun org => Concrete.handle (.internal t) now org) ht
+  have hok' := Concrete.run_accepted (H := H) t.id.origin (fun org => Concrete.handle (.internal t) now org) cs.state
+  rcases hR : runCached H t.id.origin (fun org => Concrete.handle (.internal t) now org) cs with ⟨r, cs', ok⟩
+  rcases hS : Concrete.run H t.id.origin (fun org => Concrete.handle (.internal t) now org) cs.state
     with ⟨r', s', ok'⟩
   rw [hR, hS] at ha
   rw [hS] at hok'

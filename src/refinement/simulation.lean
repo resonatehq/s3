@@ -336,39 +336,39 @@ theorem Sim.map' {o : String} {org : Origin} {S : Abstract.State} {α β : Type}
 theorem handleExternal_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S) (now : Nat)
     (req : Request) (h : req.origin? = some o) :
     Sim o org S (Abstract.handleExternal req now (env S))
-      (Concrete.handleExternal now org req).1 (Concrete.handleExternal now org req).2 := by
+      (Concrete.handleExternal req now org).1 (Concrete.handleExternal req now org).2 := by
   cases req with
   | promiseGet r =>
       have hid : r.id.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.promiseGet now org r with ⟨res, c⟩
+      rcases hC : Concrete.promiseGet r now org with ⟨res, c⟩
       have hs := promiseGet_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
       exact Sim.map' _ hs
   | promiseCreate r =>
       have hid : r.id.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.promiseCreate now org r with ⟨res, c⟩
+      rcases hC : Concrete.promiseCreate r now org with ⟨res, c⟩
       have hs := promiseCreate_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
       exact Sim.map' _ hs
   | promiseSettle r =>
       have hid : r.id.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.promiseSettle now org r with ⟨res, c⟩
+      rcases hC : Concrete.promiseSettle r now org with ⟨res, c⟩
       have hs := promiseSettle_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
       exact Sim.map' _ hs
   | promiseRegisterCallback r =>
       have hid : r.awaited.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.promiseRegisterCallback now org r with ⟨res, c⟩
+      rcases hC : Concrete.promiseRegisterCallback r now org with ⟨res, c⟩
       have hs := promiseRegisterCallback_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
       exact Sim.map' _ hs
   | promiseRegisterListener r =>
       have hid : r.awaited.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.promiseRegisterListener now org r with ⟨res, c⟩
+      rcases hC : Concrete.promiseRegisterListener r now org with ⟨res, c⟩
       have hs := promiseRegisterListener_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
@@ -380,28 +380,28 @@ theorem handleExternal_sim {o : String} {org : Origin} {S : Abstract.State} (hL 
   | scheduleSearch r => simp [Protocol.Request.origin?] at h
   | taskGet r =>
       have hid : r.id.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.taskGet now org r with ⟨res, c⟩
+      rcases hC : Concrete.taskGet r now org with ⟨res, c⟩
       have hs := taskGet_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
       exact Sim.map' _ hs
   | taskCreate r =>
       have hid : r.action.id.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.taskCreate now org r with ⟨res, c⟩
+      rcases hC : Concrete.taskCreate r now org with ⟨res, c⟩
       have hs := taskCreate_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
       exact Sim.map' _ hs
   | taskAcquire r =>
       have hid : r.id.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.taskAcquire now org r with ⟨res, c⟩
+      rcases hC : Concrete.taskAcquire r now org with ⟨res, c⟩
       have hs := taskAcquire_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
       exact Sim.map' _ hs
   | taskFence r =>
       have hid : r.id.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.taskFence now org r with ⟨res, c⟩
+      rcases hC : Concrete.taskFence r now org with ⟨res, c⟩
       have hs := taskFence_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
@@ -421,42 +421,42 @@ theorem handleExternal_sim {o : String} {org : Origin} {S : Abstract.State} (hL 
               · rw [← h]; simpa using List.all_eq_true.1 hall ref href
             · have hall' : (ts.all (·.id.origin == t.id.origin)) = false := by simpa using hall
               simp [hall'] at h
-      rcases hC : Concrete.taskHeartbeat now org r with ⟨res, c⟩
+      rcases hC : Concrete.taskHeartbeat r now org with ⟨res, c⟩
       have hs := taskHeartbeat_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
       exact Sim.map' _ hs
   | taskSuspend r =>
       have hid : r.id.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.taskSuspend now org r with ⟨res, c⟩
+      rcases hC : Concrete.taskSuspend r now org with ⟨res, c⟩
       have hs := taskSuspend_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
       exact Sim.map' _ hs
   | taskFulfill r =>
       have hid : r.id.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.taskFulfill now org r with ⟨res, c⟩
+      rcases hC : Concrete.taskFulfill r now org with ⟨res, c⟩
       have hs := taskFulfill_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
       exact Sim.map' _ hs
   | taskRelease r =>
       have hid : r.id.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.taskRelease now org r with ⟨res, c⟩
+      rcases hC : Concrete.taskRelease r now org with ⟨res, c⟩
       have hs := taskRelease_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
       exact Sim.map' _ hs
   | taskHalt r =>
       have hid : r.id.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.taskHalt now org r with ⟨res, c⟩
+      rcases hC : Concrete.taskHalt r now org with ⟨res, c⟩
       have hs := taskHalt_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
       exact Sim.map' _ hs
   | taskContinue r =>
       have hid : r.id.origin = o := by simpa [Protocol.Request.origin?] using h
-      rcases hC : Concrete.taskContinue now org r with ⟨res, c⟩
+      rcases hC : Concrete.taskContinue r now org with ⟨res, c⟩
       have hs := taskContinue_sim hL now r hid
       rw [hC] at hs
       simp only [Abstract.handleExternal, map_apply, Concrete.handleExternal, hC]
@@ -546,7 +546,7 @@ theorem step_sim (H : Concrete.Hasher) (ev : Concrete.Event) (now : Nat)
           have hL := Local_of_rel inv rel name
           obtain ⟨horig, hnd, hwf⟩ := inv.origin_props name
           have hsw := sweep_sim hL horig hnd hwf now
-          rcases hC : Concrete.handleExternal now (Concrete.sweep now (s.origin name)).org req with ⟨res, c⟩
+          rcases hC : Concrete.handleExternal req now (Concrete.sweep now (s.origin name)).org with ⟨res, c⟩
           have hsim := handleExternal_sim hsw.loc now req ho
           rw [hC] at hsim
           have hwf' := handleExternal_wf hsw.wf now req
@@ -555,7 +555,7 @@ theorem step_sim (H : Concrete.Hasher) (ev : Concrete.Event) (now : Nat)
               (Abstract.applyAll (execI (Chain.sweepTriggers now (s.origin name)) now S)
                 (Abstract.handleExternal req now (env (execI (Chain.sweepTriggers now (s.origin name)) now S))).2) :=
             hsw.step _ hsim.fx hsim.loc (by rw [hsim.send]; rfl) (hsim.orig hsw.orig) (hsim.nodup hsw.nodup) hwf'
-          have hhandle : Concrete.handle now (s.origin name) (.external req) =
+          have hhandle : Concrete.handle (.external req) now (s.origin name) =
               (.external res, (Concrete.sweep now (s.origin name)).merge c) := by
             simp only [Concrete.handle, hC]
           have hok := Concrete.applyAll_accepted (H := H) s name ((Concrete.sweep now (s.origin name)).merge c)
@@ -579,7 +579,7 @@ theorem step_sim (H : Concrete.Hasher) (ev : Concrete.Event) (now : Nat)
       · have hL := Local_of_rel inv rel t.id.origin
         obtain ⟨horig, hnd, hwf⟩ := inv.origin_props t.id.origin
         have hsw := sweep_sim hL horig hnd hwf now
-        have hhandle : Concrete.handle now (s.origin t.id.origin) (.internal t) =
+        have hhandle : Concrete.handle (.internal t) now (s.origin t.id.origin) =
             (.internal, Concrete.sweep now (s.origin t.id.origin)) := rfl
         have hok := Concrete.applyAll_accepted (H := H) s t.id.origin (Concrete.sweep now (s.origin t.id.origin))
         have hst := run_state H t.id.origin (Concrete.sweep now (s.origin t.id.origin)) s

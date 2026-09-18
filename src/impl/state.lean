@@ -9,9 +9,9 @@ structure Origin where
   deriving Repr
 
 inductive TimerKind
-  | promise
-  | lease
-  | retry
+  | promiseTimeout
+  | taskLeaseTimeout
+  | taskRetryTimeout
   deriving Repr, DecidableEq
 
 structure Timer where
@@ -39,14 +39,14 @@ def Origin.set (org : Origin) (o : Object) : Origin :=
 def _root_.Protocol.TaskObject.timers (t : TaskObject) (id : Ident) : List Timer :=
   match t.state, t.leaseTimeoutAt, t.retryTimeoutAt with
   | .acquired, some dl, _ =>
-      [⟨dl, id, .lease⟩]
+      [⟨dl, id, .taskLeaseTimeout⟩]
   | .pending, _, some dl =>
-      [⟨dl, id, .retry⟩]
+      [⟨dl, id, .taskRetryTimeout⟩]
   | _, _, _ =>
       []
 
 def _root_.Protocol.Object.timers (o : Object) : List Timer :=
-  (if o.promise.state == .pending then [⟨o.promise.timeoutAt, o.id, .promise⟩] else [])
+  (if o.promise.state == .pending then [⟨o.promise.timeoutAt, o.id, .promiseTimeout⟩] else [])
   ++ (o.task.map (·.timers o.id)).getD []
 
 inductive Path

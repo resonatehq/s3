@@ -9,13 +9,13 @@ def retryDelay : Nat := 5000
 def Commands.merge (c d : Commands) : Commands :=
   { arm := c.arm ++ d.arm, org := d.org, del := c.del ++ d.del, send := c.send ++ d.send }
 
-def promiseTimeout (now : Nat) (o : Object) : Option Object :=
+def processPromiseTimeout (now : Nat) (o : Object) : Option Object :=
   if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now then
     some (o.project now)
   else
     none
 
-def listener (now : Nat) (o : Object) : Option (Object × List (String × Message)) :=
+def processListener (now : Nat) (o : Object) : Option (Object × List (String × Message)) :=
   let o := o.project now
   if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
     some ({ o with promise := { o.promise with listeners := [] } },
@@ -31,7 +31,7 @@ def awaiting (now : Nat) (objects : List Object) (id : Ident) : List Ident :=
     else
       none
 
-def _root_.Protocol.TaskObject.resume (now : Nat) (t : TaskObject) (awaited : Ident) : TaskObject :=
+def _root_.Protocol.TaskObject.resumeOne (now : Nat) (t : TaskObject) (awaited : Ident) : TaskObject :=
   match t.state with
   | .suspended =>
       { t with state := .pending, resumes := [awaited], retryTimeoutAt := some now }
@@ -40,17 +40,17 @@ def _root_.Protocol.TaskObject.resume (now : Nat) (t : TaskObject) (awaited : Id
   | .fulfilled =>
       t
 
-def callback (now : Nat) (org : Origin) (o : Object) : Option Object :=
+def processCallback (now : Nat) (org : Origin) (o : Object) : Option Object :=
   let o := o.project now
   let struck := o.promise.state != .pending ∧ !o.promise.callbacks.isEmpty
   let awaited := awaiting now org.objects o.id
   if struck ∨ (o.task.isSome ∧ !awaited.isEmpty) then
     some { o with promise := if struck then { o.promise with callbacks := [] } else o.promise,
-                  task := o.task.map (awaited.foldl (·.resume now ·)) }
+                  task := o.task.map (awaited.foldl (·.resumeOne now ·)) }
   else
     none
 
-def leaseTimeout (now : Nat) (o : Object) : Option Object :=
+def processLeaseTimeout (now : Nat) (o : Object) : Option Object :=
   let o := o.project now
   match o.task with
   | some t =>
@@ -62,7 +62,7 @@ def leaseTimeout (now : Nat) (o : Object) : Option Object :=
   | none =>
       none
 
-def retryTimeout (now : Nat) (o : Object) : Option (Object × List (String × Message)) :=
+def processRetryTimeout (now : Nat) (o : Object) : Option (Object × List (String × Message)) :=
   let o := o.project now
   match o.task, o.promise.type with
   | some t, .runnable target =>
@@ -80,11 +80,11 @@ structure Change where
   executes : List (String × Message)
 
 def sweepObject (now : Nat) (org : Origin) (o : Object) : Change :=
-  let o := (promiseTimeout now o).getD o
-  let (o, unblocks) := (listener now o).getD (o, [])
-  let o := (callback now org o).getD o
-  let o := (leaseTimeout now o).getD o
-  let (o, executes) := (retryTimeout now o).getD (o, [])
+  let o := (processPromiseTimeout now o).getD o
+  let (o, unblocks) := (processListener now o).getD (o, [])
+  let o := (processCallback now org o).getD o
+  let o := (processLeaseTimeout now o).getD o
+  let (o, executes) := (processRetryTimeout now o).getD (o, [])
   { obj := o, unblocks, executes }
 
 def sweep (now : Nat) (org : Origin) : Commands :=

@@ -23,7 +23,7 @@ def listeners (now : Nat) (org : Origin) : Commands :=
     else
       c
 
-def resume (now : Nat) (awaited : Ident) (c : Commands) (awaiter : Ident) : Commands :=
+def resumeOne (now : Nat) (awaited : Ident) (c : Commands) (awaiter : Ident) : Commands :=
   match (c.org.get awaiter now).bind fun w => w.task.map (w, ·) with
   | none =>
       c
@@ -31,7 +31,7 @@ def resume (now : Nat) (awaited : Ident) (c : Commands) (awaiter : Ident) : Comm
       match t.state with
       | .suspended =>
           { c with
-            arm := c.arm ++ [⟨now, w.id, .retry⟩],
+            arm := c.arm ++ [⟨now, w.id, .taskRetryTimeout⟩],
             org := c.org.set { w with task := some { t with state := .pending, resumes := [awaited],
                                                               retryTimeoutAt := some now } } }
       | .pending | .acquired | .halted =>
@@ -49,7 +49,7 @@ def callbacks (now : Nat) (org : Origin) : Commands :=
       o.promise.callbacks.foldl (init := c) fun c awaiter =>
         match c.org.get o.id now with
         | some cur =>
-            resume now o.id
+            resumeOne now o.id
               { c with org := c.org.set { cur with promise :=
                   { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } } }
               awaiter
@@ -66,7 +66,7 @@ def leaseTimeouts (now : Nat) (org : Origin) : Commands :=
         if t.state == .acquired ∧ t.leaseTimeoutAt.any (· ≤ now)
             ∧ o.promise.state == .pending then
           { c with
-            arm := c.arm ++ [⟨now, o.id, .retry⟩],
+            arm := c.arm ++ [⟨now, o.id, .taskRetryTimeout⟩],
             org := c.org.set { o with task := some { t with state := .pending, pid := none, ttl := none,
                                                               leaseTimeoutAt := none,
                                                               retryTimeoutAt := some now } },
@@ -84,7 +84,7 @@ def retryTimeouts (now : Nat) (org : Origin) : Commands :=
         if t.state == .pending ∧ t.retryTimeoutAt.any (· ≤ now)
             ∧ o.promise.state == .pending then
           { c with
-            arm := c.arm ++ [⟨now + Concrete.retryDelay, o.id, .retry⟩],
+            arm := c.arm ++ [⟨now + Concrete.retryDelay, o.id, .taskRetryTimeout⟩],
             org := c.org.set { o with task := some { t with retryTimeoutAt := some (now + Concrete.retryDelay) } },
             del := c.del ++ t.timers o.id,
             send := c.send ++ [(target, .execute o.id t.version)] }

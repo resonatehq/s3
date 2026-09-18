@@ -769,7 +769,7 @@ def cbStep (now : Nat) (id : Ident) (c : Commands) (awaiter : Ident) : Commands 
   match c.org.get id now with
   | some cur =>
       if cur.promise.state != .pending ∧ cur.promise.callbacks.contains awaiter then
-        Chain.resume now id
+        Chain.resumeOne now id
           { c with org := c.org.set { cur with promise :=
               { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } } }
           awaiter
@@ -795,7 +795,7 @@ def cbTrig (now : Nat) (o : Object) : List Abstract.Trigger :=
 def cbStepOld (now : Nat) (id : Ident) (c : Commands) (awaiter : Ident) : Commands :=
   match c.org.get id now with
   | some cur =>
-      Chain.resume now id
+      Chain.resumeOne now id
         { c with org := c.org.set { cur with promise :=
             { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } } }
         awaiter
@@ -891,8 +891,8 @@ theorem processCallback_fx (id w : Ident) (now : Nat) (T : Abstract.State) :
 
 theorem resume_sim {o : String} {S : Abstract.State} (now : Nat) (awaited w : Ident) (hw : w.origin = o)
     (c : Commands) (T : Abstract.State) (h : SwInv o S c T) :
-    SwInv o S (Chain.resume now awaited c w) (Abstract.applyAll T (resumeFx awaited w now T)) := by
-  unfold Chain.resume resumeFx
+    SwInv o S (Chain.resumeOne now awaited c w) (Abstract.applyAll T (resumeFx awaited w now T)) := by
+  unfold Chain.resumeOne resumeFx
   rw [h.loc w hw]
   cases hY : Origin.find c.org w with
   | none =>
@@ -959,7 +959,7 @@ theorem cbStep_sim {o : String} {S : Abstract.State} (now : Nat) (id : Ident) (h
             have hne' : w ≠ id := fun e => hne (e.trans hXid.symm)
             have hwo' : w.origin = o := hwo.trans (hXid ▸ hido)
             have hstep : cbStep now id c w =
-                Chain.resume now id
+                Chain.resumeOne now id
                   { c with org := c.org.set { X.project now with promise :=
                       { (X.project now).promise with
                         callbacks := (X.project now).promise.callbacks.filter (· != w) } } }
@@ -1030,8 +1030,8 @@ theorem get_id {org : Origin} {id : Ident} {now : Nat} {o : Object} (hf : org.ge
   exact (find_mem hfind).2
 
 theorem resume_find_other (now : Nat) (awaited : Ident) (c : Commands) (w id : Ident) (h : id ≠ w) :
-    Origin.find (Chain.resume now awaited c w).org id = Origin.find c.org id := by
-  unfold Chain.resume
+    Origin.find (Chain.resumeOne now awaited c w).org id = Origin.find c.org id := by
+  unfold Chain.resumeOne
   cases hg : c.org.get w now with
   | none => rfl
   | some Y =>
@@ -1050,11 +1050,11 @@ theorem resume_find_other (now : Nat) (awaited : Ident) (c : Commands) (w id : I
                 | exact find_set_other _ _ _ (fun e => h (e.trans hY)))
 
 theorem resume_proj (now : Nat) (awaited : Ident) (c : Commands) (w id : Ident) :
-    (Origin.find (Chain.resume now awaited c w).org id).map (fun cur => cur.promise.project now) =
+    (Origin.find (Chain.resumeOne now awaited c w).org id).map (fun cur => cur.promise.project now) =
       (Origin.find c.org id).map (fun cur => cur.promise.project now) := by
   by_cases h : id = w
   · subst h
-    unfold Chain.resume
+    unfold Chain.resumeOne
     cases hg : c.org.get id now with
     | none => rfl
     | some Y =>
@@ -1206,7 +1206,7 @@ def ltStep (now : Nat) (c : Commands) (o : Object) : Commands :=
       if t.state == .acquired ∧ t.leaseTimeoutAt.any (· ≤ now)
           ∧ o.promise.state == .pending then
         { c with
-          arm := c.arm ++ [⟨now, o.id, .retry⟩],
+          arm := c.arm ++ [⟨now, o.id, .taskRetryTimeout⟩],
           org := c.org.set { o with task := some { t with state := .pending, pid := none, ttl := none,
                                                             leaseTimeoutAt := none,
                                                             retryTimeoutAt := some now } },
@@ -1332,7 +1332,7 @@ def rtStep (now : Nat) (c : Commands) (o : Object) : Commands :=
       if t.state == .pending ∧ t.retryTimeoutAt.any (· ≤ now)
           ∧ o.promise.state == .pending then
         { c with
-          arm := c.arm ++ [⟨now + Concrete.retryDelay, o.id, .retry⟩],
+          arm := c.arm ++ [⟨now + Concrete.retryDelay, o.id, .taskRetryTimeout⟩],
           org := c.org.set { o with task := some { t with retryTimeoutAt := some (now + Concrete.retryDelay) } },
           del := c.del ++ t.timers o.id,
           send := c.send ++ [(target, .execute o.id t.version)] }
@@ -1451,7 +1451,7 @@ theorem retryTimeouts_sim {o : String} {S : Abstract.State} (now : Nat) :
                     refine retryTimeouts_sim now l _ _
                       ((h.set_task_plain hido hob _
                         (c' := { c with
-                          arm := c.arm ++ [⟨now + Concrete.retryDelay, ob.id, .retry⟩],
+                          arm := c.arm ++ [⟨now + Concrete.retryDelay, ob.id, .taskRetryTimeout⟩],
                           org := c.org.set { ob with task := some { tv with retryTimeoutAt := some (now + Concrete.retryDelay) } },
                           del := c.del ++ tv.timers ob.id }) rfl rfl).sends _ rfl rfl) ?_ hnd.2
                     intro ob' hob'

@@ -108,16 +108,16 @@ theorem bulk_send (msg : Object → List (String × Message)) (f : Commands → 
       rw [List.foldl_cons, bulk_send msg f hf Q, hf, List.flatMap_cons, List.append_assoc]
 
 theorem promiseTimeouts_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)).Nodup) :
-    (Chain.promiseTimeouts now d).org = ⟨d.objects.map fun o => (Concrete.promiseTimeout now o).getD o⟩ := by
+    (Chain.promiseTimeouts now d).org = ⟨d.objects.map fun o => (Concrete.processPromiseTimeout now o).getD o⟩ := by
   rw [promiseTimeouts_eq]
-  have := bulk_put (Concrete.promiseTimeout now)
+  have := bulk_put (Concrete.processPromiseTimeout now)
     (fun o x hx => by
-      unfold Concrete.promiseTimeout at hx
+      unfold Concrete.processPromiseTimeout at hx
       split at hx
       · rw [Option.some.injEq] at hx; rw [← hx]; rfl
       · cases hx)
     (ptStep now)
-    (fun c o => by unfold ptStep Concrete.promiseTimeout; split <;> rfl)
+    (fun c o => by unfold ptStep Concrete.processPromiseTimeout; split <;> rfl)
     [] d.objects { org := d } (by simpa using hnd) (by simp)
   simpa using this
 
@@ -126,22 +126,22 @@ theorem promiseTimeouts_send (now : Nat) (d : Origin) : (Chain.promiseTimeouts n
   have := bulk_send (fun _ => []) (ptStep now) (fun c o => by unfold ptStep; split <;> simp) d.objects { org := d }
   rw [this, flatMap_const_nil]; rfl
 
-def listenerObj (now : Nat) (o : Object) : Option Object := (Concrete.listener now o).map (·.1)
+def listenerObj (now : Nat) (o : Object) : Option Object := (Concrete.processListener now o).map (·.1)
 
 def listenerMsgs (now : Nat) (o : Object) : List (String × Message) :=
-  ((Concrete.listener now o).map (·.2)).getD []
+  ((Concrete.processListener now o).map (·.2)).getD []
 
 theorem listeners_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)).Nodup) :
     (Chain.listeners now d).org = ⟨d.objects.map fun o => (listenerObj now o).getD o⟩ := by
   rw [listeners_eq]
   have := bulk_put (listenerObj now)
     (fun o x hx => by
-      simp only [listenerObj, Concrete.listener] at hx
+      simp only [listenerObj, Concrete.processListener] at hx
       split at hx
       · simp only [Option.map_some, Option.some.injEq] at hx; rw [← hx]; rfl
       · cases hx)
     (lsBulk now)
-    (fun c o => by simp only [lsBulk, listenerObj, Concrete.listener]; split <;> simp_all)
+    (fun c o => by simp only [lsBulk, listenerObj, Concrete.processListener]; split <;> simp_all)
     [] d.objects { org := d } (by simpa using hnd) (by simp)
   simpa using this
 
@@ -149,15 +149,15 @@ theorem listeners_send (now : Nat) (d : Origin) :
     (Chain.listeners now d).send = d.objects.flatMap (listenerMsgs now) := by
   rw [listeners_eq]
   have := bulk_send (listenerMsgs now) (lsBulk now)
-    (fun c o => by simp only [lsBulk, listenerMsgs, Concrete.listener]; split <;> simp_all) d.objects { org := d }
+    (fun c o => by simp only [lsBulk, listenerMsgs, Concrete.processListener]; split <;> simp_all) d.objects { org := d }
   simpa using this
 
 theorem leaseTimeouts_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)).Nodup) :
-    (Chain.leaseTimeouts now d).org = ⟨d.objects.map fun o => (Concrete.leaseTimeout now o).getD o⟩ := by
+    (Chain.leaseTimeouts now d).org = ⟨d.objects.map fun o => (Concrete.processLeaseTimeout now o).getD o⟩ := by
   rw [leaseTimeouts_eq]
-  have := bulk_put (Concrete.leaseTimeout now)
+  have := bulk_put (Concrete.processLeaseTimeout now)
     (fun o x hx => by
-      simp only [Concrete.leaseTimeout] at hx
+      simp only [Concrete.processLeaseTimeout] at hx
       split at hx
       · split at hx
         · rw [Option.some.injEq] at hx; rw [← hx]; rfl
@@ -165,7 +165,7 @@ theorem leaseTimeouts_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)
       · cases hx)
     (ltStep now)
     (fun c o => by
-      simp only [ltStep, Concrete.leaseTimeout]
+      simp only [ltStep, Concrete.processLeaseTimeout]
       cases ht : (o.project now).task with
       | none => rfl
       | some t =>
@@ -180,17 +180,17 @@ theorem leaseTimeouts_send (now : Nat) (d : Origin) : (Chain.leaseTimeouts now d
     (fun c o => by simp only [ltStep]; split <;> (try split) <;> simp) d.objects { org := d }
   rw [this, flatMap_const_nil]; rfl
 
-def retryObj (now : Nat) (o : Object) : Option Object := (Concrete.retryTimeout now o).map (·.1)
+def retryObj (now : Nat) (o : Object) : Option Object := (Concrete.processRetryTimeout now o).map (·.1)
 
 def retryMsgs (now : Nat) (o : Object) : List (String × Message) :=
-  ((Concrete.retryTimeout now o).map (·.2)).getD []
+  ((Concrete.processRetryTimeout now o).map (·.2)).getD []
 
 theorem retryTimeouts_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)).Nodup) :
     (Chain.retryTimeouts now d).org = ⟨d.objects.map fun o => (retryObj now o).getD o⟩ := by
   rw [retryTimeouts_eq]
   have := bulk_put (retryObj now)
     (fun o x hx => by
-      simp only [retryObj, Concrete.retryTimeout] at hx
+      simp only [retryObj, Concrete.processRetryTimeout] at hx
       split at hx
       · split at hx
         · simp only [Option.map_some, Option.some.injEq] at hx; rw [← hx]; rfl
@@ -198,7 +198,7 @@ theorem retryTimeouts_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)
       · cases hx)
     (rtStep now)
     (fun c o => by
-      simp only [rtStep, retryObj, Concrete.retryTimeout]
+      simp only [rtStep, retryObj, Concrete.processRetryTimeout]
       cases ht : (o.project now).task with
       | none => cases (o.project now).promise.type <;> rfl
       | some t =>
@@ -214,7 +214,7 @@ theorem retryTimeouts_send (now : Nat) (d : Origin) :
   rw [retryTimeouts_eq]
   have := bulk_send (retryMsgs now) (rtStep now)
     (fun c o => by
-      simp only [rtStep, retryMsgs, Concrete.retryTimeout]
+      simp only [rtStep, retryMsgs, Concrete.processRetryTimeout]
       cases ht : (o.project now).task with
       | none => cases (o.project now).promise.type <;> exact (List.append_nil c.send).symm
       | some t =>
@@ -238,12 +238,12 @@ theorem view_fulfilled_state (t : TaskObject) (p : PromiseObject) (h : p.state �
     simpa using ht
 
 theorem resume_fulfilled (now : Nat) (t : TaskObject) (a : Ident) (h : t.state = .fulfilled) :
-    t.resume now a = t := by
-  unfold TaskObject.resume
+    t.resumeOne now a = t := by
+  unfold TaskObject.resumeOne
   rw [h]
 
 theorem foldl_resume_fulfilled (now : Nat) (t : TaskObject) (h : t.state = .fulfilled) :
-    ∀ l : List Ident, l.foldl (·.resume now ·) t = t
+    ∀ l : List Ident, l.foldl (·.resumeOne now ·) t = t
   | [] => rfl
   | a :: l => by rw [List.foldl_cons, resume_fulfilled now t a h, foldl_resume_fulfilled now t h l]
 
@@ -256,7 +256,7 @@ theorem view_congr (t : TaskObject) {p q : PromiseObject} (h : p.state = q.state
   rw [h]
 
 theorem view_foldl_resume (now : Nat) (t : TaskObject) (p : PromiseObject) (l : List Ident) :
-    (l.foldl (·.resume now ·) (t.view p)).view p = l.foldl (·.resume now ·) (t.view p) := by
+    (l.foldl (·.resumeOne now ·) (t.view p)).view p = l.foldl (·.resumeOne now ·) (t.view p) := by
   by_cases hp : p.state = .pending
   · rw [view_pending _ _ hp]
   · have hf := view_fulfilled_state t p hp
@@ -282,7 +282,7 @@ def stageP (now : Nat) (P : List Object) (ob : Object) : Object :=
   { ob.project now with
     promise := if struckP now P ob then { (ob.project now).promise with callbacks := [] }
                else (ob.project now).promise,
-    task := (ob.project now).task.map ((Concrete.awaiting now P ob.id).foldl (·.resume now ·)) }
+    task := (ob.project now).task.map ((Concrete.awaiting now P ob.id).foldl (·.resumeOne now ·)) }
 
 def hit (now : Nat) (P : List Object) (ob : Object) : Prop :=
   struckP now P ob ∨ ((ob.project now).task.isSome = true ∧ (!(Concrete.awaiting now P ob.id).isEmpty) = true)
@@ -349,13 +349,13 @@ theorem stage_project (now : Nat) (P : List Object) (ob : Object) :
         exact Object.ext' rfl rfl ht
 
 theorem stage_full {now : Nat} {d : Origin} {ob : Object} (hob : ob ∈ d.objects) :
-    stage now d.objects ob = (Concrete.callback now d ob).getD ob := by
+    stage now d.objects ob = (Concrete.processCallback now d ob).getD ob := by
   have hm : ob.id ∈ d.objects.map (·.id) := List.mem_map_of_mem hob
   have hs : struckP now d.objects ob ↔ (((ob.project now).promise.state != PromiseState.pending) = true ∧
       (!(ob.project now).promise.callbacks.isEmpty) = true) := by
     unfold struckP; simp [hm]
   unfold stage stageP hit
-  simp only [Concrete.callback, project_id]
+  simp only [Concrete.processCallback, project_id]
   by_cases h1 : struckP now d.objects ob
   · have h1' := hs.1 h1
     rw [if_pos (Or.inl h1), if_pos (Or.inl h1'), if_pos h1, if_pos h1']; rfl
@@ -443,7 +443,7 @@ theorem stageP_task_none {now : Nat} {P : List Object} {ob : Object} (h : ob.tas
 
 theorem stageP_task_some {now : Nat} {P : List Object} {ob : Object} {t : TaskObject} (h : ob.task = some t) :
     (stageP now P ob).task =
-      some ((Concrete.awaiting now P ob.id).foldl (·.resume now ·) (t.view (ob.promise.project now))) := by
+      some ((Concrete.awaiting now P ob.id).foldl (·.resumeOne now ·) (t.view (ob.promise.project now))) := by
   simp [stageP, Object.project, h]
 
 theorem stageP_promise_unstruck {now : Nat} {P : List Object} {s : Object} (h : s.id ∉ P.map (·.id)) :
@@ -460,7 +460,7 @@ def inner (now : Nat) (P : List Object) (s : Object) (Q₁ Q₂ : List Ident) (o
   if ob.id = s.id then
     (if Q₁ = [] then stage now P s else stageC now P s Q₂)
   else if ob.id ∈ Q₁ ∧ ob.task.isSome = true then
-    { stageP now P ob with task := (stageP now P ob).task.map (·.resume now s.id) }
+    { stageP now P ob with task := (stageP now P ob).task.map (·.resumeOne now s.id) }
   else
     stage now P ob
 
@@ -486,11 +486,11 @@ theorem inner_start {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodu
   · rw [if_neg (fun h => by simp at h)]
 
 theorem resume_put (now : Nat) (a : Ident) (c : Commands) (w : Ident) :
-    (Chain.resume now a c w).org =
+    (Chain.resumeOne now a c w).org =
       match (c.org.get w now).bind (fun o => o.task.map (o, ·)) with
       | none => c.org
-      | some (wo, t) => c.org.set { wo with task := some (t.resume now a) } := by
-  unfold Chain.resume
+      | some (wo, t) => c.org.set { wo with task := some (t.resumeOne now a) } := by
+  unfold Chain.resumeOne
   cases hb : (c.org.get w now).bind (fun o => o.task.map (o, ·)) with
   | none => rfl
   | some p =>
@@ -508,19 +508,19 @@ theorem resume_put (now : Nat) (a : Ident) (c : Commands) (w : Ident) :
                 exact ho
       simp only
       cases hs : t.state
-      case suspended => simp [TaskObject.resume, hs]
+      case suspended => simp [TaskObject.resumeOne, hs]
       case fulfilled =>
-        simp only [TaskObject.resume, hs]
+        simp only [TaskObject.resumeOne, hs]
         rw [set_task_self hwt]
       all_goals
-        simp only [TaskObject.resume, hs]
+        simp only [TaskObject.resumeOne, hs]
         by_cases hc : t.resumes.contains a = true
         · rw [if_pos hc, if_pos hc, set_task_self hwt]
         · rw [if_neg hc, if_neg hc]
 
 theorem resume_send (now : Nat) (a : Ident) (c : Commands) (w : Ident) :
-    (Chain.resume now a c w).send = c.send := by
-  unfold Chain.resume
+    (Chain.resumeOne now a c w).send = c.send := by
+  unfold Chain.resumeOne
   split
   · rfl
   · split <;> (try split) <;> rfl
@@ -563,11 +563,11 @@ theorem inner_step {now : Nat} {d : Origin} (hnd : (d.objects.map (·.id)).Nodup
       rw [Object.project_set_callbacks, stageP_project]
       rfl
   have hc₁ : (cbStepOld now s.id c w).org =
-      (Chain.resume now s.id { c with org := c.org.set (stageC now P s Q₂) } w).org := by
+      (Chain.resumeOne now s.id { c with org := c.org.set (stageC now P s Q₂) } w).org := by
     unfold cbStepOld
     rw [hcurS]
-    show (Chain.resume now s.id { c with org := c.org.set { stageC now P s (w :: Q₂) with promise := { (stageC now P s (w :: Q₂)).promise with callbacks := (stageC now P s (w :: Q₂)).promise.callbacks.filter (· != w) } } } w).org = _
-    show (Chain.resume now s.id { c with org := c.org.set { stageP now P s with promise := { (stageP now P s).promise with callbacks := (w :: Q₂).filter (· != w) } } } w).org = _
+    show (Chain.resumeOne now s.id { c with org := c.org.set { stageC now P s (w :: Q₂) with promise := { (stageC now P s (w :: Q₂)).promise with callbacks := (stageC now P s (w :: Q₂)).promise.callbacks.filter (· != w) } } } w).org = _
+    show (Chain.resumeOne now s.id { c with org := c.org.set { stageP now P s with promise := { (stageP now P s).promise with callbacks := (w :: Q₂).filter (· != w) } } } w).org = _
     rw [filter_cons_ne_self' hwQ₂]
     rfl
   rw [hc₁, resume_put]
@@ -839,7 +839,7 @@ theorem chain_callbacks_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.i
       rwa [List.append_assoc, List.singleton_append] at this
 
 theorem callbacks_put (now : Nat) (d : Origin) (hnd : (d.objects.map (·.id)).Nodup) (hwf : WF d) :
-    (Chain.callbacks now d).org = ⟨d.objects.map fun ob => (Concrete.callback now d ob).getD ob⟩ := by
+    (Chain.callbacks now d).org = ⟨d.objects.map fun ob => (Concrete.processCallback now d ob).getD ob⟩ := by
   rw [callbacks_eq]
   have h0 : ({ org := d } : Commands).org = ⟨d.objects.map (stage now [])⟩ := by
     show d = _
@@ -897,38 +897,38 @@ theorem awaiting_map (now : Nat) (l : List Object) (g : Object → Object)
 
 theorem callback_congr {now : Nat} {d org : Origin}
     (h : ∀ id, Concrete.awaiting now d.objects id = Concrete.awaiting now org.objects id) (x : Object) :
-    Concrete.callback now d x = Concrete.callback now org x := by
-  simp only [Concrete.callback, h]
+    Concrete.processCallback now d x = Concrete.processCallback now org x := by
+  simp only [Concrete.processCallback, h]
 
-def g1 (now : Nat) (o : Object) : Object := (Concrete.promiseTimeout now o).getD o
+def g1 (now : Nat) (o : Object) : Object := (Concrete.processPromiseTimeout now o).getD o
 def g2 (now : Nat) (o : Object) : Object := (listenerObj now o).getD o
-def g3 (now : Nat) (org : Origin) (o : Object) : Object := (Concrete.callback now org o).getD o
-def g4 (now : Nat) (o : Object) : Object := (Concrete.leaseTimeout now o).getD o
+def g3 (now : Nat) (org : Origin) (o : Object) : Object := (Concrete.processCallback now org o).getD o
+def g4 (now : Nat) (o : Object) : Object := (Concrete.processLeaseTimeout now o).getD o
 def g5 (now : Nat) (o : Object) : Object := (retryObj now o).getD o
 
 theorem g1_id (now : Nat) (o : Object) : (g1 now o).id = o.id := by
-  unfold g1 Concrete.promiseTimeout; split <;> rfl
+  unfold g1 Concrete.processPromiseTimeout; split <;> rfl
 
 theorem g1_project (now : Nat) (o : Object) : (g1 now o).project now = o.project now := by
-  unfold g1 Concrete.promiseTimeout
+  unfold g1 Concrete.processPromiseTimeout
   split
   · exact Object.project_idem o now
   · rfl
 
 theorem g1_lists (now : Nat) (o : Object) :
     (g1 now o).promise.callbacks = o.promise.callbacks ∧ (g1 now o).promise.listeners = o.promise.listeners := by
-  unfold g1 Concrete.promiseTimeout
+  unfold g1 Concrete.processPromiseTimeout
   split
   · exact ⟨project_callbacks _ _, project_listeners _ _⟩
   · exact ⟨rfl, rfl⟩
 
 theorem g2_id (now : Nat) (o : Object) : (g2 now o).id = o.id := by
-  simp only [g2, listenerObj, Concrete.listener]; split <;> rfl
+  simp only [g2, listenerObj, Concrete.processListener]; split <;> rfl
 
 theorem g2_project (now : Nat) (o : Object) :
     (g2 now o).project now = { o.project now with promise := { (o.project now).promise with
       listeners := (g2 now o).promise.listeners } } := by
-  simp only [g2, listenerObj, Concrete.listener]
+  simp only [g2, listenerObj, Concrete.processListener]
   split
   · simp only [Option.map_some, Option.getD_some]
     rw [Object.project_set_listeners, Object.project_idem]
@@ -939,7 +939,7 @@ theorem g2_project (now : Nat) (o : Object) :
 
 theorem g2_lists (now : Nat) (o : Object) :
     (g2 now o).promise.callbacks = o.promise.callbacks ∧ (g2 now o).promise.listeners <+ o.promise.listeners := by
-  simp only [g2, listenerObj, Concrete.listener]
+  simp only [g2, listenerObj, Concrete.processListener]
   split
   · simp only [Option.map_some, Option.getD_some]
     exact ⟨project_callbacks _ _, List.nil_sublist _⟩
@@ -953,10 +953,10 @@ theorem g21_awaiting (now : Nat) (l : List Object) (id : Ident) :
   exact ⟨rfl, rfl, by rw [g2_id, g1_id]⟩
 
 theorem g3_id (now : Nat) (org : Origin) (o : Object) : (g3 now org o).id = o.id := by
-  simp only [g3, Concrete.callback]; split <;> rfl
+  simp only [g3, Concrete.processCallback]; split <;> rfl
 
 theorem g4_id (now : Nat) (o : Object) : (g4 now o).id = o.id := by
-  simp only [g4, Concrete.leaseTimeout]; split <;> (try split) <;> rfl
+  simp only [g4, Concrete.processLeaseTimeout]; split <;> (try split) <;> rfl
 
 theorem WF_map {l : List Object} (hwf : WF ⟨l⟩) (g : Object → Object) (hid : ∀ o, (g o).id = o.id)
     (hcb : ∀ o, (g o).promise.callbacks <+ o.promise.callbacks)
@@ -1020,7 +1020,7 @@ theorem chain_sweep_eq (now : Nat) (org : Origin) (hnd : (org.objects.map (·.id
     rw [List.map_map]
     apply List.map_congr_left
     intro o _
-    show (Concrete.callback now _ (g2 now (g1 now o))).getD _ = g3 now org _
+    show (Concrete.processCallback now _ (g2 now (g1 now o))).getD _ = g3 now org _
     rw [hcong]
     rfl
   have hnd3 : ((Chain.callbacks now (Chain.listeners now (Chain.promiseTimeouts now org).org).org).org.objects.map (·.id)).Nodup := by

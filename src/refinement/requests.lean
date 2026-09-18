@@ -77,7 +77,7 @@ open Protocol (PromiseGetReq PromiseCreateReq PromiseSettleReq PromiseRegisterCa
 theorem promiseGet_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : PromiseGetReq) (hid : req.id.origin = o) :
     Sim o org S (Abstract.promiseGet req now (env S))
-      (Concrete.promiseGet now org req).1 (Concrete.promiseGet now org req).2 := by
+      (Concrete.promiseGet req now org).1 (Concrete.promiseGet req now org).2 := by
   unfold Abstract.promiseGet Concrete.promiseGet
   simp only [bind_apply, readObject_false, get_eq, hL req.id hid]
   cases Origin.find org req.id with
@@ -87,7 +87,7 @@ theorem promiseGet_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Lo
 theorem promiseCreate_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : PromiseCreateReq) (hid : req.id.origin = o) :
     Sim o org S (Abstract.promiseCreate req now (env S))
-      (Concrete.promiseCreate now org req).1 (Concrete.promiseCreate now org req).2 := by
+      (Concrete.promiseCreate req now org).1 (Concrete.promiseCreate req now org).2 := by
   unfold Abstract.promiseCreate Concrete.promiseCreate
   simp only [bind_apply, readObject_false, get_eq, hL req.id hid]
   cases hf : Origin.find org req.id with
@@ -116,7 +116,7 @@ theorem project_pending_eq {ob : Object} {now : Nat}
 theorem promiseSettle_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : PromiseSettleReq) (hid : req.id.origin = o) :
     Sim o org S (Abstract.promiseSettle req now (env S))
-      (Concrete.promiseSettle now org req).1 (Concrete.promiseSettle now org req).2 := by
+      (Concrete.promiseSettle req now org).1 (Concrete.promiseSettle req now org).2 := by
   unfold Abstract.promiseSettle Concrete.promiseSettle
   by_cases hs : req.state.settable = true
   · have hs' : (!req.state.settable) = false := by simp [hs]
@@ -161,7 +161,7 @@ theorem sameOrigin_eq {a b : Ident} (h : a.sameOrigin b = true) : b.origin = a.o
 theorem promiseRegisterCallback_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : PromiseRegisterCallbackReq) (hid : req.awaited.origin = o) :
     Sim o org S (Abstract.promiseRegisterCallback req now (env S))
-      (Concrete.promiseRegisterCallback now org req).1 (Concrete.promiseRegisterCallback now org req).2 := by
+      (Concrete.promiseRegisterCallback req now org).1 (Concrete.promiseRegisterCallback req now org).2 := by
   unfold Abstract.promiseRegisterCallback Concrete.promiseRegisterCallback
   by_cases h1 : (req.awaited == req.awaiter) = true
   · simp only [h1, true_or, ↓reduceIte, pure_apply]
@@ -211,7 +211,7 @@ theorem promiseRegisterCallback_sim {o : String} {org : Origin} {S : Abstract.St
 theorem promiseRegisterListener_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : PromiseRegisterListenerReq) (hid : req.awaited.origin = o) :
     Sim o org S (Abstract.promiseRegisterListener req now (env S))
-      (Concrete.promiseRegisterListener now org req).1 (Concrete.promiseRegisterListener now org req).2 := by
+      (Concrete.promiseRegisterListener req now org).1 (Concrete.promiseRegisterListener req now org).2 := by
   unfold Abstract.promiseRegisterListener Concrete.promiseRegisterListener
   simp only [bind_apply, readObject_false, get_eq, hL req.awaited hid]
   cases hf : Origin.find org req.awaited with
@@ -273,7 +273,7 @@ open Protocol (TaskGetReq TaskCreateReq TaskAcquireReq TaskFenceReq TaskHeartbea
 theorem taskGet_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : TaskGetReq) (hid : req.id.origin = o) :
     Sim o org S (Abstract.taskGet req now (env S))
-      (Concrete.taskGet now org req).1 (Concrete.taskGet now org req).2 := by
+      (Concrete.taskGet req now org).1 (Concrete.taskGet req now org).2 := by
   unfold Abstract.taskGet Concrete.taskGet
   simp only [bind_apply, readTaskObject_false, get_eq, hL req.id hid]
   cases hf : Origin.find org req.id with
@@ -291,7 +291,7 @@ theorem taskGet_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local
 theorem taskAcquire_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : TaskAcquireReq) (hid : req.id.origin = o) :
     Sim o org S (Abstract.taskAcquire req now (env S))
-      (Concrete.taskAcquire now org req).1 (Concrete.taskAcquire now org req).2 := by
+      (Concrete.taskAcquire req now org).1 (Concrete.taskAcquire req now org).2 := by
   unfold Abstract.taskAcquire Concrete.taskAcquire
   simp only [bind_apply, readTaskObject_false, get_eq, hL req.id hid]
   cases hf : Origin.find org req.id with
@@ -330,7 +330,7 @@ theorem taskAcquire_sim {o : String} {org : Origin} {S : Abstract.State} (hL : L
 theorem taskRelease_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : TaskReleaseReq) (hid : req.id.origin = o) :
     Sim o org S (Abstract.taskRelease req now (env S))
-      (Concrete.taskRelease now org req).1 (Concrete.taskRelease now org req).2 := by
+      (Concrete.taskRelease req now org).1 (Concrete.taskRelease req now org).2 := by
   unfold Abstract.taskRelease Concrete.taskRelease
   simp only [bind_apply, readTaskObject_false, get_eq, hL req.id hid]
   cases hf : Origin.find org req.id with
@@ -369,7 +369,7 @@ theorem taskRelease_sim {o : String} {org : Origin} {S : Abstract.State} (hL : L
 theorem taskContinue_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : TaskContinueReq) (hid : req.id.origin = o) :
     Sim o org S (Abstract.taskContinue req now (env S))
-      (Concrete.taskContinue now org req).1 (Concrete.taskContinue now org req).2 := by
+      (Concrete.taskContinue req now org).1 (Concrete.taskContinue req now org).2 := by
   unfold Abstract.taskContinue Concrete.taskContinue
   simp only [bind_apply, readTaskObject_false, get_eq, hL req.id hid]
   cases hf : Origin.find org req.id with
@@ -404,7 +404,7 @@ theorem taskContinue_sim {o : String} {org : Origin} {S : Abstract.State} (hL : 
 theorem taskHalt_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : TaskHaltReq) (hid : req.id.origin = o) :
     Sim o org S (Abstract.taskHalt req now (env S))
-      (Concrete.taskHalt now org req).1 (Concrete.taskHalt now org req).2 := by
+      (Concrete.taskHalt req now org).1 (Concrete.taskHalt req now org).2 := by
   unfold Abstract.taskHalt Concrete.taskHalt
   simp only [bind_apply, readTaskObject_false, get_eq, hL req.id hid]
   cases hf : Origin.find org req.id with
@@ -438,7 +438,7 @@ theorem taskHalt_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Loca
 theorem taskFulfill_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : TaskFulfillReq) (hid : req.id.origin = o) :
     Sim o org S (Abstract.taskFulfill req now (env S))
-      (Concrete.taskFulfill now org req).1 (Concrete.taskFulfill now org req).2 := by
+      (Concrete.taskFulfill req now org).1 (Concrete.taskFulfill req now org).2 := by
   unfold Abstract.taskFulfill Concrete.taskFulfill
   by_cases hs : req.action.state.settable = true
   · have hs' : (!req.action.state.settable) = false := by simp [hs]
@@ -489,7 +489,7 @@ theorem taskFulfill_sim {o : String} {org : Origin} {S : Abstract.State} (hL : L
 theorem taskCreate_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : TaskCreateReq) (hid : req.action.id.origin = o) :
     Sim o org S (Abstract.taskCreate req now (env S))
-      (Concrete.taskCreate now org req).1 (Concrete.taskCreate now org req).2 := by
+      (Concrete.taskCreate req now org).1 (Concrete.taskCreate req now org).2 := by
   unfold Abstract.taskCreate Concrete.taskCreate
   by_cases hr : req.action.type.isRunnable = true
   · have hr' : (!req.action.type.isRunnable) = false := by simp [hr]
@@ -546,7 +546,7 @@ theorem Sim.map {o : String} {org : Origin} {S : Abstract.State} {α β : Type}
 theorem taskFence_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : TaskFenceReq) (hid : req.id.origin = o) :
     Sim o org S (Abstract.taskFence req now (env S))
-      (Concrete.taskFence now org req).1 (Concrete.taskFence now org req).2 := by
+      (Concrete.taskFence req now org).1 (Concrete.taskFence req now org).2 := by
   unfold Abstract.taskFence Concrete.taskFence
   by_cases h1 : (req.action.targetId == req.id) = true
   · simp only [h1, true_or, ↓reduceIte, pure_apply]
@@ -588,7 +588,7 @@ theorem taskFence_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Loc
                         have hr : r.id.origin = o := by
                           simpa [Protocol.TaskFenceAction.targetId, ha] using hidt
                         simp only
-                        rcases hC : Concrete.promiseCreate now org r with ⟨res, c⟩
+                        rcases hC : Concrete.promiseCreate r now org with ⟨res, c⟩
                         have h := promiseCreate_sim hL now r hr
                         rw [hC] at h
                         exact Sim.map (fun res => ({ status := 200, action := some (.create res) } :
@@ -597,7 +597,7 @@ theorem taskFence_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Loc
                         have hr : r.id.origin = o := by
                           simpa [Protocol.TaskFenceAction.targetId, ha] using hidt
                         simp only
-                        rcases hC : Concrete.promiseSettle now org r with ⟨res, c⟩
+                        rcases hC : Concrete.promiseSettle r now org with ⟨res, c⟩
                         have h := promiseSettle_sim hL now r hr
                         rw [hC] at h
                         exact Sim.map (fun res => ({ status := 200, action := some (.settle res) } :
@@ -640,14 +640,14 @@ def hbStep (now : Nat) (org : Origin) (pid : String) (c : Commands) (ref : TaskR
           ∧ t.pid == some pid ∧ o.promise.state == .pending then
         let lease := now + t.ttl.getD 0
         { c with
-          arm := c.arm ++ (if t.leaseTimeoutAt == some lease then [] else [⟨lease, o.id, .lease⟩]),
+          arm := c.arm ++ (if t.leaseTimeoutAt == some lease then [] else [⟨lease, o.id, .taskLeaseTimeout⟩]),
           org := c.org.set { o with task := some { t with leaseTimeoutAt := some lease } },
           del := c.del ++ (if t.leaseTimeoutAt == some lease then [] else t.timers o.id) }
       else
         c
 
 theorem taskHeartbeat_eq (now : Nat) (org : Origin) (req : TaskHeartbeatReq) :
-    Concrete.taskHeartbeat now org req =
+    Concrete.taskHeartbeat req now org =
       ({ status := 200 }, req.tasks.foldl (hbStep now org req.pid) { org }) := rfl
 
 structure Acc (o : String) (org : Origin) (d : Origin) (T : Abstract.State) : Prop where
@@ -731,7 +731,7 @@ theorem heartbeatAll_sim {o : String} {org : Origin} {S : Abstract.State} (hL : 
 theorem taskHeartbeat_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : TaskHeartbeatReq) (hid : ∀ ref ∈ req.tasks, ref.id.origin = o) :
     Sim o org S (Abstract.taskHeartbeat req now (env S))
-      (Concrete.taskHeartbeat now org req).1 (Concrete.taskHeartbeat now org req).2 := by
+      (Concrete.taskHeartbeat req now org).1 (Concrete.taskHeartbeat req now org).2 := by
   rw [taskHeartbeat_eq]
   unfold Abstract.taskHeartbeat
   simp only [bind_apply, pure_apply, List.append_nil]
@@ -747,7 +747,7 @@ def regStep (awaiter : Ident) (d : Origin) (oa : Option Object) : Origin :=
       d
 
 theorem taskSuspend_eq (now : Nat) (org : Origin) (req : TaskSuspendReq) :
-    Concrete.taskSuspend now org req =
+    Concrete.taskSuspend req now org =
       (let awaitedIds := req.actions.map (·.awaited)
        if req.actions.isEmpty ∨ awaitedIds.contains req.id
            ∨ awaitedIds.any (fun a => !a.sameOrigin req.id)
@@ -897,7 +897,7 @@ theorem registerAwaited_sim {o : String} {org : Origin} {S : Abstract.State} (hL
 theorem taskSuspend_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (now : Nat) (req : TaskSuspendReq) (hid : req.id.origin = o) :
     Sim o org S (Abstract.taskSuspend req now (env S))
-      (Concrete.taskSuspend now org req).1 (Concrete.taskSuspend now org req).2 := by
+      (Concrete.taskSuspend req now org).1 (Concrete.taskSuspend req now org).2 := by
   rw [taskSuspend_eq]
   unfold Abstract.taskSuspend
   by_cases h1 : req.actions.isEmpty = true

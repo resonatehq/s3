@@ -534,4 +534,52 @@ inductive Response
   | taskSearch              (res : TaskSearchRes)
   deriving Repr, BEq
 
+def Request.origin? : Request → Option String
+  | .promiseGet req =>
+      some req.id.origin
+  | .promiseCreate req =>
+      some req.id.origin
+  | .promiseSettle req =>
+      some req.id.origin
+  | .promiseRegisterCallback req =>
+      some req.awaited.origin
+  | .promiseRegisterListener req =>
+      some req.awaited.origin
+  | .promiseSearch _ =>
+      none
+  | .scheduleGet _ =>
+      none
+  | .scheduleCreate _ =>
+      none
+  | .scheduleDelete _ =>
+      none
+  | .scheduleSearch _ =>
+      none
+  | .taskGet req =>
+      some req.id.origin
+  | .taskCreate req =>
+      some req.action.id.origin
+  | .taskAcquire req =>
+      some req.id.origin
+  | .taskFence req =>
+      some req.id.origin
+  | .taskHeartbeat req =>
+      match req.tasks with
+      | [] =>
+          none
+      | t :: ts =>
+          if ts.all (·.id.origin == t.id.origin) then some t.id.origin else none
+  | .taskSuspend req =>
+      some req.id.origin
+  | .taskFulfill req =>
+      some req.id.origin
+  | .taskRelease req =>
+      some req.id.origin
+  | .taskHalt req =>
+      some req.id.origin
+  | .taskContinue req =>
+      some req.id.origin
+  | .taskSearch _ =>
+      none
+
 end Protocol

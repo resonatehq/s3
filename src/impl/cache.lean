@@ -36,13 +36,13 @@ def stepCached (H : Hasher) (ev : Event) (now : Nat) (cs : Cached H) : Reply × 
   | .external req =>
       match req.origin? with
       | some name =>
-          let (r, cs', ok) := runCached H name (fun org => handle now org ev) cs
+          let (r, cs', ok) := runCached H name (fun org => handle ev now org) cs
           (if ok then r else .stutter, cs')
       | none =>
           (.stutter, cs)
   | .internal t =>
       if (cs.state.blob? (.timer t)).isSome ∧ t.deadline ≤ now then
-        let (r, cs', ok) := runCached H t.id.origin (fun org => handle now org ev) cs
+        let (r, cs', ok) := runCached H t.id.origin (fun org => handle ev now org) cs
         (if ok then r else .stutter, cs')
       else
         (.stutter, cs)
