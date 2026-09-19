@@ -286,9 +286,9 @@ theorem view_next (cfg : Concrete.Config) (parts : List (List Object)) (objects 
     Concrete.view (Concrete.next cfg parts objects) = ((Concrete.view parts).add objects).current := by
   unfold Concrete.next
   split
-  · show Origin.current ⟨(parts ++ [objects]).flatten⟩ = _
+  · show Origin.current ⟨(parts ++ [(⟨objects⟩ : Origin).current.objects]).flatten⟩ = _
     rw [List.flatten_append, List.flatten_cons, List.flatten_nil, List.append_nil]
-    exact (current_add_current ⟨parts.flatten⟩ objects).symm
+    exact (add_current ⟨parts.flatten⟩ ⟨objects⟩).trans (current_add_current ⟨parts.flatten⟩ objects).symm
   · show Origin.current ⟨[((Concrete.view parts).add objects).current.objects].flatten⟩ = _
     rw [List.flatten_cons, List.flatten_nil, List.append_nil]
     exact current_current _
@@ -595,7 +595,7 @@ theorem step_sim (H : Concrete.Hasher) (cfg : Concrete.Config) (ev : Concrete.Ev
           rw [hC] at hwf'
           have hQ : (((Concrete.sweep now (s.origin name)).merge c).doc (s.origin name)).current =
               (c.doc ((Concrete.sweep now (s.origin name)).doc (s.origin name)).current).current := by
-            rw [current_merge]
+            rw [doc_merge]
             exact (current_add_current _ _).symm
           have hfin : SwInv name (s.origin name) S ((Concrete.sweep now (s.origin name)).merge c)
               (Abstract.applyAll (execI (Chain.sweepTriggers now (s.origin name)) now S)

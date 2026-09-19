@@ -64,11 +64,10 @@ theorem Keep.id (org : Origin) : Keep org {} :=
 
 theorem Keep.merge {org : Origin} {c d : Commands} (hc : Keep org c) (hd : Keep (c.doc org) d) :
     Keep org (c.merge d) := by
-  refine ⟨fun t ht hk => ?_, fun o ho => by rw [current_merge]; exact hc.doc.trans hd.doc o ho⟩
-  rw [current_merge]
-  have ht' : t ∈ c.arm.filter (· ∉ d.del) ++ d.arm := ht
-  rcases List.mem_append.1 ht' with ht | ht
-  · obtain ⟨o, ho, hi, hty⟩ := hc.arm t (List.mem_filter.1 ht).1 hk
+  refine ⟨fun t ht hk => ?_, by rw [doc_merge]; exact hc.doc.trans hd.doc⟩
+  rw [doc_merge]
+  rcases mem_merge_arm ht with ht | ht
+  · obtain ⟨o, ho, hi, hty⟩ := hc.arm t ht hk
     obtain ⟨o', ho', hi', hty'⟩ := hd.doc o ho
     exact ⟨o', ho', hi'.trans hi, fun h => hty (hty'.symm.trans h)⟩
   · exact hd.arm t ht hk
@@ -492,12 +491,26 @@ theorem Keep.step_of {org : Origin} {c c' : Commands} (h : Keep org c) {o : Obje
   obtain ⟨ob, hob, hi, ht⟩ := h.doc o ho
   exact h.step hob hadd (hx.trans hi.symm) (hty.trans ht.symm) harm
 
+theorem noarm_merge {c d : Commands} (hd : d.arm = []) {t : Timer} (h : t ∈ (c.merge d).arm) : t ∈ c.arm := by
+  rcases mem_merge_arm h with h | h
+  · exact h
+  · rw [hd] at h
+    exact absurd h List.not_mem_nil
+
+theorem taskarm_merge {c d : Commands} {x : Timer} (hd : d.arm = [x]) (hk : x.kind ≠ .promiseTimeout)
+    {t : Timer} (h : t ∈ (c.merge d).arm) (ht : t.kind = .promiseTimeout) : t ∈ c.arm := by
+  rcases mem_merge_arm h with h | h
+  · exact h
+  · rw [hd, List.mem_singleton] at h
+    subst h
+    exact absurd ht hk
+
 theorem promiseTimeouts_keep (now : Nat) (org : Origin) : Keep org (Concrete.promiseTimeouts now org) := by
   rw [promiseTimeouts_eq]
   refine Keep.pass _ fun c o ho h => ?_
   unfold ptStep
   split
-  · exact h.step_of ho rfl (project_id o now) (project_type o.promise now) fun t ht _ => ht
+  · exact h.step_of ho rfl (project_id o now) (project_type o.promise now) fun t ht _ => noarm_merge rfl ht
   · exact h
 
 theorem listeners_keep (now : Nat) (org : Origin) : Keep org (Concrete.listeners now org) := by
@@ -505,7 +518,7 @@ theorem listeners_keep (now : Nat) (org : Origin) : Keep org (Concrete.listeners
   refine Keep.pass _ fun c o ho h => ?_
   simp only [lsBulk]
   split
-  · exact h.step_of ho rfl (project_id o now) (project_type o.promise now) fun t ht _ => ht
+  · exact h.step_of ho rfl (project_id o now) (project_type o.promise now) fun t ht _ => noarm_merge rfl ht
   · exact h
 
 theorem resumeOne_keep {org : Origin} {c : Commands} (h : Keep org c) (now : Nat) (awaited awaiter : Ident) :
@@ -522,13 +535,9 @@ theorem resumeOne_keep {org : Origin} {c : Commands} (h : Keep org c) (now : Nat
       | some t =>
           simp only [Option.map_some]
           split
-          · exact h.step hob rfl (project_id ob now) (project_type ob.promise now) fun t ht hk => by
-              rcases List.mem_append.1 ht with ht | ht
-              · exact ht
-              · rw [List.mem_singleton] at ht
-                subst ht
-                cases hk
-          all_goals (try split) <;> exact h.step hob rfl (project_id ob now) (project_type ob.promise now) fun t ht _ => ht
+          · exact h.step hob rfl (project_id ob now) (project_type ob.promise now)
+              fun t ht hk => taskarm_merge rfl (by simp) ht hk
+          all_goals (try split) <;> exact h.step hob rfl (project_id ob now) (project_type ob.promise now) (fun t ht _ => noarm_merge rfl ht)
 
 theorem callbacks_keep (now : Nat) (org : Origin) : Keep org (Concrete.callbacks now org) := by
   rw [callbacks_eq]
@@ -542,7 +551,7 @@ theorem callbacks_keep (now : Nat) (org : Origin) : Keep org (Concrete.callbacks
       obtain ⟨ob, hf, rfl⟩ := get_some hg
       obtain ⟨hob, -⟩ := find_mem hf
       refine resumeOne_keep ?_ now _ awaiter
-      exact h.step hob rfl (project_id ob now) (project_type ob.promise now) fun t ht _ => ht
+      exact h.step hob rfl (project_id ob now) (project_type ob.promise now) fun t ht _ => noarm_merge rfl ht
     · exact h
   · exact h
 
@@ -552,12 +561,8 @@ theorem leaseTimeouts_keep (now : Nat) (org : Origin) : Keep org (Concrete.lease
   simp only [ltStep]
   split
   · split
-    · exact h.step_of ho rfl (project_id o now) (project_type o.promise now) fun t ht hk => by
-        rcases List.mem_append.1 ht with ht | ht
-        · exact ht
-        · rw [List.mem_singleton] at ht
-          subst ht
-          cases hk
+    · exact h.step_of ho rfl (project_id o now) (project_type o.promise now)
+        fun t ht hk => taskarm_merge rfl (by simp) ht hk
     · exact h
   · exact h
 
@@ -567,12 +572,8 @@ theorem retryTimeouts_keep (now : Nat) (org : Origin) : Keep org (Concrete.retry
   simp only [rtStep]
   split
   · split
-    · exact h.step_of ho rfl (project_id o now) (project_type o.promise now) fun t ht hk => by
-        rcases List.mem_append.1 ht with ht | ht
-        · exact ht
-        · rw [List.mem_singleton] at ht
-          subst ht
-          cases hk
+    · exact h.step_of ho rfl (project_id o now) (project_type o.promise now)
+        fun t ht hk => taskarm_merge rfl (by simp) ht hk
     · exact h
   all_goals exact h
 

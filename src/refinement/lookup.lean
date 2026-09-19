@@ -648,9 +648,21 @@ theorem add_current (org m : Origin) : (org.add m.current.objects).current = (or
   rw [List.foldl_append, List.foldl_append]
   exact congrArg Origin.mk (foldl_replace_foldl m.objects [] _)
 
-theorem current_merge (c d : Commands) (org : Origin) : ((c.merge d).doc org).current = (d.doc (c.doc org)).current := by
-  show (org.add (⟨c.add ++ d.add⟩ : Origin).current.objects).current = ((org.add c.add).add d.add).current
-  rw [add_current, add_add]
+theorem doc_merge (c d : Commands) (org : Origin) : (c.merge d).doc org = d.doc (c.doc org) :=
+  (add_add org c.add d.add).symm
+
+theorem merge_add (c : Commands) (l : List Object) : c.merge { add := l } = { c with add := c.add ++ l } := by
+  have hf : ∀ (m : List Concrete.Timer), m.filter (· ∉ ([] : List Concrete.Timer)) = m :=
+    fun m => List.filter_eq_self.2 fun a _ => by simp
+  show (⟨c.arm.filter (· ∉ ([] : List Concrete.Timer)) ++ [], c.add ++ l,
+    c.del.filter (· ∉ ([] : List Concrete.Timer)) ++ [], c.send ++ []⟩ : Commands) = _
+  rw [hf, hf, List.append_nil, List.append_nil, List.append_nil]
+
+theorem mem_merge_arm {c d : Commands} {t : Concrete.Timer} (h : t ∈ (c.merge d).arm) :
+    t ∈ c.arm ∨ t ∈ d.arm := by
+  rcases List.mem_append.1 h with h | h
+  · exact Or.inl (List.mem_filter.1 h).1
+  · exact Or.inr h
 
 theorem current_add_current (org : Origin) (l : List Object) : (org.current.add l).current = (org.add l).current :=
   current_append_current org l

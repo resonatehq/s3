@@ -8,14 +8,14 @@ def retryDelay : Nat := 5000
 
 def Commands.merge (c d : Commands) : Commands :=
   { arm  := c.arm.filter (· ∉ d.del) ++ d.arm,
-    add  := (⟨c.add ++ d.add⟩ : Origin).current.objects,
+    add  := c.add ++ d.add,
     del  := c.del.filter (· ∉ d.arm) ++ d.del,
     send := c.send ++ d.send }
 
 def promiseTimeouts (now : Nat) (org : Origin) : Commands :=
   org.current.objects.foldl (init := {}) fun c o =>
     if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now then
-      { c with add := c.add ++ [o.project now], del := c.del ++ o.timers }
+      c.merge { add := [o.project now], del := o.timers }
     else
       c
 
@@ -23,9 +23,9 @@ def listeners (now : Nat) (org : Origin) : Commands :=
   org.current.objects.foldl (init := {}) fun c o =>
     let o := o.project now
     if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
-      { c with
-        add := c.add ++ [{ o with promise := { o.promise with listeners := [] } }],
-        send := c.send ++ o.promise.listeners.map fun a => (a, .unblock (o.promise.toRecord o.id)) }
+      c.merge
+        { add  := [{ o with promise := { o.promise with listeners := [] } }],
+          send := o.promise.listeners.map fun a => (a, .unblock (o.promise.toRecord o.id)) }
     else
       c
 
@@ -36,17 +36,17 @@ def resumeOne (now : Nat) (awaited : Ident) (org : Origin) (c : Commands) (await
   | some (w, t) =>
       match t.state with
       | .suspended =>
-          { c with
-            arm := c.arm ++ [⟨now, w.id, .taskRetryTimeout⟩],
-            add := c.add ++ [{ w with task := some { t with state := .pending, resumes := [awaited],
-                                                                retryTimeoutAt := some now } }] }
+          c.merge
+            { arm := [⟨now, w.id, .taskRetryTimeout⟩],
+              add := [{ w with task := some { t with state := .pending, resumes := [awaited],
+                                                     retryTimeoutAt := some now } }] }
       | .pending | .acquired | .halted =>
           if t.resumes.contains awaited then
-            { c with add := c.add ++ [w] }
+            c.merge { add := [w] }
           else
-            { c with add := c.add ++ [{ w with task := some { t with resumes := t.resumes ++ [awaited] } }] }
+            c.merge { add := [{ w with task := some { t with resumes := t.resumes ++ [awaited] } }] }
       | .fulfilled =>
-          { c with add := c.add ++ [w] }
+          c.merge { add := [w] }
 
 def callbacks (now : Nat) (org : Origin) : Commands :=
   org.current.objects.foldl (init := {}) fun c o =>
@@ -56,8 +56,8 @@ def callbacks (now : Nat) (org : Origin) : Commands :=
         match (c.doc org).get o.id now with
         | some cur =>
             resumeOne now o.id org
-              { c with add := c.add ++ [{ cur with promise :=
-                  { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } }] }
+              (c.merge { add := [{ cur with promise :=
+                { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } }] })
               awaiter
         | none =>
             c
@@ -71,12 +71,12 @@ def leaseTimeouts (now : Nat) (org : Origin) : Commands :=
     | some t =>
         if t.state == .acquired ∧ t.leaseTimeoutAt.any (· ≤ now)
             ∧ o.promise.state == .pending then
-          { c with
-            arm := c.arm ++ [⟨now, o.id, .taskRetryTimeout⟩],
-            add := c.add ++ [{ o with task := some { t with state := .pending, pid := none, ttl := none,
-                                                                leaseTimeoutAt := none,
-                                                                retryTimeoutAt := some now } }],
-            del := c.del ++ t.timers o.id }
+          c.merge
+            { arm := [⟨now, o.id, .taskRetryTimeout⟩],
+              add := [{ o with task := some { t with state := .pending, pid := none, ttl := none,
+                                                     leaseTimeoutAt := none,
+                                                     retryTimeoutAt := some now } }],
+              del := t.timers o.id }
         else
           c
     | none =>
@@ -89,11 +89,11 @@ def retryTimeouts (now : Nat) (org : Origin) : Commands :=
     | some t, .runnable target =>
         if t.state == .pending ∧ t.retryTimeoutAt.any (· ≤ now)
             ∧ o.promise.state == .pending then
-          { c with
-            arm := c.arm ++ [⟨now + retryDelay, o.id, .taskRetryTimeout⟩],
-            add := c.add ++ [{ o with task := some { t with retryTimeoutAt := some (now + retryDelay) } }],
-            del := c.del ++ t.timers o.id,
-            send := c.send ++ [(target, .execute o.id t.version)] }
+          c.merge
+            { arm  := [⟨now + retryDelay, o.id, .taskRetryTimeout⟩],
+              add  := [{ o with task := some { t with retryTimeoutAt := some (now + retryDelay) } }],
+              del  := t.timers o.id,
+              send := [(target, .execute o.id t.version)] }
         else
           c
     | _, _ =>

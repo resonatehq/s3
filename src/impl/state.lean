@@ -157,7 +157,7 @@ def applyAll {H : Hasher} : State → List (Effect H) → State × Bool
 def write (H : Hasher) (cfg : Config) (name : String) (parts : List (List Object)) (cond : Cond H)
     (objects : List Object) : Effect H :=
   if parts.tail.length < cfg.adds then
-    .add name objects cond
+    .add name (⟨objects⟩ : Origin).current.objects cond
   else
     .put (.origin name) (.origin [((view parts).add objects).current.objects]) cond
 

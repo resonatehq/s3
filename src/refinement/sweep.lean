@@ -274,9 +274,8 @@ theorem SwInv.step {o : String} {org : Origin} {S : Abstract.State} {c : Command
 theorem SwInv.merge {o : String} {org : Origin} {S : Abstract.State} {c : Commands} {T : Abstract.State}
     {d : Commands} {U : Abstract.State} (h : SwInv o org S c T) (hd : SwInv o (c.doc org) T d U) :
     SwInv o org S (c.merge d) U :=
-  ⟨fun id hid => by rw [hd.loc id hid]; unfold Origin.find; rw [current_merge],
-   by rw [hd.out, h.out, ← sendsFold_append]; rfl, hd.sch.trans h.sch,
-   by rw [current_merge]; exact hd.orig, by rw [current_merge]; exact hd.wf,
+  ⟨by rw [doc_merge]; exact hd.loc, by rw [hd.out, h.out, ← sendsFold_append]; rfl, hd.sch.trans h.sch,
+   by rw [doc_merge]; exact hd.orig, by rw [doc_merge]; exact hd.wf,
    fun id hid => (hd.other id hid).trans (h.other id hid)⟩
 
 theorem SwInv.transfer {o : String} {org : Origin} {S : Abstract.State} {c : Commands} {T : Abstract.State}
@@ -390,7 +389,7 @@ theorem SwInv.set_task_plain {o : String} {org : Origin} {S : Abstract.State} {c
 
 def ptStep (now : Nat) (c : Commands) (o : Object) : Commands :=
   if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now then
-    { c with add := c.add ++ [o.project now], del := c.del ++ o.timers }
+    c.merge { add := [o.project now], del := o.timers }
   else
     c
 
@@ -426,12 +425,12 @@ theorem promiseTimeouts_sim {o : String} {org : Origin} {S : Abstract.State} (no
       simp only [List.map_cons, List.nodup_cons] at hnd
       simp only [List.foldl_cons]
       by_cases hc : (ob.promise.state == PromiseState.pending) = true ∧ ob.promise.timeoutAt ≤ now
-      · have hstep : ptStep now c ob = { c with add := c.add ++ [ob.project now], del := c.del ++ ob.timers } := by
+      · have hstep : ptStep now c ob = c.merge { add := [ob.project now], del := ob.timers } := by
           unfold ptStep; rw [if_pos hc]
         have htrig : ptTrig now ob = some (.promiseTimeout ⟨ob.id⟩) := by
           unfold ptTrig; rw [if_pos hc]
         rw [hstep, List.filterMap_cons_some htrig, execI_cons, processPromiseTimeout_fx, h.loc ob.id hido, hob]
-        refine promiseTimeouts_sim now l _ _ (h.set_proj hido hob now (add_snoc org c.add _) rfl) ?_ hnd.2
+        refine promiseTimeouts_sim now l _ _ (h.set_proj hido hob now (add_snoc org c.add _) (List.append_nil _)) ?_ hnd.2
         intro ob' hob'
         have hne : ob'.id ≠ (ob.project now).id := fun e => hnd.1 (e ▸ List.mem_map_of_mem hob')
         show Origin.find (org.add (c.add ++ [ob.project now])) ob'.id = some ob'
@@ -488,9 +487,9 @@ theorem lsTrig_eq (now : Nat) (o : Object) :
 def lsBulk (now : Nat) (c : Commands) (o : Object) : Commands :=
   let o := o.project now
   if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
-    { c with
-      add := c.add ++ [{ o with promise := { o.promise with listeners := [] } }],
-      send := c.send ++ o.promise.listeners.map fun a => (a, .unblock (o.promise.toRecord o.id)) }
+    c.merge
+      { add  := [{ o with promise := { o.promise with listeners := [] } }],
+        send := o.promise.listeners.map fun a => (a, .unblock (o.promise.toRecord o.id)) }
   else
     c
 
@@ -717,7 +716,7 @@ theorem lsFold_eq (now : Nat) (org : Origin) (o : Object) (hst : o.project now =
           = true := by simp
       simp only [h1, h2, and_self, ↓reduceIte]
       refine ⟨?_, by simp [toRecord_set_listeners]⟩
-      dsimp only [Commands.doc]
+      dsimp only [Commands.doc, Commands.merge]
       rw [add_snoc]
       simp
   | a, b :: as, c, hnd, hg => by
@@ -743,7 +742,7 @@ theorem lsFold_eq (now : Nat) (org : Origin) (o : Object) (hst : o.project now =
       obtain ⟨hf1, hf2⟩ := lsFold_eq now org o hst hnp b as _ hnd'.2 hg'
       refine ⟨?_, ?_⟩
       · rw [hf1]
-        dsimp only [Commands.doc]
+        dsimp only [Commands.doc, Commands.merge]
         rw [add_snoc]
         exact set_set_current rfl
       · rw [hf2]
@@ -769,7 +768,7 @@ theorem lsBulk_eq {org : Origin} {c : Commands} {ob : Object} (now : Nat) (hob :
         obtain ⟨h1, h2⟩ := lsFold_eq now org (ob.project now) (Object.project_idem ob now) hc a as c hnd' hg
         refine ⟨?_, h2.symm⟩
         rw [h1]
-        dsimp only [Commands.doc]
+        dsimp only [Commands.doc, Commands.merge]
         rw [add_snoc]
   · simp [hc]
 
@@ -777,7 +776,7 @@ theorem lsBulk_find_other {org : Origin} {c : Commands} {ob : Object} (now : Nat
     Origin.find ((lsBulk now c ob).doc org) id = Origin.find (c.doc org) id := by
   simp only [lsBulk]
   split
-  · dsimp only [Commands.doc]
+  · dsimp only [Commands.doc, Commands.merge]
     rw [add_snoc]
     exact find_set_other _ _ _ hne
   · rfl
@@ -831,8 +830,8 @@ def cbStepOld (now : Nat) (org : Origin) (id : Ident) (c : Commands) (awaiter : 
   match (c.doc org).get id now with
   | some cur =>
       Concrete.resumeOne now id org
-        { c with add := c.add ++ [{ cur with promise :=
-            { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } }] }
+        (c.merge { add := [{ cur with promise :=
+          { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } }] })
         awaiter
   | none =>
       c
@@ -951,18 +950,18 @@ theorem resume_sim {o : String} {org : Origin} {S : Abstract.State} (now : Nat) 
           cases hs : tv.state
           case suspended =>
             simp only
-            exact h.set_task hw hY now _ (add_snoc org c.add _) rfl
+            exact h.set_task hw hY now _ (add_snoc org c.add _) (List.append_nil _)
           case fulfilled =>
             simp only [List.append_nil]
-            exact h.set_proj hw hY now (add_snoc org c.add _) rfl
+            exact h.set_proj hw hY now (add_snoc org c.add _) (List.append_nil _)
           all_goals
             simp only
             by_cases hc : tv.resumes.contains awaited = true
             · simp only [hc, Bool.not_true, Bool.false_eq_true, ↓reduceIte, List.append_nil]
-              exact h.set_proj hw hY now (add_snoc org c.add _) rfl
+              exact h.set_proj hw hY now (add_snoc org c.add _) (List.append_nil _)
             · have hc' : tv.resumes.contains awaited = false := by simpa using hc
               simp only [hc', Bool.not_false, ↓reduceIte]
-              exact h.set_task hw hY now _ (add_snoc org c.add _) rfl
+              exact h.set_task hw hY now _ (add_snoc org c.add _) (List.append_nil _)
 
 theorem cbStep_sim {o : String} {org : Origin} {S : Abstract.State} (now : Nat) (id : Ident) (hido : id.origin = o) :
     ∀ (ws : List Ident) (c : Commands) (T : Abstract.State), SwInv o org S c T →
@@ -1067,7 +1066,7 @@ theorem get_id {org : Origin} {id : Ident} {now : Nat} {o : Object} (hf : org.ge
 
 theorem find_doc_snoc (org : Origin) (c : Commands) (x : Object) (id : Ident) :
     Origin.find (({ c with add := c.add ++ [x] } : Commands).doc org) id = Origin.find ((c.doc org).set x) id := by
-  dsimp only [Commands.doc]
+  dsimp only [Commands.doc, Commands.merge]
   rw [add_snoc]
 
 theorem resume_find_other (now : Nat) (awaited : Ident) (org : Origin) (c : Commands) (w id : Ident) (h : id ≠ w) :
@@ -1088,7 +1087,7 @@ theorem resume_find_other (now : Nat) (awaited : Ident) (org : Origin) (c : Comm
               (try simp only [hr, Bool.false_eq_true, ↓reduceIte]) <;>
               first
                 | rfl
-                | (dsimp only [Commands.doc]; rw [add_snoc]; exact find_set_other _ _ _ (fun e => h (e.trans hY))))
+                | (dsimp only [Commands.doc, Commands.merge]; rw [add_snoc]; exact find_set_other _ _ _ (fun e => h (e.trans hY))))
 
 theorem resume_proj (now : Nat) (awaited : Ident) (org : Origin) (c : Commands) (w id : Ident) :
     (Origin.find ((Concrete.resumeOne now awaited org c w).doc org) id).map (fun cur => cur.promise.project now) =
@@ -1110,7 +1109,7 @@ theorem resume_proj (now : Nat) (awaited : Ident) (org : Origin) (c : Commands) 
                 (Origin.find (({ c with add := c.add ++ [x] } : Commands).doc org) id).map (fun cur => cur.promise.project now) =
                   (Origin.find (c.doc org) id).map (fun cur => cur.promise.project now) := by
               intro x hx hp
-              dsimp only [Commands.doc] at hX ⊢
+              dsimp only [Commands.doc, Commands.merge] at hX ⊢
               rw [add_snoc, find_set_at hx, hX, Option.map_some, Option.map_some, hp, project_promise,
                 PromiseObject.project_idem]
             cases t.state
@@ -1135,9 +1134,9 @@ theorem cbStep_proj {org : Origin} {c : Commands} {id : Ident} {w : Ident} (now 
         fun e => hne (e.trans hc)
       split
       · rw [resume_proj]
-        dsimp only [Commands.doc]
+        dsimp only [Commands.doc, Commands.merge]
         rw [add_snoc, find_set_other _ _ _ hne']
-      · dsimp only [Commands.doc]
+      · dsimp only [Commands.doc, Commands.merge]
         rw [add_snoc, find_set_other _ _ _ (fun e => hne (e.trans hc))]
 
 theorem cbFold_proj (now : Nat) (org : Origin) (id : Ident) : ∀ (ws : List Ident) (c : Commands) {id' : Ident}, id' ≠ id →
@@ -1175,7 +1174,7 @@ theorem cbFold_eq (now : Nat) (org : Origin) (id : Ident) (p : PromiseObject) (h
             rw [hcurp]; exact ⟨hnp, by simp⟩
           rw [List.foldl_cons, List.foldl_cons]
           have hstep : cbStepOld now org id c w = cbStep now org id c w := by
-            unfold cbStepOld cbStep; rw [hg]; simp only [hguard, and_self, ↓reduceIte]
+            unfold cbStepOld cbStep; rw [hg]; simp only [hguard, and_self, ↓reduceIte, merge_add]
           rw [hstep]
           apply cbFold_eq now org id p hp hnp ws _ hnd'.2 (fun v hv => hne v (List.mem_cons_of_mem _ hv))
           unfold cbStep
@@ -1184,7 +1183,7 @@ theorem cbFold_eq (now : Nat) (org : Origin) (id : Ident) (p : PromiseObject) (h
           rw [resume_find_other _ _ _ _ _ _ (hne w (List.mem_cons_self ..)).symm]
           have hx : ({ X.project now with promise := { (X.project now).promise with
               callbacks := (X.project now).promise.callbacks.filter (· != w) } } : Object).id = id := hXid
-          dsimp only [Commands.doc]
+          dsimp only [Commands.doc, Commands.merge]
           rw [add_snoc, find_set_at hx, Option.map_some]
           refine congrArg some ?_
           show ({ (X.project now).promise with
@@ -1251,12 +1250,12 @@ def ltStep (now : Nat) (c : Commands) (o : Object) : Commands :=
   | some t =>
       if t.state == .acquired ∧ t.leaseTimeoutAt.any (· ≤ now)
           ∧ o.promise.state == .pending then
-        { c with
-          arm := c.arm ++ [⟨now, o.id, .taskRetryTimeout⟩],
-          add := c.add ++ [{ o with task := some { t with state := .pending, pid := none, ttl := none,
-                                                              leaseTimeoutAt := none,
-                                                              retryTimeoutAt := some now } }],
-          del := c.del ++ t.timers o.id }
+        c.merge
+          { arm := [⟨now, o.id, .taskRetryTimeout⟩],
+            add := [{ o with task := some { t with state := .pending, pid := none, ttl := none,
+                                                   leaseTimeoutAt := none,
+                                                   retryTimeoutAt := some now } }],
+            del := t.timers o.id }
       else
         c
   | none =>
@@ -1356,7 +1355,7 @@ theorem leaseTimeouts_sim {o : String} {org : Origin} {S : Abstract.State} (now 
                   rw [hdl, Option.any_some] at this
                   exact of_decide_eq_true this
                 simp only [hdln, and_self, ↓reduceIte]
-                refine leaseTimeouts_sim now l _ _ (h.set_task_plain hido hob _ (add_snoc org c.add _) rfl) ?_ hnd.2
+                refine leaseTimeouts_sim now l _ _ (h.set_task_plain hido hob _ (add_snoc org c.add _) (List.append_nil _)) ?_ hnd.2
                 intro ob' hob'
                 have hne : ob'.id ≠ ob.id := fun e => hnd.1 (e ▸ List.mem_map_of_mem hob')
                 have key : ∀ x : Object, x.id = ob.id →
@@ -1378,11 +1377,11 @@ def rtStep (now : Nat) (c : Commands) (o : Object) : Commands :=
   | some t, .runnable target =>
       if t.state == .pending ∧ t.retryTimeoutAt.any (· ≤ now)
           ∧ o.promise.state == .pending then
-        { c with
-          arm := c.arm ++ [⟨now + Concrete.retryDelay, o.id, .taskRetryTimeout⟩],
-          add := c.add ++ [{ o with task := some { t with retryTimeoutAt := some (now + Concrete.retryDelay) } }],
-          del := c.del ++ t.timers o.id,
-          send := c.send ++ [(target, .execute o.id t.version)] }
+        c.merge
+          { arm  := [⟨now + Concrete.retryDelay, o.id, .taskRetryTimeout⟩],
+            add  := [{ o with task := some { t with retryTimeoutAt := some (now + Concrete.retryDelay) } }],
+            del  := t.timers o.id,
+            send := [(target, .execute o.id t.version)] }
       else
         c
   | _, _ =>

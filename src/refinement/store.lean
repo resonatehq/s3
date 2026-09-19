@@ -115,7 +115,7 @@ theorem applyAll_arm (name : String) :
 
 def next (cfg : Config) (parts : List (List Object)) (objects : List Object) : List (List Object) :=
   if parts.tail.length < cfg.adds then
-    parts ++ [objects]
+    parts ++ [(⟨objects⟩ : Origin).current.objects]
   else
     [((view parts).add objects).current.objects]
 
