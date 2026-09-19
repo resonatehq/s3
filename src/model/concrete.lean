@@ -165,22 +165,22 @@ invariant [listener_awaitable] listener I A → stored I ∧ kind I ≠ internal
 
 #gen_spec
 
-/-- Every reachable state of a small instance: three objects over two origins, one address
+/- Every reachable state of a small instance: three objects over two origins, one address
 and three instants. -/
 #model_check { ident := Fin 3, origin := Fin 2, address := Fin 1, time := Fin 3 }
   { originOf := fun i => ⟨i.val % 2, by omega⟩ }
 
-/-- The assumptions are satisfiable. -/
+/- The assumptions are satisfiable. -/
 sat trace [initial_state] { }
 
-/-- Settlement is lazy: a promise can sit in the bucket pending past its timeout, until a
+/- Settlement is lazy: a promise can sit in the bucket pending past its timeout, until a
 request or its timer sweeps its origin. -/
 sat trace [lazy_timeout] {
   any 2 actions
   assert (∃ i, stored i ∧ state i = pending ∧ tord.le (timeoutAt i) now)
 }
 
-/-- A read sweeps: `promiseGet` after the timeout is what notifies the listener. -/
+/- A read sweeps: `promiseGet` after the timeout is what notifies the listener. -/
 sat trace [notified] {
   promiseCreate
   promiseRegisterListener
@@ -189,13 +189,13 @@ sat trace [notified] {
   assert (∃ i a, outbox i a)
 }
 
-/-- No timer is ever orphaned within two steps, for any instance. -/
+/- No timer is ever orphaned within two steps, for any instance. -/
 unsat trace [no_orphan_timer] {
   any 2 actions
   assert (∃ i d, timer i d ∧ ¬ stored i)
 }
 
-/-- The invariants above are inductive: they hold initially and every action preserves
+/- The invariants above are inductive: they hold initially and every action preserves
 them, for all instances. -/
 #check_invariants
 
