@@ -22,6 +22,7 @@ Four folders under `src/`:
 - `spec/02-abstract` is the specification: an abstract state machine over objects, schedules and an outbox, driven by external requests and internal triggers such as timeouts. `spec/03-theorems` proves properties of the specification; a few `sorry`s remain there, none used below.
 - `impl/` is the implementation, laid out like the specification: `state` (the origin document as an append-only log with its compacted view, the bucket, conditional puts and appends, the configuration), `external` (the request handlers), `internal` (the sweep and the merge of commands), `system` (events, the step, traces), and `cache` (the machine with a read cache). Definitions only, no theorems.
 - `refinement/` is the proof that `impl` refines `spec`, and the invariants of `impl` on its own. Nothing in `impl` depends on it.
+- `model/` is an experiment: the promise half of the concrete machine written as a [Veil](https://veil.dev) module, checked by Veil's tools rather than by hand-written proofs. See [Veil](#veil) below.
 
 A document is stored as a list of parts, and `Origin.current` folds the parts into the view, the latest version of every object. A request first sweeps the document and then runs its handler on the swept view. The sweep is five passes, one per kind of internal trigger: promise timeouts, listeners, callbacks, lease timeouts, retry timeouts. Each pass, like each handler, reads the view left by the passes before it and returns commands: timers to arm and delete, messages to send, and the objects it adds. Commands are merged in sequence: a timer armed and then deleted cancels, a timer deleted and then armed stays armed, and the added objects are compacted to the latest version of each. The merged `add` list is the document's new part; nothing is ever overwritten. The configuration `Config.adds` says how many parts a document may hold before a request writes it whole: with zero adds every write is a whole put, as on S3; with `n` adds a request appends one part, as on S3 Express One Zone, and the request that would exceed `n` writes the compacted document.
 
@@ -107,8 +108,27 @@ theorem adds_invisible (H : Hasher) (cfg cfg' : Config) (tr : Concrete.Trace)
 
 Take any hasher `H` and any two configurations `cfg` and `cfg'`, for instance zero appends for S3 and a thousand for S3 Express One Zone. Take any valid concrete run `tr` under `cfg` from the empty bucket. Then there is a run `tr'` of the same machine under `cfg'`, valid and starting from the empty bucket, such that for every position `k` and every observation `o`, `o` is the `k`-th observation of the run under `cfg` if and only if it is the `k`-th observation of the run under `cfg'`. The two runs differ only in how each document is laid out in the bucket, as one part or as many. The proof relates the two runs step by step through the compacted view of every document, the timers and the outbox, which the write rule leaves identical whichever branch it takes.
 
+## Veil
+
+`model/concrete.lean` is the promise half of the concrete machine, `promiseCreate`, `promiseSettle`, `promiseGet` and `promiseRegisterListener`, with the two sweep passes they need and the timer event, written as a [Veil](https://veil.dev) module. Veil is a Lean 4 framework for state transition systems: a module declares its state as relations and functions, its transitions as imperative actions, and its properties as invariants, and Veil discharges the proof obligations by SMT, enumerates the states of a finite instance, or searches for traces of a bounded length.
+
+The model is the concrete machine seen through `Origin.current`: the documents are relations indexed by object, the timers are the blobs at their paths, the outbox is keyed as the store keys it, and time is an uninterpreted total order. Every request sweeps its origin first, as `Concrete.handle` does, and a timer event sweeps and nothing more. The correspondence to `impl/` is by hand and is documented at the top of the file; nothing is proved about `Concrete.step` itself.
+
+`lake build model` runs four checks:
+
+- `#check_invariants` proves by SMT that the five invariants, headed by `armed` from above, are inductive: they hold initially and every action preserves them, for every instance of the module's types.
+- `#model_check` enumerates every reachable state of an instance with three objects over two origins, one address and three instants, and checks the invariants in each.
+- `sat trace` finds runs: one in which a promise sits pending in the bucket past its timeout until something sweeps its origin, and one in which a `promiseGet` is what notifies a listener.
+- `unsat trace` proves that no run of two steps, of any instance, leaves a timer without its object.
+
+What the experiment found. Veil's `#check_invariants` proves the invariants inductive for all six actions in about a minute; the invariants were written from the theorem `armed` and its proof and needed no strengthening. The lazy settlement of timeouts, which the Lean proofs handle through `PromiseObject.project`, is visible as a trace. The bounded checker fails on `any 3 actions` in Veil's current pre-release (a `simp` step limit in the trace encoding), so the unbounded queries stop at two steps; explicit three-step sequences work. The model checker compiles a native binary that links Veil's prebuilt cvc5, which on Linux needs two glibc 2.38 symbols the Lean toolchain's bundled sysroot lacks, `__isoc23_strtol` and `__isoc23_fscanf`; a two-line shim archived into the toolchain's `lib/glibc/libc_nonshared.a` resolves it.
+
+Veil requires Lean v4.32.0, so the toolchain is now v4.32.0; the proofs build unchanged. `lake build` does not build the model: `model` is not a default target, so the proofs need neither Veil's dependencies nor an SMT solver.
+
 ## Build
 
 ```
 lake build
 ```
+
+builds the proofs. `lake build model` also builds Veil and its dependencies, then runs the Veil checks.
