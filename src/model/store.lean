@@ -123,6 +123,19 @@ procedure snapshot (s : server) (o : origin) {
   refused s := false
 }
 
+procedure clear (s : server) {
+  phase s := idle
+  reqKind s := sweep
+  reqType s := internal
+  reqTime s := tord.zero
+  reqState s := pending
+  snapNow s := tord.zero
+  snapStored s I := false
+  snapState s I := pending
+  snapKind s I := internal
+  snapTimeoutAt s I := tord.zero
+}
+
 action readCreate (s : server) (i : ident) (k : ptype) (t : time) {
   require phase s = idle
   snapshot s (originOf i)
@@ -164,7 +177,7 @@ procedure sweepDoc (o : origin) (t0 : time) {
 
 action writeCreate (s : server) {
   require phase s = armed ∧ reqKind s = create
-  phase s := idle
+  clear s
   if intact s then
     sweepDoc (snapOrigin s) (snapNow s)
     let i := reqId s
@@ -180,7 +193,7 @@ action writeCreate (s : server) {
 
 action writeSettle (s : server) {
   require phase s = armed ∧ reqKind s = settle
-  phase s := idle
+  clear s
   if intact s then
     sweepDoc (snapOrigin s) (snapNow s)
     let i := reqId s
@@ -193,7 +206,7 @@ action writeSettle (s : server) {
 
 action writeSweep (s : server) {
   require phase s = armed ∧ reqKind s = sweep
-  phase s := idle
+  clear s
   if intact s then
     sweepDoc (snapOrigin s) (snapNow s)
   else
