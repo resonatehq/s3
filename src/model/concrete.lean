@@ -44,26 +44,26 @@ type address
 type time
 instantiate tord : TotalOrderWithMinimum time
 
-/-- `Ident.origin`: the document an object lives in. -/
+/- `Ident.origin`: the document an object lives in. -/
 immutable function originOf : ident → origin
 
 enum pstate = {pending, resolved, rejected, rejectedCanceled, rejectedTimedout}
 enum ptype = {internal, deadline, external, runnable}
 
-/-- The documents: the view of every origin, one object per `ident`. -/
+/- The documents: the view of every origin, one object per `ident`. -/
 relation stored (i : ident) : Bool
 function state : ident → pstate
 function kind : ident → ptype
 function timeoutAt : ident → time
 relation listener (i : ident) (a : address) : Bool
 
-/-- The timer blobs: `timer i d` is `Path.timer ⟨d, i, .promiseTimeout⟩` in the bucket. -/
+/- The timer blobs: `timer i d` is `Path.timer ⟨d, i, .promiseTimeout⟩` in the bucket. -/
 relation timer (i : ident) (d : time) : Bool
 
-/-- The outbox, keyed by promise and address. -/
+/- The outbox, keyed by promise and address. -/
 relation outbox (i : ident) (a : address) : Bool
 
-/-- The instant of the current step. -/
+/- The instant of the current step. -/
 individual now : time
 
 #gen_state
@@ -79,11 +79,11 @@ after_init {
   now := tord.zero
 }
 
-/-- A stored promise that `PromiseObject.project` would settle: pending, timeout passed. -/
+/- A stored promise that `PromiseObject.project` would settle: pending, timeout passed. -/
 ghost relation timedOut (i : ident) :=
   stored i ∧ state i = pending ∧ tord.le (timeoutAt i) now
 
-/-- `Concrete.sweep`, restricted to promises: the `promiseTimeouts` pass, then the
+/- `Concrete.sweep`, restricted to promises: the `promiseTimeouts` pass, then the
 `listeners` pass on the view it leaves. Each pass reads the state left by the one before,
 as `Commands.doc` gives the next pass the objects added so far. -/
 procedure sweep (o : origin) {
@@ -99,7 +99,7 @@ procedure sweep (o : origin) {
                   else listener I A
 }
 
-/-- `Concrete.promiseCreate`. An existing promise is returned as is. A new one is pending
+/- `Concrete.promiseCreate`. An existing promise is returned as is. A new one is pending
 with its timer armed if its timeout is in the future, unless it is internal, which is
 never awaited and never armed; otherwise it is created already settled, with no timer. -/
 action promiseCreate (i : ident) (k : ptype) (t : time) {
@@ -116,7 +116,7 @@ action promiseCreate (i : ident) (k : ptype) (t : time) {
       state i := if k = deadline then resolved else rejectedTimedout
 }
 
-/-- `Concrete.promiseSettle`. A settable state settles a pending promise and deletes its
+/- `Concrete.promiseSettle`. A settable state settles a pending promise and deletes its
 timers; anything else, a 400 or a promise already settled, changes nothing but the sweep. -/
 action promiseSettle (i : ident) (s : pstate) {
   sweep (originOf i)
@@ -125,19 +125,19 @@ action promiseSettle (i : ident) (s : pstate) {
     timer i D := false
 }
 
-/-- `Concrete.promiseGet`. A read is a request, so it sweeps. -/
+/- `Concrete.promiseGet`. A read is a request, so it sweeps. -/
 action promiseGet (i : ident) {
   sweep (originOf i)
 }
 
-/-- `Concrete.promiseRegisterListener`. Only an awaitable, pending promise takes a listener. -/
+/- `Concrete.promiseRegisterListener`. Only an awaitable, pending promise takes a listener. -/
 action promiseRegisterListener (i : ident) (a : address) {
   sweep (originOf i)
   if stored i ∧ kind i ≠ internal ∧ state i = pending then
     listener i a := true
 }
 
-/-- `Concrete.step` on `Event.internal`: a timer whose blob is present and whose deadline
+/- `Concrete.step` on `Event.internal`: a timer whose blob is present and whose deadline
 has passed sweeps its origin. The sweep, not the timer, settles the promise. -/
 action promiseTimeout (i : ident) (d : time) {
   require timer i d
@@ -145,22 +145,22 @@ action promiseTimeout (i : ident) (d : time) {
   sweep (originOf i)
 }
 
-/-- Time never runs backwards. -/
+/- Time never runs backwards. -/
 action tick (t : time) {
   require tord.lt now t
   now := t
 }
 
-/-- `armed` from the README: every armed timeout timer belongs to a stored, non-internal
+/- `armed` from the README: every armed timeout timer belongs to a stored, non-internal
 promise. -/
 safety [armed] timer I D → stored I ∧ kind I ≠ internal
-/-- An armed timer's promise is pending, and the timer's deadline is its timeout. -/
+/- An armed timer's promise is pending, and the timer's deadline is its timeout. -/
 invariant [armed_pending] timer I D → state I = pending ∧ D = timeoutAt I
-/-- Every pending, awaitable promise has its timer armed. -/
+/- Every pending, awaitable promise has its timer armed. -/
 invariant [pending_armed] stored I ∧ state I = pending ∧ kind I ≠ internal → timer I (timeoutAt I)
-/-- Only settled promises are notified. -/
+/- Only settled promises are notified. -/
 invariant [notified_settled] outbox I A → stored I ∧ state I ≠ pending
-/-- Only awaitable promises have listeners. -/
+/- Only awaitable promises have listeners. -/
 invariant [listener_awaitable] listener I A → stored I ∧ kind I ≠ internal
 
 #gen_spec
