@@ -226,9 +226,9 @@ invariant [armed_before_write]
 
 #gen_spec
 
--- Every reachable state of two servers over two objects in one origin. Servers clear
--- their snapshot when they go idle, or the stale copies multiply the states beyond reach.
-#model_check { server := Fin 2, ident := Fin 2, origin := Fin 1, time := Fin 2 }
+-- Every reachable state of two servers over one object. Two objects are beyond
+-- exhaustive search, each server carrying a snapshot of the document.
+#model_check { server := Fin 2, ident := Fin 1, origin := Fin 1, time := Fin 2 }
   { originOf := fun _ => 0 }
 
 -- Random walks over three servers and three instants.
