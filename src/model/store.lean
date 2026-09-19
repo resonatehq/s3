@@ -177,7 +177,6 @@ procedure sweepDoc (o : origin) (t0 : time) {
 
 action writeCreate (s : server) {
   require phase s = armed ∧ reqKind s = create
-  clear s
   if intact s then
     sweepDoc (snapOrigin s) (snapNow s)
     let i := reqId s
@@ -189,11 +188,11 @@ action writeCreate (s : server) {
                  else (if reqType s = deadline then resolved else rejectedTimedout)
   else
     refused s := true
+  clear s
 }
 
 action writeSettle (s : server) {
   require phase s = armed ∧ reqKind s = settle
-  clear s
   if intact s then
     sweepDoc (snapOrigin s) (snapNow s)
     let i := reqId s
@@ -202,15 +201,16 @@ action writeSettle (s : server) {
       timer i (timeoutAt i) := false
   else
     refused s := true
+  clear s
 }
 
 action writeSweep (s : server) {
   require phase s = armed ∧ reqKind s = sweep
-  clear s
   if intact s then
     sweepDoc (snapOrigin s) (snapNow s)
   else
     refused s := true
+  clear s
 }
 
 action tick (t : time) {
