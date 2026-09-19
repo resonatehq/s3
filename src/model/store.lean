@@ -37,8 +37,6 @@ stated for the single-writer trace, and `runCached_any` relates the documents an
 outbox of the cached machine to the uncached one, not the timers.
 -/
 
-set_option maxRecDepth 100000
-
 veil module S3Store
 
 type ident
@@ -80,6 +78,8 @@ function snapTimeoutAt : server → ident → time
 relation refused (s : server) : Bool
 
 #gen_state
+
+set_option maxRecDepth 100000
 
 after_init {
   stored I := false
