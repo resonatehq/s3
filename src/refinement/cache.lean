@@ -357,7 +357,7 @@ theorem stepCached_eq (H : Hasher) (cfg : Config) (ev : Event) (now : Nat) {cs :
           obtain ⟨rfl, h2, rfl⟩ := heq
           exact ⟨rfl, h2, hs⟩
   | internal t =>
-      simp only [stepCached, Concrete.step]
+      rw [stepCached, Concrete.step]
       split
       · have heq := runCached_eq H cfg t.id.origin (fun org => Concrete.handle (.internal t) now org) h
         have hs := runCached_sound H cfg t.id.origin (fun org => Concrete.handle (.internal t) now org) h
@@ -397,8 +397,7 @@ theorem stepCached_any_timer (H : Hasher) (cfg : Config) (now : Nat) (t : Concre
     Docs (Concrete.step H cfg (.internal t) now cs.state).2 (stepCached H cfg (.internal t) now cs).2.state ∧
     Tagged (stepCached H cfg (.internal t) now cs).2 ∧
     Agree (stepCached H cfg (.internal t) now cs).2 t.id.origin := by
-  simp only [stepCached, Concrete.step]
-  rw [if_pos hl, if_pos hl]
+  rw [stepCached, Concrete.step, if_pos hl, if_pos hl]
   have ha := runCached_any H cfg t.id.origin (fun org => Concrete.handle (.internal t) now org) ht
   have hok' := Concrete.run_accepted (H := H) cfg t.id.origin (fun org => Concrete.handle (.internal t) now org) cs.state
   rcases hR : runCached H cfg t.id.origin (fun org => Concrete.handle (.internal t) now org) cs with ⟨r, cs', ok⟩

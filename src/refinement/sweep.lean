@@ -37,6 +37,14 @@ theorem find_self_of_nodup : ∀ {l : List Object}, (l.map (·.id)).Nodup → �
         simp only [List.find?_cons, hne']
         exact find_self_of_nodup hnd.2 hob
 
+theorem eq_of_id_nodup {l : List Object} (hnd : (l.map (·.id)).Nodup) {a b : Object} (ha : a ∈ l) (hb : b ∈ l)
+    (h : a.id = b.id) : a = b := by
+  have h1 := find_self_of_nodup hnd ha
+  have h2 := find_self_of_nodup hnd hb
+  rw [h] at h1
+  rw [h1] at h2
+  exact Option.some.inj h2
+
 theorem project_callbacks (p : PromiseObject) (n : Nat) : (p.project n).callbacks = p.callbacks := by
   unfold PromiseObject.project
   split <;> (try split) <;> rfl
@@ -266,8 +274,9 @@ theorem SwInv.step {o : String} {org : Origin} {S : Abstract.State} {c : Command
 theorem SwInv.merge {o : String} {org : Origin} {S : Abstract.State} {c : Commands} {T : Abstract.State}
     {d : Commands} {U : Abstract.State} (h : SwInv o org S c T) (hd : SwInv o (c.doc org) T d U) :
     SwInv o org S (c.merge d) U :=
-  ⟨by rw [doc_merge]; exact hd.loc, by rw [hd.out, h.out, ← sendsFold_append]; rfl, hd.sch.trans h.sch,
-   by rw [doc_merge]; exact hd.orig, by rw [doc_merge]; exact hd.wf,
+  ⟨fun id hid => by rw [hd.loc id hid]; unfold Origin.find; rw [current_merge],
+   by rw [hd.out, h.out, ← sendsFold_append]; rfl, hd.sch.trans h.sch,
+   by rw [current_merge]; exact hd.orig, by rw [current_merge]; exact hd.wf,
    fun id hid => (hd.other id hid).trans (h.other id hid)⟩
 
 theorem SwInv.transfer {o : String} {org : Origin} {S : Abstract.State} {c : Commands} {T : Abstract.State}
@@ -392,7 +401,7 @@ def ptTrig (now : Nat) (o : Object) : Option Abstract.Trigger :=
     none
 
 theorem promiseTimeouts_eq (now : Nat) (org : Origin) :
-    Chain.promiseTimeouts now org = org.current.objects.foldl (ptStep now) {} := rfl
+    Concrete.promiseTimeouts now org = org.current.objects.foldl (ptStep now) {} := rfl
 
 theorem promiseTimeoutTriggers_eq (now : Nat) (org : Origin) :
     Chain.promiseTimeoutTriggers now org = org.current.objects.filterMap (ptTrig now) := rfl
@@ -486,7 +495,7 @@ def lsBulk (now : Nat) (c : Commands) (o : Object) : Commands :=
     c
 
 theorem listeners_eq (now : Nat) (org : Origin) :
-    Chain.listeners now org = org.current.objects.foldl (lsBulk now) {} := rfl
+    Concrete.listeners now org = org.current.objects.foldl (lsBulk now) {} := rfl
 
 theorem listenerTriggers_eq (now : Nat) (org : Origin) :
     Chain.listenerTriggers now org = org.current.objects.flatMap (lsTrig now) := rfl
@@ -795,7 +804,7 @@ def cbStep (now : Nat) (org : Origin) (id : Ident) (c : Commands) (awaiter : Ide
   match (c.doc org).get id now with
   | some cur =>
       if cur.promise.state != .pending ∧ cur.promise.callbacks.contains awaiter then
-        Chain.resumeOne now id org
+        Concrete.resumeOne now id org
           { c with add := c.add ++ [{ cur with promise :=
               { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } }] }
           awaiter
@@ -821,7 +830,7 @@ def cbTrig (now : Nat) (o : Object) : List Abstract.Trigger :=
 def cbStepOld (now : Nat) (org : Origin) (id : Ident) (c : Commands) (awaiter : Ident) : Commands :=
   match (c.doc org).get id now with
   | some cur =>
-      Chain.resumeOne now id org
+      Concrete.resumeOne now id org
         { c with add := c.add ++ [{ cur with promise :=
             { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } }] }
         awaiter
@@ -836,7 +845,7 @@ def cbOuterOld (now : Nat) (org : Origin) (c : Commands) (o : Object) : Commands
     c
 
 theorem callbacks_eq (now : Nat) (org : Origin) :
-    Chain.callbacks now org = org.current.objects.foldl (cbOuterOld now org) {} := rfl
+    Concrete.callbacks now org = org.current.objects.foldl (cbOuterOld now org) {} := rfl
 
 theorem callbackTriggers_eq (now : Nat) (org : Origin) :
     Chain.callbackTriggers now org = org.current.objects.flatMap (cbTrig now) := rfl
@@ -917,8 +926,8 @@ theorem processCallback_fx (id w : Ident) (now : Nat) (T : Abstract.State) :
 
 theorem resume_sim {o : String} {org : Origin} {S : Abstract.State} (now : Nat) (awaited w : Ident) (hw : w.origin = o)
     (c : Commands) (T : Abstract.State) (h : SwInv o org S c T) :
-    SwInv o org S (Chain.resumeOne now awaited org c w) (Abstract.applyAll T (resumeFx awaited w now T)) := by
-  unfold Chain.resumeOne resumeFx
+    SwInv o org S (Concrete.resumeOne now awaited org c w) (Abstract.applyAll T (resumeFx awaited w now T)) := by
+  unfold Concrete.resumeOne resumeFx
   rw [h.loc w hw]
   cases hY : Origin.find (c.doc org) w with
   | none =>
@@ -985,7 +994,7 @@ theorem cbStep_sim {o : String} {org : Origin} {S : Abstract.State} (now : Nat) 
             have hne' : w ≠ id := fun e => hne (e.trans hXid.symm)
             have hwo' : w.origin = o := hwo.trans (hXid ▸ hido)
             have hstep : cbStep now org id c w =
-                Chain.resumeOne now id org
+                Concrete.resumeOne now id org
                   { c with add := c.add ++ [{ X.project now with promise :=
                       { (X.project now).promise with
                         callbacks := (X.project now).promise.callbacks.filter (· != w) } }] }
@@ -1062,8 +1071,8 @@ theorem find_doc_snoc (org : Origin) (c : Commands) (x : Object) (id : Ident) :
   rw [add_snoc]
 
 theorem resume_find_other (now : Nat) (awaited : Ident) (org : Origin) (c : Commands) (w id : Ident) (h : id ≠ w) :
-    Origin.find ((Chain.resumeOne now awaited org c w).doc org) id = Origin.find (c.doc org) id := by
-  unfold Chain.resumeOne
+    Origin.find ((Concrete.resumeOne now awaited org c w).doc org) id = Origin.find (c.doc org) id := by
+  unfold Concrete.resumeOne
   cases hg : (c.doc org).get w now with
   | none => rfl
   | some Y =>
@@ -1082,11 +1091,11 @@ theorem resume_find_other (now : Nat) (awaited : Ident) (org : Origin) (c : Comm
                 | (dsimp only [Commands.doc]; rw [add_snoc]; exact find_set_other _ _ _ (fun e => h (e.trans hY))))
 
 theorem resume_proj (now : Nat) (awaited : Ident) (org : Origin) (c : Commands) (w id : Ident) :
-    (Origin.find ((Chain.resumeOne now awaited org c w).doc org) id).map (fun cur => cur.promise.project now) =
+    (Origin.find ((Concrete.resumeOne now awaited org c w).doc org) id).map (fun cur => cur.promise.project now) =
       (Origin.find (c.doc org) id).map (fun cur => cur.promise.project now) := by
   by_cases h : id = w
   · subst h
-    unfold Chain.resumeOne
+    unfold Concrete.resumeOne
     cases hg : (c.doc org).get id now with
     | none => rfl
     | some Y =>
@@ -1265,7 +1274,7 @@ def ltTrig (now : Nat) (o : Object) : Option Abstract.Trigger :=
       none
 
 theorem leaseTimeouts_eq (now : Nat) (org : Origin) :
-    Chain.leaseTimeouts now org = org.current.objects.foldl (ltStep now) {} := rfl
+    Concrete.leaseTimeouts now org = org.current.objects.foldl (ltStep now) {} := rfl
 
 theorem leaseTimeoutTriggers_eq (now : Nat) (org : Origin) :
     Chain.leaseTimeoutTriggers now org = org.current.objects.filterMap (ltTrig now) := rfl
@@ -1391,7 +1400,7 @@ def rtTrig (now : Nat) (o : Object) : Option Abstract.Trigger :=
       none
 
 theorem retryTimeouts_eq (now : Nat) (org : Origin) :
-    Chain.retryTimeouts now org = org.current.objects.foldl (rtStep now) {} := rfl
+    Concrete.retryTimeouts now org = org.current.objects.foldl (rtStep now) {} := rfl
 
 theorem retryTimeoutTriggers_eq (now : Nat) (org : Origin) :
     Chain.retryTimeoutTriggers now org = org.current.objects.filterMap (rtTrig now) := rfl
@@ -1514,21 +1523,21 @@ theorem retryTimeouts_sim {o : String} {org : Origin} {S : Abstract.State} (now 
 
 theorem promiseTimeouts_pass {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) (now : Nat) :
-    SwInv o org S (Chain.promiseTimeouts now org) (execI (Chain.promiseTimeoutTriggers now org) now S) := by
+    SwInv o org S (Concrete.promiseTimeouts now org) (execI (Chain.promiseTimeoutTriggers now org) now S) := by
   rw [promiseTimeouts_eq, promiseTimeoutTriggers_eq]
   exact promiseTimeouts_sim now org.current.objects _ S (SwInv.init hL horig hwf)
     (fun ob hob => by rw [doc_empty]; exact find_self_of_nodup (current_nodup org) hob) (current_nodup org)
 
 theorem listeners_pass {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) (now : Nat) :
-    SwInv o org S (Chain.listeners now org) (execI (Chain.listenerTriggers now org) now S) := by
+    SwInv o org S (Concrete.listeners now org) (execI (Chain.listenerTriggers now org) now S) := by
   rw [listeners_eq, listenerTriggers_eq]
   exact lsBulk_sim now org.current.objects _ S (SwInv.init hL horig hwf)
     (fun ob hob => by rw [doc_empty]; exact find_self_of_nodup (current_nodup org) hob) (current_nodup org)
 
 theorem callbacks_pass {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) (now : Nat) :
-    SwInv o org S (Chain.callbacks now org) (execI (Chain.callbackTriggers now org) now S) := by
+    SwInv o org S (Concrete.callbacks now org) (execI (Chain.callbackTriggers now org) now S) := by
   rw [callbacks_eq, callbackTriggers_eq]
   exact cbOld_sim hwf now org.current.objects _ S (SwInv.init hL horig hwf) (fun _ h => h) (current_nodup org)
     (fun ob hob => by
@@ -1540,22 +1549,22 @@ theorem callbacks_pass {o : String} {org : Origin} {S : Abstract.State} (hL : Lo
 
 theorem leaseTimeouts_pass {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) (now : Nat) :
-    SwInv o org S (Chain.leaseTimeouts now org) (execI (Chain.leaseTimeoutTriggers now org) now S) := by
+    SwInv o org S (Concrete.leaseTimeouts now org) (execI (Chain.leaseTimeoutTriggers now org) now S) := by
   rw [leaseTimeouts_eq, leaseTimeoutTriggers_eq]
   exact leaseTimeouts_sim now org.current.objects _ S (SwInv.init hL horig hwf)
     (fun ob hob => by rw [doc_empty]; exact find_self_of_nodup (current_nodup org) hob) (current_nodup org)
 
 theorem retryTimeouts_pass {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) (now : Nat) :
-    SwInv o org S (Chain.retryTimeouts now org) (execI (Chain.retryTimeoutTriggers now org) now S) := by
+    SwInv o org S (Concrete.retryTimeouts now org) (execI (Chain.retryTimeoutTriggers now org) now S) := by
   rw [retryTimeouts_eq, retryTimeoutTriggers_eq]
   exact retryTimeouts_sim now org.current.objects _ S (SwInv.init hL horig hwf)
     (fun ob hob => by rw [doc_empty]; exact find_self_of_nodup (current_nodup org) hob) (current_nodup org)
 
-theorem chain_sweep_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
+theorem sweep_sim {o : String} {org : Origin} {S : Abstract.State} (hL : Local o org S)
     (horig : ∀ ob ∈ org.current.objects, ob.id.origin = o) (hwf : WF org.current) (now : Nat) :
-    SwInv o org S (Chain.sweep now org) (execI (Chain.sweepTriggers now org) now S) := by
-  simp only [Chain.sweep, Chain.sweepTriggers, execI_append]
+    SwInv o org S (Concrete.sweep now org) (execI (Chain.sweepTriggers now org) now S) := by
+  simp only [Concrete.sweep, Chain.sweepTriggers, execI_append]
   have h1 := promiseTimeouts_pass hL horig hwf now
   have h2 := h1.merge (listeners_pass h1.loc h1.orig h1.wf now)
   have h3 := h2.merge (callbacks_pass h2.loc h2.orig h2.wf now)

@@ -64,11 +64,11 @@ theorem Keep.id (org : Origin) : Keep org {} :=
 
 theorem Keep.merge {org : Origin} {c d : Commands} (hc : Keep org c) (hd : Keep (c.doc org) d) :
     Keep org (c.merge d) := by
-  refine ⟨fun t ht hk => ?_, by rw [doc_merge]; exact hc.doc.trans hd.doc⟩
-  rw [doc_merge]
-  have ht' : t ∈ c.arm ++ d.arm := ht
+  refine ⟨fun t ht hk => ?_, fun o ho => by rw [current_merge]; exact hc.doc.trans hd.doc o ho⟩
+  rw [current_merge]
+  have ht' : t ∈ c.arm.filter (· ∉ d.del) ++ d.arm := ht
   rcases List.mem_append.1 ht' with ht | ht
-  · obtain ⟨o, ho, hi, hty⟩ := hc.arm t ht hk
+  · obtain ⟨o, ho, hi, hty⟩ := hc.arm t (List.mem_filter.1 ht).1 hk
     obtain ⟨o', ho', hi', hty'⟩ := hd.doc o ho
     exact ⟨o', ho', hi'.trans hi, fun h => hty (hty'.symm.trans h)⟩
   · exact hd.arm t ht hk
@@ -448,65 +448,145 @@ theorem handleExternal_keep {org : Origin} (now : Nat) (req : Request) : Keep or
   | taskContinue r => exact taskContinue_keep now r
   | taskSearch _ => exact Keep.id org
 
-theorem g1_type (now : Nat) (o : Object) : (g1 now o).promise.type = o.promise.type := by
-  unfold g1 Concrete.processPromiseTimeout
-  split
-  · exact project_type _ _
-  · rfl
-
-theorem g2_type (now : Nat) (o : Object) : (g2 now o).promise.type = o.promise.type := by
-  simp only [g2, listenerObj, Concrete.processListener]
-  split
-  · simp only [Option.map_some, Option.getD_some]
-    exact project_type _ _
-  · rfl
-
-theorem g3_type (now : Nat) (org : Origin) (o : Object) : (g3 now org o).promise.type = o.promise.type := by
-  simp only [g3, Concrete.processCallback]
-  split
-  · simp only [Option.getD_some]
-    split <;> exact project_type _ _
-  · rfl
-
-theorem g4_type (now : Nat) (o : Object) : (g4 now o).promise.type = o.promise.type := by
-  simp only [g4, Concrete.processLeaseTimeout]
-  split <;> (try split) <;> first | rfl | exact project_type _ _
-
-theorem g5_type (now : Nat) (o : Object) : (g5 now o).promise.type = o.promise.type := by
-  simp only [g5, retryObj, Concrete.processRetryTimeout]
-  split <;> (try split) <;> first | rfl | (simp only [Option.map_some, Option.getD_some]; exact project_type _ _)
-
-theorem sweepObject_type (now : Nat) (org : Origin) (o : Object) :
-    (Concrete.sweepObject now org o).obj.promise.type = o.promise.type := by
-  rw [sweepObject_eq]
-  show (g5 now (g4 now (g3 now org (g2 now (g1 now o))))).promise.type = o.promise.type
-  rw [g5_type, g4_type, g3_type, g2_type, g1_type]
-
-theorem sweep_keep (now : Nat) {org : Origin} (hnd : (org.objects.map (·.id)).Nodup) :
-    Keep org (Concrete.sweep now org) := by
-  have hcur : org.current = org := current_of_nodup hnd
+theorem Keep.step {org : Origin} {c c' : Commands} (h : Keep org c) {ob x : Object}
+    (hob : ob ∈ (c.doc org).current.objects) (hadd : c'.add = c.add ++ [x]) (hx : x.id = ob.id)
+    (hty : x.promise.type = ob.promise.type) (harm : ∀ t ∈ c'.arm, t.kind = .promiseTimeout → t ∈ c.arm) :
+    Keep org c' := by
+  have hdoc : c'.doc org = (c.doc org).set x := by
+    unfold Commands.doc
+    rw [hadd]
+    exact add_snoc org c.add x
+  have hnd := current_nodup (c.doc org)
+  have hsame : ∀ o ∈ (c.doc org).current.objects, o.id = x.id → o = ob := fun o ho e =>
+    eq_of_id_nodup hnd ho hob (e.trans hx)
   refine ⟨fun t ht hk => ?_, fun o ho => ?_⟩
-  · have ht' : t ∈ ((org.objects.map fun o => (Concrete.sweepObject now org o).obj).flatMap (·.timers)) := by
-      have := (List.mem_filter.1 ht).1
-      simpa [Concrete.sweep, List.map_map] using this
-    obtain ⟨x, hx, htx⟩ := List.mem_flatMap.1 ht'
-    obtain ⟨hi, hty⟩ := timers_kind htx hk
-    refine ⟨x, ?_, hi.symm, hty⟩
-    rw [sweep_current now hnd]
-    exact hx
-  · rw [hcur] at ho
-    refine ⟨(Concrete.sweepObject now org o).obj, ?_, sweepObject_id now org o, sweepObject_type now org o⟩
-    rw [sweep_current now hnd]
-    exact List.mem_map_of_mem ho
+  · rw [hdoc]
+    obtain ⟨o, ho, hi, hot⟩ := h.arm t (harm t ht hk) hk
+    by_cases e : o.id = x.id
+    · refine ⟨x, mem_set_self _ x, hx.trans (hsame o ho e ▸ hi), ?_⟩
+      rw [hty, ← hsame o ho e]
+      exact hot
+    · exact ⟨o, mem_set_of_ne ho e, hi, hot⟩
+  · rw [hdoc]
+    refine h.doc.set (fun o' ho' he => ?_) o ho
+    obtain ⟨o'', ho'', hi, ht⟩ := h.doc o' ho'
+    rw [← ht, hsame o'' ho'' (hi.trans he), hty]
 
-theorem handle_keep {org : Origin} (hnd : (org.objects.map (·.id)).Nodup) (now : Nat) (ev : Concrete.Event) :
-    Keep org (Concrete.handle ev now org).2 := by
+theorem Keep.fold {α : Type} {org : Origin} (step : Commands → α → Commands) :
+    ∀ (l : List α), (∀ c a, a ∈ l → Keep org c → Keep org (step c a)) →
+      ∀ c, Keep org c → Keep org (l.foldl step c)
+  | [], _, _, h => h
+  | a :: l, hstep, c, h => by
+      rw [List.foldl_cons]
+      exact Keep.fold step l (fun c a ha => hstep c a (List.mem_cons_of_mem _ ha)) _
+        (hstep c a (List.mem_cons_self ..) h)
+
+theorem Keep.pass {org : Origin} (step : Commands → Object → Commands)
+    (hstep : ∀ c o, o ∈ org.current.objects → Keep org c → Keep org (step c o)) :
+    Keep org (org.current.objects.foldl step {}) :=
+  Keep.fold step _ (fun c o ho h => hstep c o ho h) {} (Keep.id org)
+
+theorem Keep.step_of {org : Origin} {c c' : Commands} (h : Keep org c) {o : Object} (ho : o ∈ org.current.objects)
+    {x : Object} (hadd : c'.add = c.add ++ [x]) (hx : x.id = o.id) (hty : x.promise.type = o.promise.type)
+    (harm : ∀ t ∈ c'.arm, t.kind = .promiseTimeout → t ∈ c.arm) : Keep org c' := by
+  obtain ⟨ob, hob, hi, ht⟩ := h.doc o ho
+  exact h.step hob hadd (hx.trans hi.symm) (hty.trans ht.symm) harm
+
+theorem promiseTimeouts_keep (now : Nat) (org : Origin) : Keep org (Concrete.promiseTimeouts now org) := by
+  rw [promiseTimeouts_eq]
+  refine Keep.pass _ fun c o ho h => ?_
+  unfold ptStep
+  split
+  · exact h.step_of ho rfl (project_id o now) (project_type o.promise now) fun t ht _ => ht
+  · exact h
+
+theorem listeners_keep (now : Nat) (org : Origin) : Keep org (Concrete.listeners now org) := by
+  rw [listeners_eq]
+  refine Keep.pass _ fun c o ho h => ?_
+  simp only [lsBulk]
+  split
+  · exact h.step_of ho rfl (project_id o now) (project_type o.promise now) fun t ht _ => ht
+  · exact h
+
+theorem resumeOne_keep {org : Origin} {c : Commands} (h : Keep org c) (now : Nat) (awaited awaiter : Ident) :
+    Keep org (Concrete.resumeOne now awaited org c awaiter) := by
+  unfold Concrete.resumeOne
+  cases hg : (c.doc org).get awaiter now with
+  | none => exact h
+  | some w =>
+      obtain ⟨ob, hf, rfl⟩ := get_some hg
+      obtain ⟨hob, -⟩ := find_mem hf
+      simp only [Option.bind_some]
+      cases (ob.project now).task with
+      | none => exact h
+      | some t =>
+          simp only [Option.map_some]
+          split
+          · exact h.step hob rfl (project_id ob now) (project_type ob.promise now) fun t ht hk => by
+              rcases List.mem_append.1 ht with ht | ht
+              · exact ht
+              · rw [List.mem_singleton] at ht
+                subst ht
+                cases hk
+          all_goals (try split) <;> exact h.step hob rfl (project_id ob now) (project_type ob.promise now) fun t ht _ => ht
+
+theorem callbacks_keep (now : Nat) (org : Origin) : Keep org (Concrete.callbacks now org) := by
+  rw [callbacks_eq]
+  refine Keep.pass _ fun c o _ h => ?_
+  simp only [cbOuterOld]
+  split
+  · refine Keep.fold _ _ (fun c awaiter _ h => ?_) c h
+    unfold cbStepOld
+    split
+    · rename_i cur hg
+      obtain ⟨ob, hf, rfl⟩ := get_some hg
+      obtain ⟨hob, -⟩ := find_mem hf
+      refine resumeOne_keep ?_ now _ awaiter
+      exact h.step hob rfl (project_id ob now) (project_type ob.promise now) fun t ht _ => ht
+    · exact h
+  · exact h
+
+theorem leaseTimeouts_keep (now : Nat) (org : Origin) : Keep org (Concrete.leaseTimeouts now org) := by
+  rw [leaseTimeouts_eq]
+  refine Keep.pass _ fun c o ho h => ?_
+  simp only [ltStep]
+  split
+  · split
+    · exact h.step_of ho rfl (project_id o now) (project_type o.promise now) fun t ht hk => by
+        rcases List.mem_append.1 ht with ht | ht
+        · exact ht
+        · rw [List.mem_singleton] at ht
+          subst ht
+          cases hk
+    · exact h
+  · exact h
+
+theorem retryTimeouts_keep (now : Nat) (org : Origin) : Keep org (Concrete.retryTimeouts now org) := by
+  rw [retryTimeouts_eq]
+  refine Keep.pass _ fun c o ho h => ?_
+  simp only [rtStep]
+  split
+  · split
+    · exact h.step_of ho rfl (project_id o now) (project_type o.promise now) fun t ht hk => by
+        rcases List.mem_append.1 ht with ht | ht
+        · exact ht
+        · rw [List.mem_singleton] at ht
+          subst ht
+          cases hk
+    · exact h
+  all_goals exact h
+
+theorem sweep_keep (now : Nat) (org : Origin) : Keep org (Concrete.sweep now org) :=
+  ((((promiseTimeouts_keep now org).merge (listeners_keep now _)).merge (callbacks_keep now _)).merge
+    (leaseTimeouts_keep now _)).merge (retryTimeouts_keep now _)
+
+theorem handle_keep (org : Origin) (now : Nat) (ev : Concrete.Event) : Keep org (Concrete.handle ev now org).2 := by
   cases ev with
   | external req =>
       show Keep org ((Concrete.sweep now org).merge
-        (Concrete.handleExternal req now (org.add (Concrete.sweep now org).add).current).2)
-      exact (sweep_keep now hnd).merge (Keep.of_current (handleExternal_keep now req))
-  | internal _ => exact sweep_keep now hnd
+        (Concrete.handleExternal req now ((Concrete.sweep now org).doc org).current).2)
+      exact (sweep_keep now org).merge (Keep.of_current (handleExternal_keep now req))
+  | internal _ => exact sweep_keep now org
   | stutter => exact Keep.id org
 
 theorem blob?_add_timer {H : Concrete.Hasher} {s s' : Concrete.State} {name : String} {part : List Object}
@@ -593,7 +673,7 @@ theorem Armed.run (H : Concrete.Hasher) (cfg : Concrete.Config) (name : String) 
     exact ⟨o, ho, hoi, hot⟩
 
 theorem Armed.step (H : Concrete.Hasher) (cfg : Concrete.Config) (ev : Concrete.Event) (now : Nat) {s : Concrete.State}
-    (inv : Inv s) (inv' : Inv (Concrete.step H cfg ev now s).2) (hs : Armed s) :
+    (inv' : Inv (Concrete.step H cfg ev now s).2) (hs : Armed s) :
     Armed (Concrete.step H cfg ev now s).2 := by
   cases ev with
   | external req =>
@@ -604,10 +684,10 @@ theorem Armed.step (H : Concrete.Hasher) (cfg : Concrete.Config) (ev : Concrete.
       | some name =>
           have hst : (Concrete.step H cfg (.external req) now s).2 =
               (Concrete.run H cfg name (fun org => Concrete.handle (.external req) now org) s).2.1 := by
-            simp only [Concrete.step, ho]
+            rw [Concrete.step, ho]
           rw [hst] at inv' ⊢
           rw [run_snd] at inv' ⊢
-          refine Armed.run H cfg name _ s hs (handle_keep (inv.origin_props name).2.1 now _) ?_
+          refine Armed.run H cfg name _ s hs (handle_keep _ now _) ?_
           have := (inv'.origin_props name).1
           have h1 := (run_state H cfg name (Concrete.handle (.external req) now (s.origin name)).2 s).1
           rw [view_next] at h1
@@ -617,16 +697,16 @@ theorem Armed.step (H : Concrete.Hasher) (cfg : Concrete.Config) (ev : Concrete.
       by_cases hl : (s.blob? (.timer t)).isSome = true ∧ t.deadline ≤ now
       · have hst : (Concrete.step H cfg (.internal t) now s).2 =
             (Concrete.run H cfg t.id.origin (fun org => Concrete.handle (.internal t) now org) s).2.1 := by
-          simp only [Concrete.step, if_pos hl]
+          rw [Concrete.step, if_pos hl]
         rw [hst] at inv' ⊢
         rw [run_snd] at inv' ⊢
-        refine Armed.run H cfg t.id.origin _ s hs (handle_keep (inv.origin_props t.id.origin).2.1 now _) ?_
+        refine Armed.run H cfg t.id.origin _ s hs (handle_keep _ now _) ?_
         have := (inv'.origin_props t.id.origin).1
         have h1 := (run_state H cfg t.id.origin (Concrete.handle (.internal t) now (s.origin t.id.origin)).2 s).1
         rw [view_next] at h1
         rw [h1] at this
         exact this
-      · simp only [Concrete.step, if_neg hl]
+      · rw [Concrete.step, if_neg hl]
         exact hs
   | stutter => exact hs
 
@@ -634,9 +714,8 @@ theorem armed (H : Concrete.Hasher) (cfg : Concrete.Config) (tr : Concrete.Trace
     (init : (tr 0).state = Concrete.State.init) : ∀ n, Armed (tr n).state
   | 0 => by rw [init]; exact Armed.init
   | n + 1 => by
-      have inv := (invariant H cfg tr valid init n).1
       have inv' := (invariant H cfg tr valid init (n + 1)).1
       rw [valid.state n] at inv' ⊢
-      exact Armed.step H cfg _ _ inv inv' (armed H cfg tr valid init n)
+      exact Armed.step H cfg _ _ inv' (armed H cfg tr valid init n)
 
 end Refinement

@@ -483,21 +483,177 @@ theorem add_snoc (org : Origin) (l : List Object) (x : Object) : org.add (l ++ [
 
 theorem doc_empty (org : Origin) : ({} : Commands).doc org = org := add_nil org
 
-theorem doc_merge (c d : Commands) (org : Origin) : (c.merge d).doc org = d.doc (c.doc org) :=
-  (add_add org c.add d.add).symm
+def mask (x o : Object) : Object :=
+  if o.id == x.id then x else o
+
+theorem mask_id (x o : Object) : (mask x o).id = o.id := replace_id x o
+
+theorem mask_self (x : Object) : mask x x = x := by
+  simp [mask]
+
+theorem ids_mask (x : Object) (l : List Object) : (l.map (mask x)).map (·.id) = l.map (·.id) := by
+  rw [List.map_map]
+  exact List.map_congr_left fun o _ => mask_id x o
+
+theorem any_ids {l m : List Object} (h : l.map (·.id) = m.map (·.id)) (z : Ident) :
+    l.any (·.id == z) = m.any (·.id == z) := by
+  have h1 : l.any (·.id == z) = (l.map (·.id)).any (· == z) := by simp only [List.any_map, Function.comp_def]
+  have h2 : m.any (·.id == z) = (m.map (·.id)).any (· == z) := by simp only [List.any_map, Function.comp_def]
+  rw [h1, h2, h]
+
+theorem mask_mask_same {x v : Object} (hv : v.id = x.id) (o : Object) : mask x (mask v o) = mask x o := by
+  by_cases h : o.id = x.id <;> simp [mask, h, hv]
+
+theorem mask_mask_ne {x z : Object} (h : z.id ≠ x.id) (o : Object) : mask x (mask z o) = mask z (mask x o) := by
+  by_cases h1 : o.id = z.id
+  · have h2 : o.id ≠ x.id := fun e => h (h1.symm.trans e)
+    simp [mask, h1, h]
+  · by_cases h2 : o.id = x.id
+    · simp [mask, h2, Ne.symm h]
+    · simp [mask, h1, h2]
+
+theorem map_mask_of_not_mem {x : Object} {l : List Object} (h : x.id ∉ l.map (·.id)) : l.map (mask x) = l := by
+  refine (List.map_congr_left fun o ho => ?_).trans (List.map_id l)
+  have : o.id ≠ x.id := fun e => h (e ▸ List.mem_map_of_mem (f := (·.id)) ho)
+  show mask x o = o
+  simp [mask, this]
+
+theorem any_of_mem_ids {l : List Object} {x : Object} (h : x.id ∈ l.map (·.id)) : l.any (·.id == x.id) = true := by
+  obtain ⟨o, ho, e⟩ := List.mem_map.1 h
+  exact List.any_eq_true.2 ⟨o, ho, by simp [e]⟩
+
+theorem any_false_of_not_mem {l : List Object} {x : Object} (h : x.id ∉ l.map (·.id)) : l.any (·.id == x.id) = false := by
+  rw [Bool.eq_false_iff]
+  intro ha
+  obtain ⟨o, ho, e⟩ := List.any_eq_true.1 ha
+  exact h (List.mem_map.2 ⟨o, ho, beq_iff_eq.1 e⟩)
+
+theorem mem_ids_replace_self (l : List Object) (x : Object) : x.id ∈ (replace l x).map (·.id) :=
+  List.mem_map_of_mem (List.mem_of_find?_eq_some (find?_replace_same l x))
+
+theorem replace_mask {x : Object} {a b : List Object} {z w : Object}
+    (h : a.map (mask x) = b.map (mask x)) (hz : mask x z = mask x w) :
+    (replace a z).map (mask x) = (replace b w).map (mask x) := by
+  have hid : z.id = w.id := by rw [← mask_id x z, ← mask_id x w, hz]
+  have hids : a.map (·.id) = b.map (·.id) := by rw [← ids_mask x a, ← ids_mask x b, h]
+  show (if a.any (·.id == z.id) then a.map (mask z) else a ++ [z]).map (mask x) =
+    (if b.any (·.id == w.id) then b.map (mask w) else b ++ [w]).map (mask x)
+  rw [← hid, ← any_ids hids z.id]
+  split
+  · rw [List.map_map, List.map_map]
+    by_cases hzx : z.id = x.id
+    · have e : ∀ v : Object, v.id = x.id → mask x ∘ mask v = mask x := fun v hv => funext fun o => mask_mask_same hv o
+      rw [e z hzx, e w (hid ▸ hzx), h]
+    · have hwx : w.id ≠ x.id := fun e => hzx (hid.trans e)
+      have hz' : mask x z = z := by simp [mask, hzx]
+      have hw' : mask x w = w := by simp [mask, hwx]
+      have hzw : z = w := by rw [← hz', hz, hw']
+      subst hzw
+      have e : mask x ∘ mask z = mask z ∘ mask x := funext fun o => mask_mask_ne hzx o
+      rw [e, ← List.map_map, ← List.map_map, h]
+  · rw [List.map_append, List.map_append, h, List.map_singleton, List.map_singleton, hz]
+
+theorem foldl_mask {x : Object} : ∀ (l : List Object) {a b : List Object}, a.map (mask x) = b.map (mask x) →
+    (l.foldl replace a).map (mask x) = (l.foldl replace b).map (mask x)
+  | [], _, _, h => h
+  | _ :: l, _, _, h => foldl_mask l (replace_mask h rfl)
+
+theorem replace_of_mask {x : Object} {a b : List Object} (h : a.map (mask x) = b.map (mask x)) :
+    replace a x = replace b x := by
+  have hids : a.map (·.id) = b.map (·.id) := by rw [← ids_mask x a, ← ids_mask x b, h]
+  show (if a.any (·.id == x.id) then a.map (mask x) else a ++ [x]) =
+    (if b.any (·.id == x.id) then b.map (mask x) else b ++ [x])
+  rw [← any_ids hids x.id]
+  split
+  · exact h
+  · rename_i hn
+    have ha : x.id ∉ a.map (·.id) := fun hm => hn (any_of_mem_ids hm)
+    have hb : x.id ∉ b.map (·.id) := hids ▸ ha
+    rw [map_mask_of_not_mem ha, map_mask_of_not_mem hb] at h
+    rw [h]
+
+theorem mask_replace (acc : List Object) (x : Object) : (replace acc x).map (mask x) = replace acc x := by
+  by_cases hm : x.id ∈ acc.map (·.id)
+  · rw [replace_present (any_of_mem_ids hm)]
+    show (acc.map (mask x)).map (mask x) = acc.map (mask x)
+    rw [List.map_map]
+    refine List.map_congr_left fun o _ => ?_
+    exact mask_mask_same rfl o
+  · rw [replace_absent (any_false_of_not_mem hm), List.map_append, map_mask_of_not_mem hm, List.map_singleton,
+      mask_self]
+
+theorem mask_replace_ne {x z : Object} (h : z.id ≠ x.id) {l : List Object} (hl : l.map (mask x) = l) :
+    (replace l z).map (mask x) = replace l z := by
+  by_cases hm : z.id ∈ l.map (·.id)
+  · rw [replace_present (any_of_mem_ids hm)]
+    show (l.map (mask z)).map (mask x) = l.map (mask z)
+    rw [List.map_map, show mask x ∘ mask z = mask z ∘ mask x from funext fun o => mask_mask_ne h o,
+      ← List.map_map, hl]
+  · rw [replace_absent (any_false_of_not_mem hm), List.map_append, hl, List.map_singleton]
+    simp [mask, h]
+
+theorem mem_ids_replace {l : List Object} {x z : Object} (h : x.id ∈ l.map (·.id)) :
+    x.id ∈ (replace l z).map (·.id) := by
+  show x.id ∈ (if l.any (·.id == z.id) then l.map (mask z) else l ++ [z]).map (·.id)
+  split
+  · rw [ids_mask]; exact h
+  · rw [List.map_append]; exact List.mem_append_left _ h
+
+theorem replace_self {l : List Object} {x : Object} (hl : l.map (mask x) = l) (hm : x.id ∈ l.map (·.id)) :
+    replace l x = l := by
+  rw [replace_present (any_of_mem_ids hm)]
+  exact hl
+
+theorem replace_foldl_self {x : Object} : ∀ (l : List Object) {acc : List Object}, x.id ∉ l.map (·.id) →
+    acc.map (mask x) = acc → x.id ∈ acc.map (·.id) → replace (l.foldl replace acc) x = l.foldl replace acc
+  | [], _, _, hacc, hm => replace_self hacc hm
+  | z :: l, acc, hl, hacc, hm => by
+      rw [List.map_cons, List.mem_cons, not_or] at hl
+      rw [List.foldl_cons]
+      exact replace_foldl_self l hl.2 (mask_replace_ne (Ne.symm hl.1) hacc) (mem_ids_replace hm)
+
+theorem replace_foldl : ∀ (init acc : List Object) (x : Object),
+    (replace init x).foldl replace acc = replace (init.foldl replace acc) x
+  | [], acc, x => by
+      rw [replace_absent rfl]
+      rfl
+  | y :: init, acc, x => by
+      by_cases hx : x.id ∈ (y :: init).map (·.id)
+      · rw [replace_present (any_of_mem_ids hx)]
+        show ((y :: init).map (mask x)).foldl replace acc = replace ((y :: init).foldl replace acc) x
+        rw [List.map_cons, List.foldl_cons, List.foldl_cons]
+        by_cases hx' : x.id ∈ init.map (·.id)
+        · have hrep : init.map (mask x) = replace init x := by rw [replace_present (any_of_mem_ids hx')]; rfl
+          rw [hrep, replace_foldl init (replace acc (mask x y)) x]
+          exact replace_of_mask (foldl_mask init (replace_mask rfl (mask_mask_same rfl y)))
+        · have hy : y.id = x.id := by
+            rw [List.map_cons, List.mem_cons] at hx
+            rcases hx with hx | hx
+            · exact hx.symm
+            · exact absurd hx hx'
+          have hmy : mask x y = x := by simp [mask, hy]
+          have hz : mask x y = mask x x := by rw [hmy, mask_self]
+          rw [map_mask_of_not_mem hx', hmy, replace_of_mask (foldl_mask init (replace_mask (a := acc) (b := acc) rfl hz))]
+          exact (replace_foldl_self init hx' (mask_replace acc x) (mem_ids_replace_self acc x)).symm
+      · rw [replace_absent (any_false_of_not_mem hx), List.foldl_append, List.foldl_cons, List.foldl_nil]
+
+theorem foldl_replace_foldl : ∀ (m init acc : List Object),
+    (m.foldl replace init).foldl replace acc = m.foldl replace (init.foldl replace acc)
+  | [], _, _ => rfl
+  | x :: m, init, acc => by
+      rw [List.foldl_cons, List.foldl_cons, foldl_replace_foldl m, replace_foldl]
+
+theorem add_current (org m : Origin) : (org.add m.current.objects).current = (org.add m.objects).current := by
+  show (⟨(org.objects ++ m.current.objects).foldl replace []⟩ : Origin) = ⟨(org.objects ++ m.objects).foldl replace []⟩
+  rw [List.foldl_append, List.foldl_append]
+  exact congrArg Origin.mk (foldl_replace_foldl m.objects [] _)
+
+theorem current_merge (c d : Commands) (org : Origin) : ((c.merge d).doc org).current = (d.doc (c.doc org)).current := by
+  show (org.add (⟨c.add ++ d.add⟩ : Origin).current.objects).current = ((org.add c.add).add d.add).current
+  rw [add_current, add_add]
 
 theorem current_add_current (org : Origin) (l : List Object) : (org.current.add l).current = (org.add l).current :=
   current_append_current org l
-
-theorem find_add_current (org : Origin) (l : List Object) (id : Ident) :
-    Origin.find (org.current.add l) id = Origin.find (org.add l) id := by
-  unfold Origin.find
-  rw [current_add_current]
-
-theorem Local_add_current {o : String} {org : Origin} {l : List Object} {S : Abstract.State} :
-    Local o (org.current.add l) S ↔ Local o (org.add l) S := by
-  unfold Local
-  simp only [find_add_current]
 
 theorem project_id (o : Object) (n : Nat) : (o.project n).id = o.id := rfl
 

@@ -7,93 +7,103 @@ open Protocol (Ident Message PromiseState TaskState Object PromiseObject TaskObj
 def retryDelay : Nat := 5000
 
 def Commands.merge (c d : Commands) : Commands :=
-  { arm := c.arm ++ d.arm, add := c.add ++ d.add, del := c.del ++ d.del, send := c.send ++ d.send }
+  { arm  := c.arm.filter (· ∉ d.del) ++ d.arm,
+    add  := (⟨c.add ++ d.add⟩ : Origin).current.objects,
+    del  := c.del.filter (· ∉ d.arm) ++ d.del,
+    send := c.send ++ d.send }
 
-def processPromiseTimeout (now : Nat) (o : Object) : Option Object :=
-  if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now then
-    some (o.project now)
-  else
-    none
-
-def processListener (now : Nat) (o : Object) : Option (Object × List (String × Message)) :=
-  let o := o.project now
-  if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
-    some ({ o with promise := { o.promise with listeners := [] } },
-          o.promise.listeners.map fun a => (a, .unblock (o.promise.toRecord o.id)))
-  else
-    none
-
-def awaiting (now : Nat) (objects : List Object) (id : Ident) : List Ident :=
-  objects.filterMap fun s =>
-    let s := s.project now
-    if s.promise.state != .pending ∧ s.promise.callbacks.contains id then
-      some s.id
+def promiseTimeouts (now : Nat) (org : Origin) : Commands :=
+  org.current.objects.foldl (init := {}) fun c o =>
+    if o.promise.state == .pending ∧ o.promise.timeoutAt ≤ now then
+      { c with add := c.add ++ [o.project now], del := c.del ++ o.timers }
     else
-      none
+      c
 
-def _root_.Protocol.TaskObject.resumeOne (now : Nat) (t : TaskObject) (awaited : Ident) : TaskObject :=
-  match t.state with
-  | .suspended =>
-      { t with state := .pending, resumes := [awaited], retryTimeoutAt := some now }
-  | .pending | .acquired | .halted =>
-      if t.resumes.contains awaited then t else { t with resumes := t.resumes ++ [awaited] }
-  | .fulfilled =>
-      t
+def listeners (now : Nat) (org : Origin) : Commands :=
+  org.current.objects.foldl (init := {}) fun c o =>
+    let o := o.project now
+    if o.promise.state != .pending ∧ !o.promise.listeners.isEmpty then
+      { c with
+        add := c.add ++ [{ o with promise := { o.promise with listeners := [] } }],
+        send := c.send ++ o.promise.listeners.map fun a => (a, .unblock (o.promise.toRecord o.id)) }
+    else
+      c
 
-def processCallback (now : Nat) (org : Origin) (o : Object) : Option Object :=
-  let o := o.project now
-  let struck := o.promise.state != .pending ∧ !o.promise.callbacks.isEmpty
-  let awaited := awaiting now org.objects o.id
-  if struck ∨ (o.task.isSome ∧ !awaited.isEmpty) then
-    some { o with promise := if struck then { o.promise with callbacks := [] } else o.promise,
-                  task := o.task.map (awaited.foldl (·.resumeOne now ·)) }
-  else
-    none
-
-def processLeaseTimeout (now : Nat) (o : Object) : Option Object :=
-  let o := o.project now
-  match o.task with
-  | some t =>
-      if t.state == .acquired ∧ t.leaseTimeoutAt.any (· ≤ now) ∧ o.promise.state == .pending then
-        some { o with task := some { t with state := .pending, pid := none, ttl := none,
-                                             leaseTimeoutAt := none, retryTimeoutAt := some now } }
-      else
-        none
+def resumeOne (now : Nat) (awaited : Ident) (org : Origin) (c : Commands) (awaiter : Ident) : Commands :=
+  match ((c.doc org).get awaiter now).bind fun w => w.task.map (w, ·) with
   | none =>
-      none
+      c
+  | some (w, t) =>
+      match t.state with
+      | .suspended =>
+          { c with
+            arm := c.arm ++ [⟨now, w.id, .taskRetryTimeout⟩],
+            add := c.add ++ [{ w with task := some { t with state := .pending, resumes := [awaited],
+                                                                retryTimeoutAt := some now } }] }
+      | .pending | .acquired | .halted =>
+          if t.resumes.contains awaited then
+            { c with add := c.add ++ [w] }
+          else
+            { c with add := c.add ++ [{ w with task := some { t with resumes := t.resumes ++ [awaited] } }] }
+      | .fulfilled =>
+          { c with add := c.add ++ [w] }
 
-def processRetryTimeout (now : Nat) (o : Object) : Option (Object × List (String × Message)) :=
-  let o := o.project now
-  match o.task, o.promise.type with
-  | some t, .runnable target =>
-      if t.state == .pending ∧ t.retryTimeoutAt.any (· ≤ now) ∧ o.promise.state == .pending then
-        some ({ o with task := some { t with retryTimeoutAt := some (now + retryDelay) } },
-              [(target, .execute o.id t.version)])
-      else
-        none
-  | _, _ =>
-      none
+def callbacks (now : Nat) (org : Origin) : Commands :=
+  org.current.objects.foldl (init := {}) fun c o =>
+    let o := o.project now
+    if o.promise.state != .pending then
+      o.promise.callbacks.foldl (init := c) fun c awaiter =>
+        match (c.doc org).get o.id now with
+        | some cur =>
+            resumeOne now o.id org
+              { c with add := c.add ++ [{ cur with promise :=
+                  { cur.promise with callbacks := cur.promise.callbacks.filter (· != awaiter) } }] }
+              awaiter
+        | none =>
+            c
+    else
+      c
 
-structure Change where
-  obj      : Object
-  unblocks : List (String × Message)
-  executes : List (String × Message)
+def leaseTimeouts (now : Nat) (org : Origin) : Commands :=
+  org.current.objects.foldl (init := {}) fun c o =>
+    let o := o.project now
+    match o.task with
+    | some t =>
+        if t.state == .acquired ∧ t.leaseTimeoutAt.any (· ≤ now)
+            ∧ o.promise.state == .pending then
+          { c with
+            arm := c.arm ++ [⟨now, o.id, .taskRetryTimeout⟩],
+            add := c.add ++ [{ o with task := some { t with state := .pending, pid := none, ttl := none,
+                                                                leaseTimeoutAt := none,
+                                                                retryTimeoutAt := some now } }],
+            del := c.del ++ t.timers o.id }
+        else
+          c
+    | none =>
+        c
 
-def sweepObject (now : Nat) (org : Origin) (o : Object) : Change :=
-  let o := (processPromiseTimeout now o).getD o
-  let (o, unblocks) := (processListener now o).getD (o, [])
-  let o := (processCallback now org o).getD o
-  let o := (processLeaseTimeout now o).getD o
-  let (o, executes) := (processRetryTimeout now o).getD (o, [])
-  { obj := o, unblocks, executes }
+def retryTimeouts (now : Nat) (org : Origin) : Commands :=
+  org.current.objects.foldl (init := {}) fun c o =>
+    let o := o.project now
+    match o.task, o.promise.type with
+    | some t, .runnable target =>
+        if t.state == .pending ∧ t.retryTimeoutAt.any (· ≤ now)
+            ∧ o.promise.state == .pending then
+          { c with
+            arm := c.arm ++ [⟨now + retryDelay, o.id, .taskRetryTimeout⟩],
+            add := c.add ++ [{ o with task := some { t with retryTimeoutAt := some (now + retryDelay) } }],
+            del := c.del ++ t.timers o.id,
+            send := c.send ++ [(target, .execute o.id t.version)] }
+        else
+          c
+    | _, _ =>
+        c
 
 def sweep (now : Nat) (org : Origin) : Commands :=
-  let changes := org.objects.map (sweepObject now org)
-  let before := org.objects.flatMap (·.timers)
-  let after := (changes.map (·.obj)).flatMap (·.timers)
-  { arm  := after.filter (!before.contains ·),
-    add  := (changes.map (·.obj)).filter (· ∉ org.objects),
-    del  := before.filter (!after.contains ·),
-    send := changes.flatMap (·.unblocks) ++ changes.flatMap (·.executes) }
+  let c1 := promiseTimeouts now org
+  let c2 := c1.merge (listeners now (c1.doc org))
+  let c3 := c2.merge (callbacks now (c2.doc org))
+  let c4 := c3.merge (leaseTimeouts now (c3.doc org))
+  c4.merge (retryTimeouts now (c4.doc org))
 
 end Concrete

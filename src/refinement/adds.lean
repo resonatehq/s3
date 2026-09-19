@@ -12,6 +12,13 @@ structure Alike (s t : Concrete.State) : Prop where
 
 theorem Alike.refl (s : Concrete.State) : Alike s s := ⟨fun _ => rfl, fun _ => rfl, rfl⟩
 
+theorem filterMap_congr' {α β : Type} {f g : α → Option β} :
+    ∀ (l : List α), (∀ a ∈ l, f a = g a) → l.filterMap f = l.filterMap g
+  | [], _ => rfl
+  | a :: l, h => by
+      rw [List.filterMap_cons, List.filterMap_cons, h a (List.mem_cons_self ..),
+        filterMap_congr' l (fun b hb => h b (List.mem_cons_of_mem _ hb))]
+
 variable {H : Hasher}
 
 theorem arm_timer (tm : Timer) : ∀ (ts : List Timer) (s : Concrete.State),
@@ -139,7 +146,7 @@ theorem step_alike (cfg cfg' : Config) (ev : Event) (now : Nat) {s t : Concrete.
           subst hok hok' h1
           exact ⟨rfl, h2⟩
   | internal tm =>
-      simp only [Concrete.step, h.timer tm]
+      rw [Concrete.step, Concrete.step, h.timer tm]
       by_cases hl : (t.blob? (.timer tm)).isSome = true ∧ tm.deadline ≤ now
       · rw [if_pos hl, if_pos hl]
         obtain ⟨h1, h2⟩ := run_alike (H := H) cfg cfg' tm.id.origin (fun org => Concrete.handle (.internal tm) now org) h

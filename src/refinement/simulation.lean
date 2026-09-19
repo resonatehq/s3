@@ -1,5 +1,4 @@
 import refinement.wf
-import refinement.equal
 
 namespace Refinement
 
@@ -580,28 +579,29 @@ theorem step_sim (H : Concrete.Hasher) (cfg : Concrete.Config) (ev : Concrete.Ev
       | some name =>
           have hL := Local_of_rel inv rel name
           obtain ⟨horig, hnd, hwf⟩ := inv.origin_props name
-          have hsw := sweep_sim hL horig hnd hwf now
-          have hLQ : Local name ((s.origin name).add (Concrete.sweep now (s.origin name)).add).current
+          have hcur : (s.origin name).current = s.origin name := current_of_nodup hnd
+          have hsw := sweep_sim hL (by rw [hcur]; exact horig) (by rw [hcur]; exact hwf) now
+          have hLQ : Local name ((Concrete.sweep now (s.origin name)).doc (s.origin name)).current
               (execI (Chain.sweepTriggers now (s.origin name)) now S) :=
-            fun id hid => by rw [hsw.loc id hid, find_current]; rfl
-          rcases hC : Concrete.handleExternal req now ((s.origin name).add (Concrete.sweep now (s.origin name)).add).current
+            fun id hid => by rw [hsw.loc id hid, find_current]
+          rcases hC : Concrete.handleExternal req now ((Concrete.sweep now (s.origin name)).doc (s.origin name)).current
             with ⟨res, c⟩
           have hsim := handleExternal_sim hLQ now req ho
           rw [hC] at hsim
-          have hQwf : WF ((s.origin name).add (Concrete.sweep now (s.origin name)).add).current.current := by
+          have hQwf : WF ((Concrete.sweep now (s.origin name)).doc (s.origin name)).current.current := by
             rw [current_current]
             exact hsw.wf
           have hwf' := handleExternal_wf hQwf now req
           rw [hC] at hwf'
           have hQ : (((Concrete.sweep now (s.origin name)).merge c).doc (s.origin name)).current =
-              (c.doc ((s.origin name).add (Concrete.sweep now (s.origin name)).add).current).current := by
-            rw [doc_merge]
+              (c.doc ((Concrete.sweep now (s.origin name)).doc (s.origin name)).current).current := by
+            rw [current_merge]
             exact (current_add_current _ _).symm
           have hfin : SwInv name (s.origin name) S ((Concrete.sweep now (s.origin name)).merge c)
               (Abstract.applyAll (execI (Chain.sweepTriggers now (s.origin name)) now S)
                 (Abstract.handleExternal req now (env (execI (Chain.sweepTriggers now (s.origin name)) now S))).2) :=
             hsw.step (c' := (Concrete.sweep now (s.origin name)).merge c) _ hsim.fx
-              (by rw [doc_merge]; exact Local_add_current.1 hsim.loc) (by rw [hsim.send]; rfl)
+              (fun id hid => by rw [hsim.loc id hid]; unfold Origin.find; rw [hQ]) (by rw [hsim.send]; rfl)
               (by rw [hQ]; exact hsim.orig (by rw [current_current]; exact hsw.orig)) (by rw [hQ]; exact hwf')
           have hhandle : Concrete.handle (.external req) now (s.origin name) =
               (.external res, (Concrete.sweep now (s.origin name)).merge c) := by
@@ -628,7 +628,8 @@ theorem step_sim (H : Concrete.Hasher) (cfg : Concrete.Config) (ev : Concrete.Ev
       by_cases hl : (s.blob? (.timer t)).isSome = true ∧ t.deadline ≤ now
       · have hL := Local_of_rel inv rel t.id.origin
         obtain ⟨horig, hnd, hwf⟩ := inv.origin_props t.id.origin
-        have hsw := sweep_sim hL horig hnd hwf now
+        have hcur : (s.origin t.id.origin).current = s.origin t.id.origin := current_of_nodup hnd
+        have hsw := sweep_sim hL (by rw [hcur]; exact horig) (by rw [hcur]; exact hwf) now
         have hhandle : Concrete.handle (.internal t) now (s.origin t.id.origin) =
             (.internal, Concrete.sweep now (s.origin t.id.origin)) := rfl
         have hok := Concrete.applyAll_accepted (H := H) cfg s t.id.origin (Concrete.sweep now (s.origin t.id.origin))

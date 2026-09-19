@@ -7,9 +7,6 @@ open Protocol (Message OutboxEntry Request Response Object)
 def Origin.set (org : Origin) (o : Object) : Origin :=
   org.add [o]
 
-def Commands.doc (c : Commands) (org : Origin) : Origin :=
-  org.add c.add
-
 variable {H : Hasher}
 
 theorem Cond.of_holds (b : Option Blob) : (Cond.of H b).holds b = true := by

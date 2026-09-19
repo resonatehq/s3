@@ -34,6 +34,9 @@ structure Commands where
 def Origin.add (org : Origin) (objects : List Object) : Origin :=
   ⟨org.objects ++ objects⟩
 
+def Commands.doc (c : Commands) (org : Origin) : Origin :=
+  org.add c.add
+
 def Origin.current (org : Origin) : Origin :=
   ⟨org.objects.foldl (init := []) fun objects o =>
     if objects.any (·.id == o.id) then
