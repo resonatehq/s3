@@ -117,7 +117,7 @@ The model is the concrete machine seen through `Origin.current`: the documents a
 `lake build model` runs four checks:
 
 - `#check_invariants` proves by SMT that the five invariants, headed by `armed` from above, are inductive: they hold initially and every action preserves them, for every instance of the module's types.
-- `#model_check` enumerates every reachable state of an instance with three objects over two origins, one address and three instants, and checks the invariants in each.
+- `#model_check` enumerates every reachable state of an instance with three objects over two origins, one address and three instants, 1,652,904 states, and checks the invariants in each. This is the slow check, a few minutes; shrink the instance to iterate.
 - `sat trace` finds runs: one in which a promise sits pending in the bucket past its timeout until something sweeps its origin, and one in which a `promiseGet` is what notifies a listener.
 - `unsat trace` proves that no run of two steps, of any instance, leaves a timer without its object.
 
