@@ -100,10 +100,11 @@ def retryTimeouts (now : Nat) (org : Origin) : Commands :=
         c
 
 def sweep (now : Nat) (org : Origin) : Commands :=
-  let c1 := promiseTimeouts now org
-  let c2 := c1.merge (listeners now (c1.doc org))
-  let c3 := c2.merge (callbacks now (c2.doc org))
-  let c4 := c3.merge (leaseTimeouts now (c3.doc org))
-  c4.merge (retryTimeouts now (c4.doc org))
+  let c := promiseTimeouts now org
+  let c := c.merge (listeners now (c.doc org))
+  let c := c.merge (callbacks now (c.doc org))
+  let c := c.merge (leaseTimeouts now (c.doc org))
+  let c := c.merge (retryTimeouts now (c.doc org))
+  c
 
 end Concrete
